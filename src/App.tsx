@@ -785,7 +785,7 @@ function Contact() {
     const encodedForm = new URLSearchParams();
     const formData = new FormData(event.currentTarget);
     formData.set("form-name", "contact");
-    formData.set("subject", "New portfolio message from dominic-boban.com");
+    formData.set("subject", `Portfolio enquiry from ${name.trim() || "a portfolio visitor"}`);
     formData.forEach((value, key) => {
       if (typeof value === "string") {
         encodedForm.append(key, value);
