@@ -466,7 +466,7 @@ function Hero() {
           ))}
         </div>
         <a
-          href="mailto:dominicboba@dominic-boban.com"
+          href="mailto:dominicboban@dominic-boban.com"
           className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 text-sm font-medium text-white transition hover:border-signal/50 hover:bg-signal/10"
         >
           <Mail size={16} />
@@ -823,9 +823,9 @@ function Contact() {
         <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
           <GlassCard>
             <div className="space-y-4">
-              <a href="mailto:dominicboba@dominic-boban.com" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
+              <a href="mailto:dominicboban@dominic-boban.com" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
                 <IconBadge icon={Mail} />
-                <span>dominicboba@dominic-boban.com</span>
+                <span>dominicboban@dominic-boban.com</span>
               </a>
               <a href="https://www.linkedin.com/" target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
                 <IconBadge icon={Linkedin} accent="volt" />
@@ -885,7 +885,7 @@ function Contact() {
               )}
               {formStatus === "error" && (
                 <p className="rounded-md border border-trace/40 bg-trace/10 px-4 py-3 font-mono text-xs uppercase leading-5 text-trace">
-                  Transmission failed. Email dominicboba@dominic-boban.com directly.
+                  Transmission failed. Email dominicboban@dominic-boban.com directly.
                 </p>
               )}
               <button type="submit" disabled={formStatus === "sending"} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-signal px-5 text-sm font-semibold text-obsidian transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70">
