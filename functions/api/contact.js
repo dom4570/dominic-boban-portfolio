@@ -34,24 +34,31 @@ export async function onRequestPost({ request, env }) {
     );
   }
 
-  const outgoingForm = new FormData();
-  outgoingForm.append("access_key", accessKey);
-  outgoingForm.append("from_name", "Dominic Boban Portfolio");
-  outgoingForm.append("subject", `Portfolio enquiry from ${name}`);
-  outgoingForm.append("name", name);
-  outgoingForm.append("email", email);
-  outgoingForm.append("replyto", email);
-  outgoingForm.append("message", message);
+  const outgoingPayload = {
+    access_key: accessKey,
+    from_name: "Dominic Boban Portfolio",
+    subject: `Portfolio enquiry from ${name}`,
+    name,
+    email,
+    replyto: email,
+    message,
+  };
 
   const response = await fetch("https://api.web3forms.com/submit", {
     method: "POST",
-    body: outgoingForm,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(outgoingPayload),
   });
   const result = await response.json().catch(() => null);
 
   if (!response.ok || result?.success === false) {
+    const providerMessage = result?.message || result?.body?.message || "Web3Forms submission failed.";
+
     return Response.json(
-      { success: false, message: "Web3Forms submission failed." },
+      { success: false, message: providerMessage },
       { status: 502, headers: jsonHeaders },
     );
   }
