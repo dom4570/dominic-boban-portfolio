@@ -5,7 +5,7 @@ const jsonHeaders = {
 const requiredFieldMissing = (value) => typeof value !== "string" || value.trim().length === 0;
 
 export async function onRequestPost({ request, env }) {
-  const accessKey = env.WEB3FORMS_ACCESS_KEY;
+  const accessKey = String(env.WEB3FORMS_ACCESS_KEY || "").trim();
 
   if (!accessKey) {
     return Response.json(
@@ -52,10 +52,21 @@ export async function onRequestPost({ request, env }) {
     },
     body: JSON.stringify(outgoingPayload),
   });
-  const result = await response.json().catch(() => null);
+  const responseText = await response.text();
+  let result = null;
+
+  try {
+    result = JSON.parse(responseText || "null");
+  } catch {
+    result = null;
+  }
 
   if (!response.ok || result?.success === false) {
-    const providerMessage = result?.message || result?.body?.message || "Web3Forms submission failed.";
+    const providerMessage =
+      result?.message ||
+      result?.body?.message ||
+      responseText.slice(0, 160) ||
+      `Web3Forms returned HTTP ${response.status}.`;
 
     return Response.json(
       { success: false, message: providerMessage },
