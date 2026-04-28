@@ -880,7 +880,7 @@ function Contact() {
               </TerminalLabel>
               {formStatus === "success" && (
                 <p className="rounded-md border border-signal/30 bg-signal/10 px-4 py-3 font-mono text-xs uppercase leading-5 text-signal">
-                  Message transmitted. Netlify captured the enquiry.
+                  Message transmitted. Dominic will get back to you shortly.
                 </p>
               )}
               {formStatus === "error" && (
