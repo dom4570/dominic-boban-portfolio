@@ -27,7 +27,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 
 type IconType = typeof Shield;
 
@@ -466,7 +466,7 @@ function Hero() {
           ))}
         </div>
         <a
-          href="mailto:dominic457@outlook.com"
+          href="mailto:dominicboba@dominic-boban.com"
           className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 text-sm font-medium text-white transition hover:border-signal/50 hover:bg-signal/10"
         >
           <Mail size={16} />
@@ -776,16 +776,40 @@ function Contact() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+  const [formStatus, setFormStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
 
-  const mailto = useMemo(() => {
-    const subject = encodeURIComponent(`Portfolio enquiry from ${name || "a visitor"}`);
-    const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\n\n${message}`);
-    return `mailto:dominic457@outlook.com?subject=${subject}&body=${body}`;
-  }, [email, message, name]);
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    window.location.href = mailto;
+    setFormStatus("sending");
+
+    const encodedForm = new URLSearchParams();
+    const formData = new FormData(event.currentTarget);
+    formData.set("form-name", "contact");
+    formData.set("subject", "New portfolio message from dominic-boban.com");
+    formData.forEach((value, key) => {
+      if (typeof value === "string") {
+        encodedForm.append(key, value);
+      }
+    });
+
+    try {
+      const response = await fetch("/", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: encodedForm.toString(),
+      });
+
+      if (!response.ok) {
+        throw new Error("Netlify form submission failed");
+      }
+
+      setName("");
+      setEmail("");
+      setMessage("");
+      setFormStatus("success");
+    } catch {
+      setFormStatus("error");
+    }
   };
 
   return (
@@ -799,9 +823,9 @@ function Contact() {
         <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
           <GlassCard>
             <div className="space-y-4">
-              <a href="mailto:dominic457@outlook.com" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
+              <a href="mailto:dominicboba@dominic-boban.com" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
                 <IconBadge icon={Mail} />
-                <span>dominic457@outlook.com</span>
+                <span>dominicboba@dominic-boban.com</span>
               </a>
               <a href="https://www.linkedin.com/" target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
                 <IconBadge icon={Linkedin} accent="volt" />
@@ -822,6 +846,8 @@ function Contact() {
 
           <motion.form
             onSubmit={submit}
+            name="contact"
+            method="POST"
             initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-70px" }}
@@ -835,18 +861,36 @@ function Contact() {
               <span className="ml-2 font-mono text-xs text-haze">contact-session.sh</span>
             </div>
             <div className="grid gap-5 p-5 md:p-6">
+              <input type="hidden" name="form-name" value="contact" />
+              <input type="hidden" name="subject" value="New portfolio message from dominic-boban.com" />
+              <p className="hidden">
+                <label>
+                  Do not fill this out:
+                  <input name="bot-field" tabIndex={-1} autoComplete="off" />
+                </label>
+              </p>
               <TerminalLabel label="$ whoami">
-                <input value={name} onChange={(event) => setName(event.target.value)} className="terminal-input" placeholder="Your name" required />
+                <input name="name" value={name} onChange={(event) => setName(event.target.value)} className="terminal-input" placeholder="Your name" required />
               </TerminalLabel>
               <TerminalLabel label="$ reply_to">
-                <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="terminal-input" placeholder="you@example.com" required />
+                <input name="email" value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="terminal-input" placeholder="you@example.com" required />
               </TerminalLabel>
               <TerminalLabel label="$ message --encrypt intent">
-                <textarea value={message} onChange={(event) => setMessage(event.target.value)} className="terminal-input min-h-36 resize-y" placeholder="Tell Dominic what you need help securing..." required />
+                <textarea name="message" value={message} onChange={(event) => setMessage(event.target.value)} className="terminal-input min-h-36 resize-y" placeholder="Tell Dominic what you need help securing..." required />
               </TerminalLabel>
-              <button type="submit" className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-signal px-5 text-sm font-semibold text-obsidian transition hover:bg-white">
+              {formStatus === "success" && (
+                <p className="rounded-md border border-signal/30 bg-signal/10 px-4 py-3 font-mono text-xs uppercase leading-5 text-signal">
+                  Message transmitted. Netlify captured the enquiry.
+                </p>
+              )}
+              {formStatus === "error" && (
+                <p className="rounded-md border border-trace/40 bg-trace/10 px-4 py-3 font-mono text-xs uppercase leading-5 text-trace">
+                  Transmission failed. Email dominicboba@dominic-boban.com directly.
+                </p>
+              )}
+              <button type="submit" disabled={formStatus === "sending"} className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-signal px-5 text-sm font-semibold text-obsidian transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70">
                 <Mail size={17} />
-                Launch Mail Client
+                {formStatus === "sending" ? "Transmitting..." : "Send Message"}
               </button>
             </div>
           </motion.form>
