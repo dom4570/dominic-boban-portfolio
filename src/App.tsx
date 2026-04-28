@@ -876,7 +876,7 @@ function Contact() {
                 <input name="email" value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="terminal-input" placeholder="you@example.com" required />
               </TerminalLabel>
               <TerminalLabel label="$ message --encrypt intent">
-                <textarea name="message" value={message} onChange={(event) => setMessage(event.target.value)} className="terminal-input min-h-36 resize-y" placeholder="Tell Dominic what you need help securing..." required />
+                <textarea name="message" value={message} onChange={(event) => setMessage(event.target.value)} className="terminal-input min-h-36 resize-y" placeholder="Type your message..." required />
               </TerminalLabel>
               {formStatus === "success" && (
                 <p className="rounded-md border border-signal/30 bg-signal/10 px-4 py-3 font-mono text-xs uppercase leading-5 text-signal">
