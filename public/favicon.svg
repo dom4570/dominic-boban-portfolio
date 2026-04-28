@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Dominic Boban favicon">
+  <defs>
+    <linearGradient id="bg" x1="80" x2="432" y1="48" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#151716" />
+      <stop offset="0.52" stop-color="#05070d" />
+      <stop offset="1" stop-color="#13070b" />
+    </linearGradient>
+    <linearGradient id="signal" x1="116" x2="404" y1="96" y2="412" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff7a6" />
+      <stop offset="0.43" stop-color="#fcee0a" />
+      <stop offset="1" stop-color="#ff2a3d" />
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="13" result="blur" />
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0.98 0 1 0 0 0.88 0 0 1 0 0.04 0 0 0 0.72 0" />
+      <feMerge>
+        <feMergeNode />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#bg)" />
+  <path d="M72 147h368M72 365h368M147 72v368M365 72v368" stroke="#fcee0a" stroke-opacity=".11" stroke-width="4" />
+  <path d="M256 68 399 122v112c0 91-55 169-143 210-88-41-143-119-143-210V122L256 68Z" fill="#080a0f" stroke="url(#signal)" stroke-width="18" filter="url(#glow)" />
+  <path d="M177 183h83c57 0 95 31 95 76 0 46-38 77-95 77h-83V183Zm45 39v75h36c31 0 51-14 51-38 0-23-20-37-51-37h-36Z" fill="#fcee0a" />
+  <path d="M158 365h196" stroke="#ff2a3d" stroke-width="16" stroke-linecap="square" />
+  <path d="M126 132h86M300 132h86M126 380h86M300 380h86" stroke="#ff2a3d" stroke-width="10" stroke-linecap="square" />
+</svg>
