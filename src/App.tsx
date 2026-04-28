@@ -25,10 +25,8 @@ import {
   Sparkles,
   Terminal,
   Trophy,
-  Volume2,
-  VolumeX,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type IconType = typeof Shield;
@@ -434,80 +432,6 @@ function IconBadge({ icon: Icon, accent = "signal" }: { icon: IconType; accent?:
   );
 }
 
-function CyberpunkGate({ onEnter }: { onEnter: () => void }) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      if (key === "f" || key === "enter" || key === " ") {
-        event.preventDefault();
-        onEnter();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onEnter]);
-
-  return (
-    <motion.section
-      className="fixed inset-0 z-50 isolate flex min-h-screen items-center justify-center overflow-hidden bg-obsidian px-5 py-10"
-      initial={{ opacity: 1 }}
-      exit={{ opacity: 0, scale: 1.02, filter: "blur(12px)" }}
-      transition={{ duration: 0.55, ease: "easeInOut" }}
-      aria-label="Cyberpunk entry screen"
-    >
-      <CyberCanvas />
-      <div className="absolute inset-0 bg-[url('/cyber-grid.png')] bg-cover bg-center opacity-45 mix-blend-screen" aria-hidden="true" />
-      <div className="intro-scanlines pointer-events-none absolute inset-0 opacity-45" aria-hidden="true" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(252,238,10,0.22),transparent_32%),radial-gradient(circle_at_70%_18%,rgba(255,42,61,0.2),transparent_25%),linear-gradient(180deg,rgba(5,7,13,0.18),#05070d_96%)]" aria-hidden="true" />
-      <div className="pointer-events-none absolute left-0 top-[14%] h-1 w-full bg-signal/55 shadow-[0_0_34px_rgba(252,238,10,0.45)]" aria-hidden="true" />
-      <div className="pointer-events-none absolute left-0 top-[22%] h-px w-full bg-trace/70 shadow-[0_0_30px_rgba(255,42,61,0.55)]" aria-hidden="true" />
-      <div className="pointer-events-none absolute bottom-[18%] left-[10%] h-px w-[80%] bg-trace/50" aria-hidden="true" />
-
-      <motion.div
-        className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center text-center"
-        initial={{ opacity: 0, y: 26 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.72, ease: "easeOut" }}
-      >
-        <div className="mb-6 inline-flex items-center gap-2 border border-signal/40 bg-signal/10 px-4 py-2 font-mono text-xs uppercase tracking-[0.28em] text-signal glitch-frame">
-          <Shield size={16} />
-          secure access node
-        </div>
-        <div className="relative w-full py-3">
-          <div className="absolute left-1/2 top-1/2 h-16 w-[min(92vw,920px)] -translate-x-1/2 -translate-y-1/2 -skew-x-12 bg-signal shadow-[0_0_70px_rgba(252,238,10,0.35)] sm:h-24 lg:h-32" aria-hidden="true" />
-          <h1
-            className="glitch-title relative max-w-5xl font-mono text-5xl font-black uppercase leading-none tracking-[0.02em] text-obsidian sm:text-7xl lg:text-9xl"
-            data-text="Dominic Boban"
-          >
-            Dominic Boban
-          </h1>
-        </div>
-        <p className="mt-6 max-w-3xl font-mono text-sm uppercase leading-7 tracking-[0.22em] text-signal md:text-base">
-          Penetration tester / threat intelligence / SIEM detection / offensive security
-        </p>
-
-        <button
-          type="button"
-          onClick={onEnter}
-          className="press-f glitch-frame mt-10 inline-flex min-h-14 items-center justify-center gap-3 border border-trace bg-obsidian/75 px-6 py-4 font-mono text-lg font-semibold uppercase tracking-[0.08em] text-trace backdrop-blur-xl transition hover:border-signal hover:bg-signal hover:text-obsidian"
-        >
-          Press
-          <span className="inline-flex h-9 min-w-9 items-center justify-center border border-signal bg-signal/15 px-3 text-signal">
-            F
-          </span>
-          to enter
-        </button>
-
-        <div className="mt-5 w-full max-w-md border border-signal/25 bg-obsidian/50 px-4 py-2 font-mono text-[10px] uppercase leading-4 text-haze glitch-frame">
-          system check: portfolio interface armed / private contact data withheld / yellow protocol active
-        </div>
-      </motion.div>
-    </motion.section>
-  );
-}
-
 function AmbientGlitchLayer() {
   return (
     <div className="ambient-glitch" aria-hidden="true">
@@ -515,39 +439,6 @@ function AmbientGlitchLayer() {
       <span className="ambient-glitch__tear ambient-glitch__tear--two" />
       <span className="ambient-glitch__tear ambient-glitch__tear--three" />
     </div>
-  );
-}
-
-function SoundControl({
-  isMuted,
-  hasStarted,
-  onToggle,
-}: {
-  isMuted: boolean;
-  hasStarted: boolean;
-  onToggle: () => void;
-}) {
-  const Icon = isMuted ? VolumeX : Volume2;
-  const label = isMuted ? "Muted" : hasStarted ? "Sound On" : "Sound Armed";
-  const hint = !hasStarted ? "click to start" : isMuted ? "click to unmute" : "click to mute";
-  const ariaLabel = !hasStarted ? "Start background music" : isMuted ? "Unmute background music" : "Mute background music";
-
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={!isMuted}
-      aria-label={ariaLabel}
-      className="sound-control glitch-control"
-    >
-      <span className="sound-control__icon">
-        <Icon size={18} strokeWidth={2} />
-      </span>
-      <span className="sound-control__copy">
-        <span className="sound-control__label">{label}</span>
-        <span className="sound-control__hint">{hint}</span>
-      </span>
-    </button>
   );
 }
 
@@ -975,54 +866,8 @@ function TerminalLabel({ label, children }: { label: string; children: ReactNode
 }
 
 export default function App() {
-  const [entered, setEntered] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [hasStartedAudio, setHasStartedAudio] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const playAudio = () => {
-    const audio = audioRef.current;
-    if (!audio || isMuted) return;
-
-    audio.volume = 0.34;
-    audio.muted = false;
-    audio
-      .play()
-      .then(() => setHasStartedAudio(true))
-      .catch(() => setHasStartedAudio(false));
-  };
-
-  const handleEnter = () => {
-    setEntered(true);
-    window.setTimeout(playAudio, 40);
-  };
-
-  const toggleAudio = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (isMuted || !hasStartedAudio || audio.paused) {
-      audio.volume = 0.34;
-      audio.muted = false;
-      audio
-        .play()
-        .then(() => {
-          setHasStartedAudio(true);
-          setIsMuted(false);
-        })
-        .catch(() => {
-          setHasStartedAudio(false);
-          setIsMuted(true);
-        });
-      return;
-    }
-
-    audio.muted = true;
-    setIsMuted(true);
-  };
-
   useEffect(() => {
-    if (!entered || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     let timeoutId = 0;
     let releaseId = 0;
@@ -1047,7 +892,7 @@ export default function App() {
       window.clearTimeout(releaseId);
       document.body.classList.remove("is-signal-jitter");
     };
-  }, [entered]);
+  }, []);
 
   useEffect(() => {
     const scrollToHash = () => {
@@ -1067,9 +912,6 @@ export default function App() {
 
   return (
     <>
-      <audio ref={audioRef} src="/cybertheme.mp3" loop preload="auto" />
-      <SoundControl isMuted={isMuted} hasStarted={hasStartedAudio} onToggle={toggleAudio} />
-      <AnimatePresence>{!entered && <CyberpunkGate onEnter={handleEnter} />}</AnimatePresence>
       <main className="min-h-screen overflow-x-hidden bg-obsidian text-white">
         <AmbientGlitchLayer />
         <Hero />

@@ -68,14 +68,6 @@ section {
   box-shadow: 0 0 0 3px rgba(252, 238, 10, 0.12);
 }
 
-.intro-scanlines {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(252, 238, 10, 0.05) 1px, transparent 1px);
-  background-size: 100% 4px, 70px 100%;
-  mask-image: linear-gradient(to bottom, transparent, black 10%, black 92%, transparent);
-}
-
 .glitch-title {
   position: relative;
   display: inline-block;
@@ -110,10 +102,6 @@ section {
 
 .glitch-frame {
   clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px));
-}
-
-.press-f {
-  animation: pulse-flicker 1.8s infinite steps(2, end);
 }
 
 .ambient-glitch {
@@ -259,90 +247,6 @@ section {
 .glitch-control:hover::after,
 .glitch-control:focus-visible::after {
   animation: control-glitch-sweep 0.54s steps(2, end);
-}
-
-.sound-control {
-  position: fixed;
-  right: max(1rem, env(safe-area-inset-right));
-  bottom: max(1rem, env(safe-area-inset-bottom));
-  z-index: 70;
-  display: inline-flex;
-  min-height: 58px;
-  max-width: calc(100vw - 2rem);
-  align-items: center;
-  gap: 0.75rem;
-  border: 1px solid rgba(252, 238, 10, 0.42);
-  background:
-    linear-gradient(135deg, rgba(252, 238, 10, 0.13), rgba(255, 42, 61, 0.07)),
-    rgba(5, 7, 13, 0.82);
-  padding: 0.7rem 0.85rem;
-  color: #fcee0a;
-  backdrop-filter: blur(18px);
-  box-shadow:
-    0 0 24px rgba(252, 238, 10, 0.16),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
-}
-
-.sound-control::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-top: 1px solid rgba(255, 42, 61, 0.38);
-  opacity: 0.8;
-  pointer-events: none;
-}
-
-.sound-control__icon {
-  display: inline-flex;
-  width: 38px;
-  height: 38px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(252, 238, 10, 0.38);
-  background: rgba(252, 238, 10, 0.1);
-  color: #fcee0a;
-}
-
-.sound-control__copy {
-  display: grid;
-  gap: 0.1rem;
-  min-width: 0;
-  text-align: left;
-}
-
-.sound-control__label {
-  font-family: "JetBrains Mono", SFMono-Regular, Consolas, monospace;
-  font-size: 0.73rem;
-  font-weight: 700;
-  line-height: 1;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: #fff5a8;
-}
-
-.sound-control__hint {
-  font-family: "JetBrains Mono", SFMono-Regular, Consolas, monospace;
-  font-size: 0.56rem;
-  line-height: 1.2;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: rgba(215, 201, 158, 0.72);
-}
-
-.sound-control:hover,
-.sound-control:focus-visible {
-  border-color: rgba(255, 42, 61, 0.7);
-  color: #05070d;
-  box-shadow:
-    0 0 30px rgba(255, 42, 61, 0.22),
-    0 0 50px rgba(252, 238, 10, 0.14);
-}
-
-.sound-control:hover .sound-control__icon,
-.sound-control:focus-visible .sound-control__icon {
-  border-color: rgba(255, 42, 61, 0.68);
-  background: rgba(255, 42, 61, 0.16);
 }
 
 body.is-signal-jitter main {
@@ -603,18 +507,6 @@ body.is-signal-jitter .ambient-glitch__tear {
   100% {
     opacity: 0;
     transform: translateX(130%);
-  }
-}
-
-@keyframes pulse-flicker {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow: 0 0 24px rgba(252, 238, 10, 0.18);
-  }
-  50% {
-    opacity: 0.72;
-    box-shadow: 0 0 38px rgba(255, 42, 61, 0.24);
   }
 }
 
