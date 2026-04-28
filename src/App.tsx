@@ -827,12 +827,12 @@ function Contact() {
                 <IconBadge icon={Mail} />
                 <span>dominicboban@dominic-boban.com</span>
               </a>
-              <a href="https://www.linkedin.com/" target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
+              <a href="https://www.linkedin.com/in/dominic-boban-2b6823193/" target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
                 <IconBadge icon={Linkedin} accent="volt" />
                 <span>LinkedIn</span>
                 <ExternalLink className="ml-auto" size={16} />
               </a>
-              <a href="https://github.com/" target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
+              <a href="https://github.com/dom4570" target="_blank" rel="noreferrer" className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.035] p-4 text-haze transition hover:border-signal/40 hover:text-white">
                 <IconBadge icon={Github} accent="trace" />
                 <span>GitHub</span>
                 <ExternalLink className="ml-auto" size={16} />
