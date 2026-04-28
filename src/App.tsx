@@ -785,18 +785,28 @@ function Contact() {
     const senderName = name.trim();
     const senderEmail = email.trim();
     const senderMessage = message.trim();
-    const formData = new FormData();
-    formData.append("from_name", "Dominic Boban Portfolio");
-    formData.append("subject", `Portfolio enquiry from ${senderName || "a portfolio visitor"}`);
-    formData.append("name", senderName);
-    formData.append("email", senderEmail);
-    formData.append("replyto", senderEmail);
-    formData.append("message", senderMessage);
+    const accessKey = import.meta.env.VITE_WEB3FORMS_ACCESS_KEY;
 
     try {
-      const response = await fetch("/api/contact", {
+      if (!accessKey) {
+        throw new Error("Web3Forms access key is not configured");
+      }
+
+      const response = await fetch("https://api.web3forms.com/submit", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          access_key: accessKey,
+          from_name: "Dominic Boban Portfolio",
+          subject: `Portfolio enquiry from ${senderName || "a portfolio visitor"}`,
+          name: senderName,
+          email: senderEmail,
+          replyto: senderEmail,
+          message: senderMessage,
+        }),
       });
 
       const result = (await response.json().catch(() => null)) as { success?: boolean } | null;
