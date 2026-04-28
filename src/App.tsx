@@ -782,25 +782,27 @@ function Contact() {
     event.preventDefault();
     setFormStatus("sending");
 
-    const encodedForm = new URLSearchParams();
-    const formData = new FormData(event.currentTarget);
-    formData.set("form-name", "contact");
-    formData.set("subject", `Portfolio enquiry from ${name.trim() || "a portfolio visitor"}`);
-    formData.forEach((value, key) => {
-      if (typeof value === "string") {
-        encodedForm.append(key, value);
-      }
-    });
+    const senderName = name.trim();
+    const senderEmail = email.trim();
+    const senderMessage = message.trim();
+    const formData = new FormData();
+    formData.append("from_name", "Dominic Boban Portfolio");
+    formData.append("subject", `Portfolio enquiry from ${senderName || "a portfolio visitor"}`);
+    formData.append("name", senderName);
+    formData.append("email", senderEmail);
+    formData.append("replyto", senderEmail);
+    formData.append("message", senderMessage);
 
     try {
-      const response = await fetch("/", {
+      const response = await fetch("/api/contact", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: encodedForm.toString(),
+        body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error("Netlify form submission failed");
+      const result = (await response.json().catch(() => null)) as { success?: boolean } | null;
+
+      if (!response.ok || result?.success === false) {
+        throw new Error("Web3Forms submission failed");
       }
 
       setName("");
@@ -847,7 +849,6 @@ function Contact() {
           <motion.form
             onSubmit={submit}
             name="contact"
-            method="POST"
             initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-70px" }}
@@ -861,21 +862,13 @@ function Contact() {
               <span className="ml-2 font-mono text-xs text-haze">contact-session.sh</span>
             </div>
             <div className="grid gap-5 p-5 md:p-6">
-              <input type="hidden" name="form-name" value="contact" />
-              <input type="hidden" name="subject" value="New portfolio message from dominic-boban.com" />
-              <p className="hidden">
-                <label>
-                  Do not fill this out:
-                  <input name="bot-field" tabIndex={-1} autoComplete="off" />
-                </label>
-              </p>
               <TerminalLabel label="$ whoami">
                 <input name="name" value={name} onChange={(event) => setName(event.target.value)} className="terminal-input" placeholder="Your name" required />
               </TerminalLabel>
               <TerminalLabel label="$ reply_to">
                 <input name="email" value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="terminal-input" placeholder="you@example.com" required />
               </TerminalLabel>
-              <TerminalLabel label="$ message --encrypt intent">
+              <TerminalLabel label="$ message">
                 <textarea name="message" value={message} onChange={(event) => setMessage(event.target.value)} className="terminal-input min-h-36 resize-y" placeholder="Type your message..." required />
               </TerminalLabel>
               {formStatus === "success" && (
