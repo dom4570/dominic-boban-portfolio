@@ -1,4 +1,4 @@
-/blog /index.html 200
-/blog/* /index.html 200
-/admin /index.html 200
-/admin/* /index.html 200
+/blog / 200
+/blog/* / 200
+/admin / 200
+/admin/* / 200
