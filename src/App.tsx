@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { AdminPage, BlogIndexPage, BlogPostPage } from "./blog";
 
 type IconType = typeof Shield;
 
@@ -37,6 +38,7 @@ const navItems = [
   { label: "Experience", href: "#experience" },
   { label: "Projects", href: "#projects" },
   { label: "Achievements", href: "#achievements" },
+  { label: "Blog", href: "/blog" },
   { label: "Contact", href: "#contact" },
 ];
 
@@ -912,7 +914,49 @@ function TerminalLabel({ label, children }: { label: string; children: ReactNode
   );
 }
 
+function useCurrentPath() {
+  const [path, setPath] = useState(() => window.location.pathname);
+
+  useEffect(() => {
+    const syncPath = () => setPath(window.location.pathname);
+
+    window.addEventListener("popstate", syncPath);
+
+    return () => window.removeEventListener("popstate", syncPath);
+  }, []);
+
+  return path;
+}
+
+function PortfolioHome() {
+  return (
+    <>
+      <Hero />
+      <About />
+      <Skills />
+      <Experience />
+      <Projects />
+      <Achievements />
+      <Certifications />
+      <Contact />
+    </>
+  );
+}
+
+function SiteFooter() {
+  return (
+    <footer className="border-t border-white/10 px-5 py-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 text-sm text-haze md:flex-row md:items-center md:justify-between">
+        <p>Dominic Boban - Cyber Security Penetration Tester</p>
+        <p className="font-mono text-xs uppercase text-white/45">Offensive security / defensive signal / real-world impact</p>
+      </div>
+    </footer>
+  );
+}
+
 export default function App() {
+  const path = useCurrentPath();
+
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
@@ -957,24 +1001,28 @@ export default function App() {
     return () => window.removeEventListener("hashchange", scrollToHash);
   }, []);
 
+  const renderRoute = () => {
+    if (path === "/blog") {
+      return <BlogIndexPage />;
+    }
+
+    if (path.startsWith("/blog/")) {
+      return <BlogPostPage slug={decodeURIComponent(path.replace(/^\/blog\//, "").replace(/\/$/, ""))} />;
+    }
+
+    if (path.startsWith("/admin")) {
+      return <AdminPage path={path} />;
+    }
+
+    return <PortfolioHome />;
+  };
+
   return (
     <>
       <main className="min-h-screen overflow-x-hidden bg-obsidian text-white">
         <AmbientGlitchLayer />
-        <Hero />
-        <About />
-        <Skills />
-        <Experience />
-        <Projects />
-        <Achievements />
-        <Certifications />
-        <Contact />
-        <footer className="border-t border-white/10 px-5 py-8">
-          <div className="mx-auto flex max-w-7xl flex-col gap-3 text-sm text-haze md:flex-row md:items-center md:justify-between">
-            <p>Dominic Boban - Cyber Security Penetration Tester</p>
-            <p className="font-mono text-xs uppercase text-white/45">Offensive security / defensive signal / real-world impact</p>
-          </div>
-        </footer>
+        {renderRoute()}
+        <SiteFooter />
       </main>
     </>
   );
