@@ -484,7 +484,7 @@ function Hero() {
             Offensive Security. Defensive Thinking. Real-World Impact.
           </motion.h1>
           <motion.p className="mt-6 max-w-2xl text-lg leading-8 text-haze md:text-xl" variants={itemVariants}>
-            Dominic Boban is a Cyber Security Penetration Tester with over two years of experience improving security through penetration testing, SIEM monitoring, CVE automation, dark web monitoring, and vulnerability detection.
+            Dominic operates at the intersection of offensive security and defensive engineering, combining penetration testing, threat intelligence, SIEM visibility, and vulnerability management to help organisations identify risk and strengthen real-world security posture.
           </motion.p>
           <motion.div className="mt-8 flex flex-col gap-3 sm:flex-row" variants={itemVariants}>
             <a
