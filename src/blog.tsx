@@ -110,9 +110,6 @@ function BlogChrome({ children, eyebrow = "Dominic Boban / Field Notes" }: { chi
           <a href="/blog" className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-haze transition hover:border-signal/40 hover:text-white">
             Blog
           </a>
-          <a href="/admin" className="rounded-md border border-signal/25 bg-signal/10 px-3 py-2 text-sm text-signal transition hover:bg-signal hover:text-obsidian">
-            Admin
-          </a>
         </div>
       </nav>
       <div className="relative z-10 mx-auto max-w-7xl">{children}</div>

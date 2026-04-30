@@ -467,6 +467,14 @@ function Hero() {
             </a>
           ))}
         </div>
+        <div className="flex items-center gap-2 md:hidden">
+          <a
+            href="/blog"
+            className="glitch-control inline-flex h-10 items-center justify-center rounded-lg border border-signal/30 bg-signal/10 px-3 text-sm font-semibold text-signal transition hover:bg-signal hover:text-obsidian"
+          >
+            Blog
+          </a>
+        </div>
         <a
           href="mailto:dominicboban@dominic-boban.com"
           className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 text-sm font-medium text-white transition hover:border-signal/50 hover:bg-signal/10"
