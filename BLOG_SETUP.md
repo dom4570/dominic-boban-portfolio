@@ -11,6 +11,8 @@ Create these in Cloudflare:
 - Pages binding: `BLOG_DB` -> the D1 database
 - Pages binding: `BLOG_MEDIA` -> the R2 bucket
 - Pages environment variable: `ADMIN_EMAIL=dominicboban@dominic-boban.com`
+- Optional Pages environment variable: `ADMIN_HOSTS=www.dominic-boban.com`
+- Optional Pages environment variable: `CLOUDFLARE_ACCESS_ISSUER=https://dominic-boban.cloudflareaccess.com`
 
 Keep the existing `VITE_WEB3FORMS_ACCESS_KEY` variable for the contact form.
 
@@ -41,7 +43,7 @@ https://www.dominic-boban.com/admin*
 https://www.dominic-boban.com/api/admin*
 ```
 
-The admin UI loads at `/admin`, but the API also needs Access so Cloudflare forwards the authenticated email header.
+The admin UI loads at `/admin`, but the API also needs Access so Cloudflare forwards the authenticated Access JWT/cookie.
 
 ## Publishing Flow
 
