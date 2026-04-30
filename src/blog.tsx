@@ -117,12 +117,12 @@ function BlogChrome({ children, eyebrow = "Dominic Boban / Field Notes" }: { chi
   );
 }
 
-function EmptyState({ title, body }: { title: string; body: string }) {
+function EmptyState({ title, body }: { title: string; body?: string }) {
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.045] p-8 text-center backdrop-blur-xl">
       <FileText className="mx-auto text-signal" size={34} />
       <h2 className="mt-4 text-2xl font-semibold text-white">{title}</h2>
-      <p className="mx-auto mt-3 max-w-xl leading-7 text-haze">{body}</p>
+      {body ? <p className="mx-auto mt-3 max-w-xl leading-7 text-haze">{body}</p> : null}
     </div>
   );
 }
@@ -200,14 +200,14 @@ export function BlogIndexPage() {
         </motion.p>
       </header>
 
-      <div className="mb-8 grid gap-4 rounded-lg border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl md:grid-cols-[1fr_auto]">
+      <div className="mb-8 grid items-center gap-5 rounded-lg border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl md:grid-cols-[minmax(0,1fr)_auto]">
         <label className="relative">
-          <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-haze" size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} className="terminal-input pl-11" placeholder="Search posts, tags, or topics..." />
+          <Search className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-haze" size={18} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} className="terminal-input !pl-14" placeholder="Search posts, tags, or topics..." />
         </label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 md:justify-end">
           {tags.map((tag) => (
-            <button key={tag} type="button" onClick={() => setActiveTag(tag)} className={`rounded-md border px-3 py-2 text-sm transition ${activeTag === tag ? "border-signal bg-signal text-obsidian" : "border-white/10 bg-white/5 text-haze hover:border-signal/40 hover:text-white"}`}>
+            <button key={tag} type="button" onClick={() => setActiveTag(tag)} className={`min-h-12 rounded-md border px-4 py-2 text-sm transition ${activeTag === tag ? "border-signal bg-signal text-obsidian" : "border-white/10 bg-white/5 text-haze hover:border-signal/40 hover:text-white"}`}>
               {tag === "all" ? "All" : tag}
             </button>
           ))}
@@ -216,7 +216,7 @@ export function BlogIndexPage() {
 
       {loading && <LoadingPanel />}
       {error && <EmptyState title="Blog API not configured yet." body={error} />}
-      {!loading && !error && filteredPosts.length === 0 && <EmptyState title="No posts published yet." body="Create a draft in the admin panel, add a cover image, then publish it when ready." />}
+      {!loading && !error && filteredPosts.length === 0 && <EmptyState title="No posts published yet." />}
 
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {filteredPosts.map((post, index) => (
