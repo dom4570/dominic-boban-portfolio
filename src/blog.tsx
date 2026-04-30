@@ -103,14 +103,10 @@ function BlogChrome({ children, eyebrow = "Dominic Boban / Field Notes" }: { chi
       <nav className="relative z-10 mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-obsidian/70 px-4 py-3 backdrop-blur-xl">
         <a href="/" className="glitch-control inline-flex items-center gap-2 text-sm font-semibold uppercase text-white">
           <ArrowLeft size={16} />
-          Portfolio
+          Home
         </a>
         <span className="font-mono text-xs uppercase text-signal">{eyebrow}</span>
-        <div className="flex items-center gap-2">
-          <a href="/blog" className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-haze transition hover:border-signal/40 hover:text-white">
-            Blog
-          </a>
-        </div>
+        <span className="hidden font-mono text-xs uppercase text-white/35 sm:inline">/ live notes</span>
       </nav>
       <div className="relative z-10 mx-auto max-w-7xl">{children}</div>
     </div>
