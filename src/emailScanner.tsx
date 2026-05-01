@@ -41,7 +41,7 @@ async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(body?.message || "Exposure check failed.");
+    throw new Error(body?.message || "Scanner service returned an unexpected response. Please try again shortly.");
   }
 
   return body as T;

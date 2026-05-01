@@ -1,6 +1,6 @@
 const LEAKCHECK_PUBLIC_URL = "https://leakcheck.io/api/public";
 const LEAKCHECK_PRO_URL = "https://leakcheck.io/api";
-const RATE_LIMIT_WINDOW_MS = 12_000;
+const RATE_LIMIT_WINDOW_MS = 3_000;
 const RATE_LIMIT_MAX_ENTRIES = 500;
 const RESULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PROVIDER_BUSY_TTL_MS = 60 * 1000;
@@ -263,13 +263,6 @@ export async function onRequest({ request, env }) {
     return problem("Method not allowed.", 405, { Allow: "POST" });
   }
 
-  const rateLimit = await checkRateLimit(request);
-  if (rateLimit.limited) {
-    return problem("Too many checks. Please wait a few seconds and try again.", 429, {
-      "Retry-After": String(rateLimit.retryAfterSeconds),
-    });
-  }
-
   const { body, error } = await readJsonBody(request);
   if (error) return problem(error, 400);
 
@@ -284,11 +277,21 @@ export async function onRequest({ request, env }) {
     return json(cachedResult);
   }
 
+  const rateLimit = await checkRateLimit(request);
+  if (rateLimit.limited) {
+    return problem("Too many checks. Please wait a few seconds and try again.", 429, {
+      "Retry-After": String(rateLimit.retryAfterSeconds),
+    });
+  }
+
   try {
     // The submitted email is only forwarded to LeakCheck for lookup and is not stored or logged.
+    // LeakCheck API keys require linked source IPs, while Cloudflare Pages has changing egress IPs.
+    // Use the public endpoint by default; opt into the key path only if the account supports it.
     const apiKey = String(env.LEAKCHECK_API_KEY || "").trim();
-    let upstreamResponse = apiKey ? await queryLeakCheckPro(email, apiKey) : await queryLeakCheckPublic(email);
-    let upstreamBody = await upstreamResponse.json().catch(() => null);
+    const useApiKey = String(env.LEAKCHECK_USE_API_KEY || "").trim().toLowerCase() === "true";
+    const upstreamResponse = useApiKey && apiKey ? await queryLeakCheckPro(email, apiKey) : await queryLeakCheckPublic(email);
+    const upstreamBody = await upstreamResponse.json().catch(() => null);
 
     const upstreamError = String(upstreamBody?.error || upstreamBody?.Error || upstreamBody?.message || "");
 
