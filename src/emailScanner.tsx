@@ -13,6 +13,21 @@ import { motion } from "framer-motion";
 import { FormEvent, useEffect, useState } from "react";
 
 type RiskLevel = "Low" | "Medium" | "High";
+type ProviderStatus = "matched" | "clean" | "rate_limited" | "unavailable" | "not_configured" | "error" | string;
+
+type ExposureRecord = {
+  title: string;
+  name?: string;
+  domain?: string;
+  breach_date?: string;
+  added_date?: string;
+  modified_date?: string;
+  pwn_count?: number;
+  data_classes?: string[];
+  fields?: string[];
+  providers?: string[];
+  flags?: Record<string, boolean>;
+};
 
 type EmailCheckResult = {
   compromised: boolean;
@@ -21,6 +36,12 @@ type EmailCheckResult = {
   recommendations: string[];
   message: string;
   provider?: string;
+  exposures?: ExposureRecord[];
+  data_classes?: string[];
+  risk_reasons?: string[];
+  providers_checked?: string[];
+  provider_status?: Record<string, ProviderStatus>;
+  provider_errors?: Record<string, string>;
   sources?: Array<{
     name: string;
     date?: string;
@@ -41,6 +62,29 @@ function riskClasses(risk: RiskLevel) {
   if (risk === "High") return "border-trace/40 bg-trace/10 text-trace";
   if (risk === "Medium") return "border-volt/40 bg-volt/10 text-volt";
   return "border-cyan-300/40 bg-cyan-400/10 text-cyan-100 shadow-[0_0_34px_rgba(103,232,249,0.12)]";
+}
+
+function statusClasses(status: ProviderStatus) {
+  if (status === "matched") return "border-signal/35 bg-signal/10 text-signal";
+  if (status === "clean") return "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
+  if (status === "rate_limited") return "border-volt/40 bg-volt/10 text-volt";
+  return "border-trace/35 bg-trace/10 text-trace";
+}
+
+function prettyStatus(status: ProviderStatus) {
+  return status.replace(/_/g, " ");
+}
+
+function prettyFlag(flag: string) {
+  return flag.replace(/_/g, " ");
+}
+
+function activeFlags(flags?: Record<string, boolean>) {
+  return Object.entries(flags || {}).filter(([, enabled]) => enabled);
+}
+
+function exposureData(exposure: ExposureRecord) {
+  return [...new Set([...(exposure.data_classes || []), ...(exposure.fields || [])].filter(Boolean))];
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -185,10 +229,15 @@ export function EmailScannerPage() {
             </button>
 
             <p className="rounded-md border border-white/10 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-haze">
-              We do not store submitted emails.{" "}
+              Submitted emails are checked server-side and not stored by this site. Powered by{" "}
+              <a href="https://haveibeenpwned.com/API/v3" target="_blank" rel="noreferrer" className="text-signal underline decoration-signal/40 underline-offset-4 hover:text-white">
+                Have I Been Pwned
+              </a>{" "}
+              and{" "}
               <a href="https://wiki.leakcheck.io/en/api/public" target="_blank" rel="noreferrer" className="text-signal underline decoration-signal/40 underline-offset-4 hover:text-white">
-                Powered by LeakCheck.
+                LeakCheck
               </a>
+              .
             </p>
 
             {error && (
@@ -227,39 +276,105 @@ export function EmailScannerPage() {
                   </div>
                 </div>
 
-                {result.compromised && ((result.sources?.length || 0) > 0 || (result.fields?.length || 0) > 0) && (
+                {Object.keys(result.provider_status || {}).length > 0 && (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                    <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                      <ShieldCheck size={16} />
+                      Provider status
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(result.provider_status || {}).map(([provider, status]) => (
+                        <span key={provider} className={["rounded-md border px-3 py-2 font-mono text-xs uppercase", statusClasses(status)].join(" ")}>
+                          {provider}: {prettyStatus(status)}
+                        </span>
+                      ))}
+                    </div>
+                    {Object.keys(result.provider_errors || {}).length > 0 && (
+                      <div className="mt-4 grid gap-2">
+                        {Object.entries(result.provider_errors || {}).map(([provider, note]) => (
+                          <p key={provider} className="text-sm leading-6 text-haze">
+                            <span className="font-semibold text-white">{provider}:</span> {note}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(result.risk_reasons?.length || 0) > 0 && (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                    <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                      <AlertTriangle size={16} />
+                      Risk intelligence
+                    </div>
+                    <ul className="grid gap-2">
+                      {result.risk_reasons?.map((reason) => (
+                        <li key={reason} className="leading-7 text-haze">
+                          {reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {result.compromised && (result.exposures?.length || 0) > 0 && (
                   <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
                     <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
                       <MailSearch size={16} />
-                      Exposure details
+                      Exposure intelligence
                     </div>
+                    <div className="grid gap-3">
+                      {result.exposures?.map((exposure, index) => {
+                        const data = exposureData(exposure);
+                        const flags = activeFlags(exposure.flags);
 
-                    {(result.fields?.length || 0) > 0 && (
-                      <div>
-                        <p className="font-mono text-xs uppercase text-haze">What data types appeared</p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {result.fields?.map((field) => (
-                            <span key={field} className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-white">
-                              {field}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {(result.sources?.length || 0) > 0 && (
-                      <div className={(result.fields?.length || 0) > 0 ? "mt-6" : ""}>
-                        <p className="font-mono text-xs uppercase text-haze">Where and when it appeared</p>
-                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                          {result.sources?.map((source) => (
-                            <div key={`${source.name}-${source.date || "unknown"}`} className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2">
-                              <span className="text-sm font-medium text-white">{source.name}</span>
-                              <span className="shrink-0 font-mono text-xs uppercase text-haze">{source.date || "Date unknown"}</span>
+                        return (
+                          <article key={`${exposure.title}-${exposure.breach_date || exposure.added_date || index}`} className="rounded-lg border border-white/10 bg-black/20 p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <h3 className="text-lg font-semibold text-white">{exposure.title}</h3>
+                                <div className="mt-2 flex flex-wrap gap-2 text-xs text-haze">
+                                  {exposure.domain && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">{exposure.domain}</span>}
+                                  {exposure.breach_date && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">Breach: {exposure.breach_date}</span>}
+                                  {exposure.added_date && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">Added: {exposure.added_date.slice(0, 10)}</span>}
+                                  {typeof exposure.pwn_count === "number" && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">{exposure.pwn_count.toLocaleString()} accounts</span>}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 flex-wrap gap-2">
+                                {(exposure.providers || []).map((provider) => (
+                                  <span key={provider} className="rounded-md border border-signal/30 bg-signal/10 px-2.5 py-1 font-mono text-[11px] uppercase text-signal">
+                                    {provider}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+
+                            {data.length > 0 && (
+                              <div className="mt-4">
+                                <p className="font-mono text-xs uppercase text-haze">Data exposed</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {data.map((field) => (
+                                    <span key={field} className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white">
+                                      {field}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {flags.length > 0 && (
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                {flags.map(([flag]) => (
+                                  <span key={flag} className="rounded-md border border-volt/30 bg-volt/10 px-2.5 py-1 font-mono text-[11px] uppercase text-volt">
+                                    {prettyFlag(flag)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
