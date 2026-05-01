@@ -48,6 +48,12 @@ export async function onRequestGet({ env }) {
       changefreq: "weekly",
       priority: "0.8",
     },
+    {
+      loc: `${SITE_URL}/email-scanner`,
+      lastmod: today,
+      changefreq: "monthly",
+      priority: "0.7",
+    },
   ];
 
   try {

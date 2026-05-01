@@ -29,6 +29,7 @@ import {
 import { motion, useReducedMotion } from "framer-motion";
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { AdminPage, BlogIndexPage, BlogPostPage } from "./blog";
+import { EmailScannerPage } from "./emailScanner";
 
 type IconType = typeof Shield;
 
@@ -39,6 +40,7 @@ const navItems = [
   { label: "Projects", href: "#projects" },
   { label: "Achievements", href: "#achievements" },
   { label: "Blog", href: "/blog" },
+  { label: "Email Scanner", href: "/email-scanner" },
   { label: "Contact", href: "#contact" },
 ];
 
@@ -453,7 +455,7 @@ function Hero() {
       <div className="absolute inset-0 bg-[url('/cyber-grid.png')] bg-cover bg-center opacity-28 mix-blend-screen" aria-hidden="true" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(252,238,10,0.18),transparent_35%),linear-gradient(180deg,rgba(5,7,13,0.18),#05070d_95%)]" aria-hidden="true" />
 
-      <nav className="relative z-20 mx-auto flex max-w-7xl items-center justify-between rounded-lg border border-white/10 bg-obsidian/55 px-4 py-3 backdrop-blur-xl">
+      <nav className="relative z-20 mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-obsidian/55 px-4 py-3 backdrop-blur-xl">
         <a href="#hero" className="flex items-center gap-3 text-white" aria-label="Dominic Boban home">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-signal/30 bg-signal/10 text-signal">
             <Shield size={18} />
@@ -473,6 +475,12 @@ function Hero() {
             className="glitch-control inline-flex h-10 items-center justify-center rounded-lg border border-signal/30 bg-signal/10 px-3 text-sm font-semibold text-signal transition hover:bg-signal hover:text-obsidian"
           >
             Blog
+          </a>
+          <a
+            href="/email-scanner"
+            className="glitch-control inline-flex h-10 items-center justify-center rounded-lg border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:border-signal/40 hover:bg-signal/10"
+          >
+            Scanner
           </a>
         </div>
         <a
@@ -1020,6 +1028,10 @@ export default function App() {
 
     if (path.startsWith("/admin")) {
       return <AdminPage path={path} />;
+    }
+
+    if (path.replace(/\/$/, "") === "/email-scanner") {
+      return <EmailScannerPage />;
     }
 
     return <PortfolioHome />;

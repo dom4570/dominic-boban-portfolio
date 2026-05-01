@@ -1,4 +1,6 @@
 /blog / 200
 /blog/* / 200
+/email-scanner / 200
+/email-scanner/* / 200
 /admin / 200
 /admin/* / 200
