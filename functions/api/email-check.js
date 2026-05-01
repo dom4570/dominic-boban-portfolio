@@ -9,9 +9,11 @@ const PARTIAL_RESULT_CACHE_TTL_MS = 60 * 1000;
 const rateLimitStore = new Map();
 const resultCache = new Map();
 let hibpLastRequestAt = 0;
+let hibpQueue = Promise.resolve();
 
 const providerNames = {
   hibp: "HIBP",
+  hibpPastes: "HIBP Pastes",
   leakCheck: "LeakCheck",
 };
 
@@ -172,6 +174,18 @@ function mergeExposures(exposures) {
   });
 }
 
+function clonePaste(paste) {
+  return { ...paste };
+}
+
+function cloneTimelineEvent(event) {
+  return {
+    ...event,
+    providers: [...(event.providers || [])],
+    data_classes: [...(event.data_classes || [])],
+  };
+}
+
 function cloneExposure(exposure) {
   return {
     ...exposure,
@@ -189,6 +203,9 @@ function cloneResult(result, cached = false) {
     risk_reasons: [...(result.risk_reasons || [])],
     data_classes: [...(result.data_classes || [])],
     exposures: (result.exposures || []).map(cloneExposure),
+    pastes: (result.pastes || []).map(clonePaste),
+    timeline: (result.timeline || []).map(cloneTimelineEvent),
+    timeline_summary: { ...(result.timeline_summary || {}) },
     providers_checked: [...(result.providers_checked || [])],
     provider_status: { ...(result.provider_status || {}) },
     provider_errors: { ...(result.provider_errors || {}) },
@@ -243,6 +260,10 @@ function setCachedResult(key, result, ttl = RESULT_CACHE_TTL_MS) {
   pruneCache(resultCache, now);
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function getRateLimitKey(request) {
   const ip =
     request.headers.get("CF-Connecting-IP") ||
@@ -278,19 +299,21 @@ async function checkRateLimit(request) {
   return { limited: false, retryAfterSeconds: 0 };
 }
 
-function checkHibpSpacing() {
-  const now = Date.now();
-  const retryAfterMs = HIBP_MIN_INTERVAL_MS - (now - hibpLastRequestAt);
+async function withHibpSlot(fetcher) {
+  const run = hibpQueue.then(async () => {
+    const now = Date.now();
+    const waitMs = Math.max(0, HIBP_MIN_INTERVAL_MS - (now - hibpLastRequestAt));
 
-  if (retryAfterMs > 0) {
-    return {
-      limited: true,
-      retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
-    };
-  }
+    if (waitMs > 0) {
+      await delay(waitMs);
+    }
 
-  hibpLastRequestAt = now;
-  return { limited: false, retryAfterSeconds: 0 };
+    hibpLastRequestAt = Date.now();
+    return fetcher();
+  });
+
+  hibpQueue = run.catch(() => undefined);
+  return run;
 }
 
 async function readJsonBody(request) {
@@ -308,12 +331,13 @@ async function readJsonBody(request) {
   return { body };
 }
 
-function providerResult(provider, status, exposures = [], error = "") {
+function providerResult(provider, status, exposures = [], error = "", extra = {}) {
   return {
     provider,
     status,
     exposures,
     error: safeString(error, 180),
+    ...extra,
   };
 }
 
@@ -321,6 +345,7 @@ function normalizeHibpBreach(breach) {
   const dataClasses = uniqueStrings(Array.isArray(breach?.DataClasses) ? breach.DataClasses : [], 24);
 
   return {
+    type: "breach",
     name: safeString(breach?.Name),
     title: safeString(breach?.Title || breach?.Name || "HIBP breach"),
     domain: safeString(breach?.Domain),
@@ -358,6 +383,28 @@ async function queryHibpBreaches(email, apiKey) {
   });
 }
 
+async function queryHibpPastes(email, apiKey) {
+  return fetch(`${HIBP_BASE_URL}/pasteAccount/${encodeURIComponent(email)}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "hibp-api-key": apiKey,
+      "User-Agent": "DominicBobanPortfolio/1.0 identity exposure scanner",
+    },
+  });
+}
+
+function normalizeHibpPaste(paste) {
+  return {
+    source: safeString(paste?.Source || "Paste"),
+    id: safeString(paste?.Id),
+    title: safeString(paste?.Title || paste?.Source || "Paste exposure", 180),
+    date: safeString(paste?.Date),
+    email_count: safeNumber(paste?.EmailCount),
+    provider: providerNames.hibp,
+  };
+}
+
 async function fetchHibp(email, env) {
   const apiKey = String(env.HIBP_API_KEY || "").trim();
 
@@ -365,13 +412,8 @@ async function fetchHibp(email, env) {
     return providerResult(providerNames.hibp, "not_configured", [], "HIBP provider is not configured.");
   }
 
-  const spacing = checkHibpSpacing();
-  if (spacing.limited) {
-    return providerResult(providerNames.hibp, "rate_limited", [], `HIBP cooldown active. Try again in ${spacing.retryAfterSeconds} seconds.`);
-  }
-
   try {
-    const response = await queryHibpBreaches(email, apiKey);
+    const response = await withHibpSlot(() => queryHibpBreaches(email, apiKey));
 
     if (response.status === 404) {
       return providerResult(providerNames.hibp, "clean");
@@ -401,6 +443,53 @@ async function fetchHibp(email, env) {
     return providerResult(providerNames.hibp, exposures.length > 0 ? "matched" : "clean", exposures);
   } catch {
     return providerResult(providerNames.hibp, "unavailable", [], "Unable to reach HIBP right now.");
+  }
+}
+
+async function fetchHibpPastes(email, env) {
+  const apiKey = String(env.HIBP_API_KEY || "").trim();
+
+  if (!apiKey) {
+    return providerResult(providerNames.hibpPastes, "not_configured", [], "HIBP paste provider is not configured.", { pastes: [] });
+  }
+
+  try {
+    const response = await withHibpSlot(() => queryHibpPastes(email, apiKey));
+
+    if (response.status === 404) {
+      return providerResult(providerNames.hibpPastes, "clean", [], "", { pastes: [] });
+    }
+
+    if (response.status === 429) {
+      const retryAfter = safeString(response.headers.get("retry-after") || "");
+      return providerResult(
+        providerNames.hibpPastes,
+        "rate_limited",
+        [],
+        retryAfter ? `HIBP paste rate limit reached. Retry after ${retryAfter} seconds.` : "HIBP paste rate limit reached.",
+        { pastes: [] },
+      );
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      return providerResult(providerNames.hibpPastes, "error", [], "HIBP rejected the paste API request.", { pastes: [] });
+    }
+
+    if (response.status >= 500) {
+      return providerResult(providerNames.hibpPastes, "unavailable", [], "HIBP paste search is temporarily unavailable.", { pastes: [] });
+    }
+
+    if (!response.ok) {
+      return providerResult(providerNames.hibpPastes, "error", [], "HIBP paste lookup failed.", { pastes: [] });
+    }
+
+    const body = await response.json().catch(() => null);
+    const rows = Array.isArray(body) ? body : [];
+    const pastes = rows.map(normalizeHibpPaste).filter((paste) => paste.source || paste.title);
+
+    return providerResult(providerNames.hibpPastes, pastes.length > 0 ? "matched" : "clean", [], "", { pastes });
+  } catch {
+    return providerResult(providerNames.hibpPastes, "unavailable", [], "Unable to reach HIBP paste search right now.", { pastes: [] });
   }
 }
 
@@ -441,6 +530,7 @@ function fieldsFromResponse(body) {
 
 function leakCheckExposure(source, fields) {
   return {
+    type: "source",
     title: safeString(source.name || "LeakCheck exposure"),
     name: safeString(source.name || "LeakCheck exposure"),
     breach_date: safeString(source.date),
@@ -562,21 +652,82 @@ function riskSignals(exposures, dataClasses) {
   return signals;
 }
 
+function timelineDate(value) {
+  const date = String(value || "").trim();
+  if (!date) return "";
+  return date.length === 7 ? `${date}-01` : date.slice(0, 10);
+}
+
+function buildTimeline(exposures, pastes) {
+  const exposureEvents = exposures.map((exposure) => {
+    const providerSet = exposure.providers || [];
+    const leakCheckOnly = providerSet.length === 1 && providerSet[0] === providerNames.leakCheck;
+    const date = timelineDate(exposure.breach_date || exposure.added_date);
+
+    return {
+      date,
+      event_type: leakCheckOnly ? "LeakCheck source" : "Breach",
+      title: exposure.title,
+      providers: providerSet,
+      data_classes: uniqueStrings([exposure.data_classes || [], exposure.fields || []], 16),
+      pwn_count: exposure.pwn_count,
+    };
+  });
+  const pasteEvents = pastes.map((paste) => ({
+    date: timelineDate(paste.date),
+    event_type: "Paste",
+    title: paste.title || paste.source || "Paste exposure",
+    source: paste.source,
+    providers: [providerNames.hibp],
+    email_count: paste.email_count,
+  }));
+
+  return [...exposureEvents, ...pasteEvents]
+    .filter((event) => event.title)
+    .sort((left, right) => {
+      if (!left.date && !right.date) return left.title.localeCompare(right.title);
+      if (!left.date) return 1;
+      if (!right.date) return -1;
+      return right.date.localeCompare(left.date);
+    });
+}
+
+function buildTimelineSummary(timeline) {
+  const datedEvents = timeline.filter((event) => event.date);
+  const dates = datedEvents.map((event) => event.date).sort();
+
+  return {
+    first_seen: dates[0] || "",
+    most_recent: dates[dates.length - 1] || "",
+    event_count: timeline.length,
+  };
+}
+
 function buildAggregatedResult(providerResults) {
   const exposures = mergeExposures(providerResults.flatMap((result) => result.exposures || []));
+  const pastes = providerResults.flatMap((result) => result.pastes || []);
+  const timeline = buildTimeline(exposures, pastes);
   const dataClasses = uniqueStrings(exposures.flatMap((exposure) => [...(exposure.data_classes || []), ...(exposure.fields || [])]), 30);
-  const compromised = exposures.length > 0;
+  const compromised = exposures.length > 0 || pastes.length > 0;
   const signals = riskSignals(exposures, dataClasses);
-  const riskLevel = compromised && (exposures.length >= 3 || signals.length > 0) ? "High" : compromised ? "Medium" : "Low";
+  const riskLevel = exposures.length > 0 && (exposures.length >= 3 || signals.length > 0) ? "High" : compromised ? "Medium" : "Low";
   const riskReasons = compromised
-    ? uniqueStrings([`${exposures.length} unique exposure${exposures.length === 1 ? "" : "s"} found across configured providers.`, signals], 8)
-    : ["No configured provider returned known breach exposure for this email."];
+    ? uniqueStrings(
+        [
+          exposures.length > 0 ? `${exposures.length} unique breach/source exposure${exposures.length === 1 ? "" : "s"} found across configured providers.` : "",
+          pastes.length > 0 ? `${pastes.length} paste exposure${pastes.length === 1 ? "" : "s"} found through HIBP.` : "",
+          signals,
+        ],
+        10,
+      )
+    : ["No configured provider returned known breach or paste exposure for this email."];
   const recommendations = compromised
     ? uniqueStrings(
         [
           baseRecommendations,
           "Rotate passwords on affected accounts immediately.",
           "Watch for phishing attempts that reference breached services.",
+          pastes.length > 0 ? "Review paste exposure context and avoid reusing any related credentials." : "",
           signals.length > 0 ? "Prioritise accounts tied to credential or personal-data exposure." : "",
         ],
         8,
@@ -595,11 +746,12 @@ function buildAggregatedResult(providerResults) {
   return {
     compromised,
     breach_count: exposures.length,
+    paste_count: pastes.length,
     risk_level: riskLevel,
     risk_reasons: riskReasons,
     recommendations,
     message: compromised
-      ? "This email appears in known breach data."
+      ? "This email appears in known breach or paste exposure data."
       : "No known breach exposure was found for this email.",
     provider: "Have I Been Pwned + LeakCheck",
     providers_checked: uniqueStrings(providersChecked, 4),
@@ -608,6 +760,9 @@ function buildAggregatedResult(providerResults) {
     data_classes: dataClasses,
     fields: dataClasses,
     exposures,
+    pastes,
+    timeline,
+    timeline_summary: buildTimelineSummary(timeline),
     sources: exposures.map((exposure) => ({
       name: exposure.title,
       date: exposure.breach_date || exposure.added_date || "",
@@ -649,10 +804,7 @@ export async function onRequest({ request, env }) {
     });
   }
 
-  const providerResults = [
-    await fetchHibp(email, env),
-    await fetchLeakCheck(email, env),
-  ];
+  const providerResults = await Promise.all([fetchHibp(email, env), fetchLeakCheck(email, env), fetchHibpPastes(email, env)]);
 
   if (!providerResults.some(hasUsableProviderResult)) {
     return problem("Exposure providers are temporarily unavailable. Please try again shortly.", 503);
