@@ -187,7 +187,7 @@ export function EmailScannerPage() {
 
             <p className="rounded-md border border-white/10 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-haze">
               We do not store submitted emails.{" "}
-              <a href="https://leakcheck.io/" target="_blank" rel="noreferrer" className="text-signal underline decoration-signal/40 underline-offset-4 hover:text-white">
+              <a href="https://wiki.leakcheck.io/en/api/public" target="_blank" rel="noreferrer" className="text-signal underline decoration-signal/40 underline-offset-4 hover:text-white">
                 Powered by LeakCheck.
               </a>
             </p>
