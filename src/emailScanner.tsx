@@ -127,7 +127,7 @@ export function EmailScannerPage() {
             Email exposure scanner.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-haze">
-            Check whether your email has appeared in known breach or dark-web exposure data, then get simple steps to reduce account takeover risk.
+            Check whether your email has appeared in known breach or dark-web data.
           </p>
           <div className="mt-8 grid gap-3 text-sm text-haze sm:grid-cols-3">
             {[
@@ -186,7 +186,7 @@ export function EmailScannerPage() {
             </button>
 
             <p className="rounded-md border border-white/10 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-haze">
-              We do not store submitted emails. Results are passed through LeakCheck API.{" "}
+              We do not store submitted emails.{" "}
               <a href="https://leakcheck.io/" target="_blank" rel="noreferrer" className="text-signal underline decoration-signal/40 underline-offset-4 hover:text-white">
                 Powered by LeakCheck.
               </a>
