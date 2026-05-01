@@ -29,14 +29,44 @@ type ExposureRecord = {
   flags?: Record<string, boolean>;
 };
 
+type PasteRecord = {
+  source: string;
+  id?: string;
+  title?: string;
+  date?: string;
+  email_count?: number;
+  provider?: string;
+};
+
+type TimelineEvent = {
+  date?: string;
+  event_type: string;
+  title: string;
+  source?: string;
+  providers?: string[];
+  data_classes?: string[];
+  pwn_count?: number;
+  email_count?: number;
+};
+
+type TimelineSummary = {
+  first_seen?: string;
+  most_recent?: string;
+  event_count?: number;
+};
+
 type EmailCheckResult = {
   compromised: boolean;
   breach_count: number;
+  paste_count?: number;
   risk_level: RiskLevel;
   recommendations: string[];
   message: string;
   provider?: string;
   exposures?: ExposureRecord[];
+  pastes?: PasteRecord[];
+  timeline?: TimelineEvent[];
+  timeline_summary?: TimelineSummary;
   data_classes?: string[];
   risk_reasons?: string[];
   providers_checked?: string[];
@@ -85,6 +115,16 @@ function activeFlags(flags?: Record<string, boolean>) {
 
 function exposureData(exposure: ExposureRecord) {
   return [...new Set([...(exposure.data_classes || []), ...(exposure.fields || [])].filter(Boolean))];
+}
+
+function eventClasses(eventType: string) {
+  if (eventType === "Paste") return "border-volt/35 bg-volt/10 text-volt";
+  if (eventType === "LeakCheck source") return "border-signal/35 bg-signal/10 text-signal";
+  return "border-trace/35 bg-trace/10 text-trace";
+}
+
+function displayDate(value?: string) {
+  return value || "Date unknown";
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -260,7 +300,7 @@ export function EmailScannerPage() {
                       <h2 className="mt-1 text-2xl font-semibold text-white">{result.message}</h2>
                     </div>
                   </div>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  <div className="mt-5 grid gap-3 sm:grid-cols-4">
                     <div className="rounded-md border border-white/10 bg-black/20 p-3">
                       <p className="font-mono text-xs uppercase text-haze">Compromised</p>
                       <p className="mt-1 text-xl font-semibold text-white">{result.compromised ? "Yes" : "No"}</p>
@@ -268,6 +308,10 @@ export function EmailScannerPage() {
                     <div className="rounded-md border border-white/10 bg-black/20 p-3">
                       <p className="font-mono text-xs uppercase text-haze">Breach count</p>
                       <p className="mt-1 text-xl font-semibold text-white">{result.breach_count}</p>
+                    </div>
+                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                      <p className="font-mono text-xs uppercase text-haze">Paste count</p>
+                      <p className="mt-1 text-xl font-semibold text-white">{result.paste_count || 0}</p>
                     </div>
                     <div className="rounded-md border border-white/10 bg-black/20 p-3">
                       <p className="font-mono text-xs uppercase text-haze">Risk level</p>
@@ -314,6 +358,92 @@ export function EmailScannerPage() {
                         </li>
                       ))}
                     </ul>
+                  </div>
+                )}
+
+                {(result.paste_count || 0) > 0 && (
+                  <div className="rounded-lg border border-volt/20 bg-volt/[0.045] p-5">
+                    <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-volt">
+                      <MailSearch size={16} />
+                      Paste exposure
+                    </div>
+                    <div className="grid gap-3">
+                      {result.pastes?.map((paste, index) => (
+                        <article key={`${paste.source}-${paste.id || paste.date || index}`} className="rounded-lg border border-white/10 bg-black/20 p-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <h3 className="text-lg font-semibold text-white">{paste.title || paste.source || "Paste exposure"}</h3>
+                              <div className="mt-2 flex flex-wrap gap-2 text-xs text-haze">
+                                {paste.source && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">{paste.source}</span>}
+                                {paste.date && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">Seen: {paste.date.slice(0, 10)}</span>}
+                                {typeof paste.email_count === "number" && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">{paste.email_count.toLocaleString()} emails</span>}
+                              </div>
+                            </div>
+                            <span className="w-fit rounded-md border border-volt/30 bg-volt/10 px-2.5 py-1 font-mono text-[11px] uppercase text-volt">
+                              HIBP
+                            </span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(result.timeline?.length || 0) > 0 && (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                    <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                      <AlertTriangle size={16} />
+                      Breach timeline
+                    </div>
+                    <div className="mb-5 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                        <p className="font-mono text-xs uppercase text-haze">First seen</p>
+                        <p className="mt-1 text-sm font-semibold text-white">{displayDate(result.timeline_summary?.first_seen)}</p>
+                      </div>
+                      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                        <p className="font-mono text-xs uppercase text-haze">Most recent</p>
+                        <p className="mt-1 text-sm font-semibold text-white">{displayDate(result.timeline_summary?.most_recent)}</p>
+                      </div>
+                      <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                        <p className="font-mono text-xs uppercase text-haze">Timeline events</p>
+                        <p className="mt-1 text-sm font-semibold text-white">{result.timeline_summary?.event_count || result.timeline?.length || 0}</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3">
+                      {result.timeline?.map((event, index) => (
+                        <article key={`${event.event_type}-${event.title}-${event.date || index}`} className="rounded-lg border border-white/10 bg-black/20 p-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className={["rounded-md border px-2.5 py-1 font-mono text-[11px] uppercase", eventClasses(event.event_type)].join(" ")}>
+                                  {event.event_type}
+                                </span>
+                                <span className="font-mono text-xs uppercase text-haze">{displayDate(event.date)}</span>
+                              </div>
+                              <h3 className="mt-2 text-base font-semibold text-white">{event.title}</h3>
+                              <div className="mt-2 flex flex-wrap gap-2 text-xs text-haze">
+                                {(event.providers || []).map((provider) => (
+                                  <span key={provider} className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">
+                                    {provider}
+                                  </span>
+                                ))}
+                                {typeof event.pwn_count === "number" && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">{event.pwn_count.toLocaleString()} accounts</span>}
+                                {typeof event.email_count === "number" && <span className="rounded border border-white/10 bg-white/[0.04] px-2 py-1">{event.email_count.toLocaleString()} emails</span>}
+                              </div>
+                              {(event.data_classes?.length || 0) > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {event.data_classes?.map((field) => (
+                                    <span key={field} className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-white">
+                                      {field}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
                   </div>
                 )}
 
