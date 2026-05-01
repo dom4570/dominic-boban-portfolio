@@ -1,7 +1,10 @@
 const UPSTREAM_BASE_URL = "https://api.xposedornot.com/v1/check-email";
 const RATE_LIMIT_WINDOW_MS = 12_000;
 const RATE_LIMIT_MAX_ENTRIES = 500;
+const RESULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const PROVIDER_BUSY_TTL_MS = 5 * 60 * 1000;
 const rateLimitStore = new Map();
+const resultCache = new Map();
 
 const baseRecommendations = [
   "Change reused passwords.",
@@ -60,11 +63,59 @@ function buildResult(breachCount) {
   };
 }
 
-async function sha256Prefix(value) {
+async function sha256Hex(value) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest).slice(0, 12))
+  return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function sha256Prefix(value) {
+  return (await sha256Hex(value)).slice(0, 24);
+}
+
+async function getEmailCacheKey(email) {
+  return `email:${await sha256Hex(email)}`;
+}
+
+function cloneResult(result, cached = false) {
+  return {
+    ...result,
+    recommendations: [...result.recommendations],
+    cached,
+  };
+}
+
+function pruneCache(cache, now) {
+  if (cache.size <= RATE_LIMIT_MAX_ENTRIES) return;
+
+  for (const [entryKey, entry] of cache) {
+    if (entry.expiresAt <= now) {
+      cache.delete(entryKey);
+    }
+  }
+}
+
+function getCachedResult(key) {
+  const now = Date.now();
+  const cached = resultCache.get(key);
+
+  if (!cached) return null;
+  if (cached.expiresAt <= now) {
+    resultCache.delete(key);
+    return null;
+  }
+
+  return cloneResult(cached.result, true);
+}
+
+function setCachedResult(key, result, ttl = RESULT_CACHE_TTL_MS) {
+  const now = Date.now();
+  resultCache.set(key, {
+    result: cloneResult(result, false),
+    expiresAt: now + ttl,
+  });
+  pruneCache(resultCache, now);
 }
 
 async function getRateLimitKey(request) {
@@ -137,6 +188,12 @@ export async function onRequest({ request }) {
     return problem("Enter a valid email address.", 400);
   }
 
+  const emailCacheKey = await getEmailCacheKey(email);
+  const cachedResult = getCachedResult(emailCacheKey);
+  if (cachedResult) {
+    return json(cachedResult);
+  }
+
   try {
     // Email is encoded and only passed to the upstream breach lookup; it is not logged or stored.
     const upstreamResponse = await fetch(`${UPSTREAM_BASE_URL}/${encodeURIComponent(email)}`, {
@@ -152,11 +209,23 @@ export async function onRequest({ request }) {
       String(upstreamBody?.Error || "").toLowerCase().includes("not found");
 
     if (noBreachFound) {
-      return json(buildResult(0));
+      const result = buildResult(0);
+      setCachedResult(emailCacheKey, result);
+      return json(result);
     }
 
     if (upstreamResponse.status === 429) {
-      return problem("Exposure data provider is rate limiting requests. Please try again shortly.", 429);
+      const providerBusyResult = {
+        ...buildResult(0),
+        compromised: false,
+        breach_count: 0,
+        risk_level: "Low",
+        message: "The exposure provider is busy right now. Please try again in a few minutes.",
+        provider_limited: true,
+      };
+
+      setCachedResult(emailCacheKey, providerBusyResult, PROVIDER_BUSY_TTL_MS);
+      return json(providerBusyResult, 200, { "X-Provider-Limited": "true" });
     }
 
     if (upstreamResponse.status >= 500) {
@@ -169,8 +238,10 @@ export async function onRequest({ request }) {
 
     const breachNames = flattenBreaches(upstreamBody?.breaches);
     const breachCount = new Set(breachNames).size;
+    const result = buildResult(breachCount);
 
-    return json(buildResult(breachCount));
+    setCachedResult(emailCacheKey, result);
+    return json(result);
   } catch {
     return problem("Unable to reach the exposure data provider right now.", 503);
   }

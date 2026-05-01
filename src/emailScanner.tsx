@@ -20,6 +20,8 @@ type EmailCheckResult = {
   risk_level: RiskLevel;
   recommendations: string[];
   message: string;
+  cached?: boolean;
+  provider_limited?: boolean;
 };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -193,11 +195,11 @@ export function EmailScannerPage() {
 
             {result && (
               <div className="grid gap-4">
-                <div className={["rounded-lg border p-5", riskClasses(result.risk_level)].join(" ")}>
+                <div className={["rounded-lg border p-5", result.provider_limited ? "border-volt/40 bg-volt/10 text-volt" : riskClasses(result.risk_level)].join(" ")}>
                   <div className="flex items-center gap-3">
-                    {result.compromised ? <ShieldAlert size={24} /> : <CheckCircle2 size={24} />}
+                    {result.provider_limited ? <AlertTriangle size={24} /> : result.compromised ? <ShieldAlert size={24} /> : <CheckCircle2 size={24} />}
                     <div>
-                      <p className="font-mono text-xs uppercase">Scan result</p>
+                      <p className="font-mono text-xs uppercase">{result.cached ? "Cached scan result" : "Scan result"}</p>
                       <h2 className="mt-1 text-2xl font-semibold text-white">{result.message}</h2>
                     </div>
                   </div>
