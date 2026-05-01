@@ -49,7 +49,7 @@ export async function onRequestGet({ env }) {
       priority: "0.8",
     },
     {
-      loc: `${SITE_URL}/email-scanner`,
+      loc: `${SITE_URL}/identity-exposure-scanner`,
       lastmod: today,
       changefreq: "monthly",
       priority: "0.7",

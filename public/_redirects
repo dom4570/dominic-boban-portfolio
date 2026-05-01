@@ -1,6 +1,8 @@
+/email-scanner /identity-exposure-scanner 301
+/email-scanner/* /identity-exposure-scanner 301
 /blog / 200
 /blog/* / 200
-/email-scanner / 200
-/email-scanner/* / 200
+/identity-exposure-scanner / 200
+/identity-exposure-scanner/* / 200
 /admin / 200
 /admin/* / 200

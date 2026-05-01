@@ -40,7 +40,7 @@ const navItems = [
   { label: "Projects", href: "#projects" },
   { label: "Achievements", href: "#achievements" },
   { label: "Blog", href: "/blog" },
-  { label: "Identity Exposure Scanner", href: "/email-scanner", featured: true },
+  { label: "Identity Exposure Scanner", href: "/identity-exposure-scanner", featured: true },
   { label: "Contact", href: "#contact" },
 ];
 
@@ -476,11 +476,6 @@ function Hero() {
             >
               {item.featured && <ScanSearch size={15} strokeWidth={2} />}
               <span>{item.label}</span>
-              {item.featured && (
-                <span className="rounded border border-signal/35 bg-black/25 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-signal">
-                  App
-                </span>
-              )}
             </a>
           ))}
         </div>
@@ -492,7 +487,7 @@ function Hero() {
             Blog
           </a>
           <a
-            href="/email-scanner"
+            href="/identity-exposure-scanner"
             className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-signal/45 bg-signal/10 px-3 text-sm font-semibold text-signal shadow-[0_0_20px_rgba(252,238,10,0.14)] transition hover:bg-signal hover:text-obsidian"
           >
             <ScanSearch size={15} />
@@ -544,7 +539,7 @@ function Hero() {
             </a>
           </motion.div>
           <motion.a
-            href="/email-scanner"
+            href="/identity-exposure-scanner"
             className="micro-glitch-card group mt-6 flex max-w-2xl items-center justify-between gap-4 rounded-lg border border-signal/30 bg-signal/[0.075] p-4 shadow-[0_0_38px_rgba(252,238,10,0.13)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-signal/70 hover:bg-signal/[0.12]"
             variants={itemVariants}
           >
@@ -553,7 +548,7 @@ function Hero() {
                 <ScanSearch size={21} />
               </span>
               <span className="min-w-0">
-                <span className="block font-mono text-[11px] uppercase tracking-wide text-signal">Live web app</span>
+                <span className="block font-mono text-[11px] uppercase tracking-wide text-signal">Live security tool</span>
                 <span className="mt-1 block text-base font-semibold text-white sm:text-lg">Identity Exposure Scanner</span>
               </span>
             </span>
@@ -1064,7 +1059,9 @@ export default function App() {
       return <AdminPage path={path} />;
     }
 
-    if (path.replace(/\/$/, "") === "/email-scanner") {
+    const normalizedPath = path.replace(/\/$/, "");
+
+    if (normalizedPath === "/identity-exposure-scanner" || normalizedPath === "/email-scanner") {
       return <EmailScannerPage />;
     }
 
