@@ -20,6 +20,12 @@ type EmailCheckResult = {
   risk_level: RiskLevel;
   recommendations: string[];
   message: string;
+  provider?: string;
+  sources?: Array<{
+    name: string;
+    date?: string;
+  }>;
+  fields?: string[];
   cached?: boolean;
   provider_limited?: boolean;
 };
@@ -221,6 +227,42 @@ export function EmailScannerPage() {
                     </div>
                   </div>
                 </div>
+
+                {result.compromised && ((result.sources?.length || 0) > 0 || (result.fields?.length || 0) > 0) && (
+                  <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                    <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                      <MailSearch size={16} />
+                      Exposure details
+                    </div>
+
+                    {(result.fields?.length || 0) > 0 && (
+                      <div>
+                        <p className="font-mono text-xs uppercase text-haze">What data types appeared</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {result.fields?.map((field) => (
+                            <span key={field} className="rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-white">
+                              {field}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(result.sources?.length || 0) > 0 && (
+                      <div className={(result.fields?.length || 0) > 0 ? "mt-6" : ""}>
+                        <p className="font-mono text-xs uppercase text-haze">Where and when it appeared</p>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {result.sources?.map((source) => (
+                            <div key={`${source.name}-${source.date || "unknown"}`} className="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2">
+                              <span className="text-sm font-medium text-white">{source.name}</span>
+                              <span className="shrink-0 font-mono text-xs uppercase text-haze">{source.date || "Date unknown"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
                   <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">

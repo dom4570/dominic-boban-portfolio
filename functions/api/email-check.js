@@ -40,7 +40,7 @@ function safeString(value) {
     .slice(0, 120);
 }
 
-function buildResult(breachCount, sources = [], provider = "LeakCheck") {
+function buildResult(breachCount, sources = [], fields = [], provider = "LeakCheck") {
   const compromised = breachCount > 0;
   const riskLevel = breachCount >= 3 ? "High" : breachCount >= 1 ? "Medium" : "Low";
   const recommendations = compromised
@@ -61,6 +61,7 @@ function buildResult(breachCount, sources = [], provider = "LeakCheck") {
       : "No known breach exposure was found for this email.",
     provider,
     sources,
+    fields,
   };
 }
 
@@ -84,6 +85,7 @@ function cloneResult(result, cached = false) {
     ...result,
     recommendations: [...result.recommendations],
     sources: [...(result.sources || [])],
+    fields: [...(result.fields || [])],
     cached,
   };
 }
@@ -170,28 +172,43 @@ async function readJsonBody(request) {
   return { body };
 }
 
-function sourceNamesFromPublicResponse(body) {
+function sourcesFromPublicResponse(body) {
   if (!Array.isArray(body?.sources)) return [];
 
   return body.sources
-    .map((source) => safeString(source?.name))
-    .filter(Boolean)
+    .map((source) => ({
+      name: safeString(source?.name),
+      date: safeString(source?.date),
+    }))
+    .filter((source) => source.name)
     .slice(0, 12);
 }
 
-function sourceNamesFromProResponse(body) {
+function sourcesFromProResponse(body) {
   const rows = Array.isArray(body?.result)
     ? body.result
     : Array.isArray(body?.data)
       ? body.data
       : Array.isArray(body)
         ? body
-        : [];
+      : [];
 
   return rows
-    .map((row) => safeString(row?.source?.name || row?.source || row?.database_name || row?.name))
-    .filter(Boolean)
+    .map((row) => ({
+      name: safeString(row?.source?.name || row?.source || row?.database_name || row?.name),
+      date: safeString(row?.source?.date || row?.date || row?.breach_date || row?.last_breach),
+    }))
+    .filter((source) => source.name)
     .slice(0, 12);
+}
+
+function fieldsFromResponse(body) {
+  const fields = Array.isArray(body?.fields) ? body.fields : [];
+
+  return fields
+    .map((field) => safeString(field).replace(/_/g, " "))
+    .filter(Boolean)
+    .slice(0, 16);
 }
 
 function normalizeLeakCheckBody(body) {
@@ -203,23 +220,23 @@ function normalizeLeakCheckBody(body) {
   }
 
   if (typeof body?.found === "number") {
-    return buildResult(Math.max(0, body.found), sourceNamesFromPublicResponse(body));
+    return buildResult(Math.max(0, body.found), sourcesFromPublicResponse(body), fieldsFromResponse(body));
   }
 
   if (Array.isArray(body?.sources)) {
-    return buildResult(body.sources.length, sourceNamesFromPublicResponse(body));
+    return buildResult(body.sources.length, sourcesFromPublicResponse(body), fieldsFromResponse(body));
   }
 
-  const proSources = sourceNamesFromProResponse(body);
+  const proSources = sourcesFromProResponse(body);
   if (typeof body?.found === "boolean") {
-    return buildResult(body.found ? Math.max(1, proSources.length) : 0, proSources);
+    return buildResult(body.found ? Math.max(1, proSources.length) : 0, proSources, fieldsFromResponse(body));
   }
 
   if (typeof body?.success === "boolean" && body.success === false) {
     return buildResult(0);
   }
 
-  return buildResult(proSources.length, proSources);
+  return buildResult(proSources.length, proSources, fieldsFromResponse(body));
 }
 
 function providerBusyResult() {
