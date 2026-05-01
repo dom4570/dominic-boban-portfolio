@@ -111,7 +111,7 @@ export function EmailScannerPage() {
           Home
         </a>
         <span className="font-mono text-xs uppercase text-signal">Email exposure scanner</span>
-        <span className="hidden font-mono text-xs uppercase text-white/35 sm:inline">/ XposedOrNot pass-through</span>
+        <span className="hidden font-mono text-xs uppercase text-white/35 sm:inline">/ LeakCheck pass-through</span>
       </nav>
 
       <div className="relative z-10 mx-auto grid max-w-7xl gap-8 py-14 md:py-20 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
@@ -180,7 +180,10 @@ export function EmailScannerPage() {
             </button>
 
             <p className="rounded-md border border-white/10 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-haze">
-              We do not store submitted emails. Results are passed through XposedOrNot API.
+              We do not store submitted emails. Results are passed through LeakCheck API.{" "}
+              <a href="https://leakcheck.io/" target="_blank" rel="noreferrer" className="text-signal underline decoration-signal/40 underline-offset-4 hover:text-white">
+                Powered by LeakCheck.
+              </a>
             </p>
 
             {error && (

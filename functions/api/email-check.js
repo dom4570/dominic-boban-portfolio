@@ -1,8 +1,9 @@
-const UPSTREAM_BASE_URL = "https://api.xposedornot.com/v1/check-email";
+const LEAKCHECK_PUBLIC_URL = "https://leakcheck.io/api/public";
+const LEAKCHECK_PRO_URL = "https://leakcheck.io/api";
 const RATE_LIMIT_WINDOW_MS = 12_000;
 const RATE_LIMIT_MAX_ENTRIES = 500;
 const RESULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PROVIDER_BUSY_TTL_MS = 5 * 60 * 1000;
+const PROVIDER_BUSY_TTL_MS = 60 * 1000;
 const rateLimitStore = new Map();
 const resultCache = new Map();
 
@@ -32,16 +33,14 @@ function isValidEmail(value) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
-function flattenBreaches(value) {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .flat(2)
-    .map((breach) => String(breach || "").trim())
-    .filter(Boolean);
+function safeString(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^\w .:@()#+-]/g, "")
+    .slice(0, 120);
 }
 
-function buildResult(breachCount) {
+function buildResult(breachCount, sources = [], provider = "LeakCheck") {
   const compromised = breachCount > 0;
   const riskLevel = breachCount >= 3 ? "High" : breachCount >= 1 ? "Medium" : "Low";
   const recommendations = compromised
@@ -60,6 +59,8 @@ function buildResult(breachCount) {
     message: compromised
       ? "This email appears in known breach data."
       : "No known breach exposure was found for this email.",
+    provider,
+    sources,
   };
 }
 
@@ -75,13 +76,14 @@ async function sha256Prefix(value) {
 }
 
 async function getEmailCacheKey(email) {
-  return `email:${await sha256Hex(email)}`;
+  return `leakcheck:${await sha256Hex(email)}`;
 }
 
 function cloneResult(result, cached = false) {
   return {
     ...result,
     recommendations: [...result.recommendations],
+    sources: [...(result.sources || [])],
     cached,
   };
 }
@@ -168,7 +170,95 @@ async function readJsonBody(request) {
   return { body };
 }
 
-export async function onRequest({ request }) {
+function sourceNamesFromPublicResponse(body) {
+  if (!Array.isArray(body?.sources)) return [];
+
+  return body.sources
+    .map((source) => safeString(source?.name))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function sourceNamesFromProResponse(body) {
+  const rows = Array.isArray(body?.result)
+    ? body.result
+    : Array.isArray(body?.data)
+      ? body.data
+      : Array.isArray(body)
+        ? body
+        : [];
+
+  return rows
+    .map((row) => safeString(row?.source?.name || row?.source || row?.database_name || row?.name))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function normalizeLeakCheckBody(body) {
+  const errorText = safeString(body?.error || body?.Error || body?.message);
+  const notFound = !body?.success && /not found|no results/i.test(errorText);
+
+  if (notFound) {
+    return buildResult(0);
+  }
+
+  if (typeof body?.found === "number") {
+    return buildResult(Math.max(0, body.found), sourceNamesFromPublicResponse(body));
+  }
+
+  if (Array.isArray(body?.sources)) {
+    return buildResult(body.sources.length, sourceNamesFromPublicResponse(body));
+  }
+
+  const proSources = sourceNamesFromProResponse(body);
+  if (typeof body?.found === "boolean") {
+    return buildResult(body.found ? Math.max(1, proSources.length) : 0, proSources);
+  }
+
+  if (typeof body?.success === "boolean" && body.success === false) {
+    return buildResult(0);
+  }
+
+  return buildResult(proSources.length, proSources);
+}
+
+function providerBusyResult() {
+  return {
+    ...buildResult(0),
+    message: "LeakCheck is temporarily rate limiting this lookup. Please try again shortly.",
+    provider_limited: true,
+  };
+}
+
+async function queryLeakCheckPublic(email) {
+  const url = new URL(LEAKCHECK_PUBLIC_URL);
+  url.searchParams.set("check", email);
+
+  return fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "DominicBobanPortfolio/1.0",
+    },
+  });
+}
+
+async function queryLeakCheckPro(email, apiKey) {
+  const url = new URL(LEAKCHECK_PRO_URL);
+  url.searchParams.set("key", apiKey);
+  url.searchParams.set("check", email);
+  url.searchParams.set("type", "email");
+
+  return fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "DominicBobanPortfolio/1.0",
+    },
+  });
+}
+
+export async function onRequest({ request, env }) {
   if (request.method !== "POST") {
     return problem("Method not allowed.", 405, { Allow: "POST" });
   }
@@ -195,54 +285,36 @@ export async function onRequest({ request }) {
   }
 
   try {
-    // Email is encoded and only passed to the upstream breach lookup; it is not logged or stored.
-    const upstreamResponse = await fetch(`${UPSTREAM_BASE_URL}/${encodeURIComponent(email)}`, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-    });
+    // The submitted email is only forwarded to LeakCheck for lookup and is not stored or logged.
+    const apiKey = String(env.LEAKCHECK_API_KEY || "").trim();
+    let upstreamResponse = apiKey ? await queryLeakCheckPro(email, apiKey) : await queryLeakCheckPublic(email);
+    let upstreamBody = await upstreamResponse.json().catch(() => null);
 
-    const upstreamBody = await upstreamResponse.json().catch(() => null);
-    const noBreachFound =
-      upstreamResponse.status === 404 ||
-      String(upstreamBody?.Error || "").toLowerCase().includes("not found");
+    const upstreamError = String(upstreamBody?.error || upstreamBody?.Error || upstreamBody?.message || "");
 
-    if (noBreachFound) {
-      const result = buildResult(0);
-      setCachedResult(emailCacheKey, result);
-      return json(result);
+    if (apiKey && (!upstreamResponse.ok || upstreamBody?.success === false) && /missing params|wrong|license|ip linking/i.test(upstreamError)) {
+      return problem("LeakCheck API key is not configured correctly. Check the Cloudflare secret and LeakCheck account/IP settings.", 502);
     }
 
     if (upstreamResponse.status === 429) {
-      const providerBusyResult = {
-        ...buildResult(0),
-        compromised: false,
-        breach_count: 0,
-        risk_level: "Low",
-        message: "The exposure provider is busy right now. Please try again in a few minutes.",
-        provider_limited: true,
-      };
-
-      setCachedResult(emailCacheKey, providerBusyResult, PROVIDER_BUSY_TTL_MS);
-      return json(providerBusyResult, 200, { "X-Provider-Limited": "true" });
+      const result = providerBusyResult();
+      setCachedResult(emailCacheKey, result, PROVIDER_BUSY_TTL_MS);
+      return json(result, 200, { "X-Provider-Limited": "true" });
     }
 
     if (upstreamResponse.status >= 500) {
-      return problem("Exposure data provider is temporarily unavailable.", 503);
+      return problem("LeakCheck is temporarily unavailable.", 503);
     }
 
     if (!upstreamResponse.ok) {
-      return problem("Unable to complete the exposure check.", 502);
+      return problem("Unable to complete the LeakCheck exposure lookup.", 502);
     }
 
-    const breachNames = flattenBreaches(upstreamBody?.breaches);
-    const breachCount = new Set(breachNames).size;
-    const result = buildResult(breachCount);
-
+    const result = normalizeLeakCheckBody(upstreamBody);
     setCachedResult(emailCacheKey, result);
+
     return json(result);
   } catch {
-    return problem("Unable to reach the exposure data provider right now.", 503);
+    return problem("Unable to reach LeakCheck right now.", 503);
   }
 }
