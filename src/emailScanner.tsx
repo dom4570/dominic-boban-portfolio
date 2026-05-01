@@ -40,7 +40,7 @@ const fadeUp = {
 function riskClasses(risk: RiskLevel) {
   if (risk === "High") return "border-trace/40 bg-trace/10 text-trace";
   if (risk === "Medium") return "border-volt/40 bg-volt/10 text-volt";
-  return "border-signal/40 bg-signal/10 text-signal";
+  return "border-cyan-300/40 bg-cyan-400/10 text-cyan-100 shadow-[0_0_34px_rgba(103,232,249,0.12)]";
 }
 
 async function readJson<T>(response: Response): Promise<T> {
