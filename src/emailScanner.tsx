@@ -10,7 +10,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type RiskLevel = "Low" | "Medium" | "High";
 
@@ -50,9 +50,25 @@ export function EmailScannerPage() {
   const [result, setResult] = useState<EmailCheckResult | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+
+    const timer = window.setInterval(() => {
+      setCooldown((remaining) => Math.max(remaining - 1, 0));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (cooldown > 0) {
+      setError(`Please wait ${cooldown} seconds before running another scan.`);
+      return;
+    }
 
     const normalizedEmail = email.trim().toLowerCase();
     setError("");
@@ -64,6 +80,7 @@ export function EmailScannerPage() {
     }
 
     setLoading(true);
+    setCooldown(60);
 
     try {
       const data = await fetch("/api/email-check", {
@@ -102,7 +119,7 @@ export function EmailScannerPage() {
             Email exposure scanner.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-haze">
-            Check whether an email appears in known breach data and get simple, practical next steps without submitting anything directly from your browser to the third-party API.
+            Check whether your email has appeared in known breach or dark-web exposure data, then get simple steps to reduce account takeover risk.
           </p>
           <div className="mt-8 grid gap-3 text-sm text-haze sm:grid-cols-3">
             {[
@@ -153,11 +170,11 @@ export function EmailScannerPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || cooldown > 0}
               className="glitch-control inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-signal px-5 text-sm font-semibold text-obsidian transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
             >
               {loading ? <Loader2 className="animate-spin" size={17} /> : <ShieldCheck size={17} />}
-              {loading ? "Checking exposure..." : "Check Exposure"}
+              {loading ? "Checking exposure..." : cooldown > 0 ? `Cooldown ${cooldown}s` : "Check Exposure"}
             </button>
 
             <p className="rounded-md border border-white/10 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-haze">
