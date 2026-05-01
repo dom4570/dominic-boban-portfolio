@@ -40,7 +40,7 @@ const navItems = [
   { label: "Projects", href: "#projects" },
   { label: "Achievements", href: "#achievements" },
   { label: "Blog", href: "/blog" },
-  { label: "Email Scanner", href: "/email-scanner" },
+  { label: "Identity Exposure Scanner", href: "/email-scanner", featured: true },
   { label: "Contact", href: "#contact" },
 ];
 
@@ -462,14 +462,29 @@ function Hero() {
           </span>
           <span className="micro-glitch-text text-sm font-semibold uppercase" data-text="Dominic Boban">Dominic Boban</span>
         </a>
-        <div className="hidden items-center gap-1 md:flex">
+        <div className="hidden items-center gap-1 lg:flex">
           {navItems.map((item) => (
-            <a key={item.href} href={item.href} className="glitch-control rounded-md px-3 py-2 text-sm text-haze transition hover:bg-white/5 hover:text-white">
-              {item.label}
+            <a
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "glitch-control rounded-md px-3 py-2 text-sm transition hover:bg-white/5 hover:text-white",
+                item.featured
+                  ? "inline-flex items-center gap-2 border border-signal/35 bg-signal/10 font-semibold text-signal shadow-[0_0_22px_rgba(252,238,10,0.16)] hover:border-signal/70 hover:bg-signal/20"
+                  : "text-haze",
+              )}
+            >
+              {item.featured && <ScanSearch size={15} strokeWidth={2} />}
+              <span>{item.label}</span>
+              {item.featured && (
+                <span className="rounded border border-signal/35 bg-black/25 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-signal">
+                  App
+                </span>
+              )}
             </a>
           ))}
         </div>
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-2 lg:hidden">
           <a
             href="/blog"
             className="glitch-control inline-flex h-10 items-center justify-center rounded-lg border border-signal/30 bg-signal/10 px-3 text-sm font-semibold text-signal transition hover:bg-signal hover:text-obsidian"
@@ -478,9 +493,10 @@ function Hero() {
           </a>
           <a
             href="/email-scanner"
-            className="glitch-control inline-flex h-10 items-center justify-center rounded-lg border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:border-signal/40 hover:bg-signal/10"
+            className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-signal/45 bg-signal/10 px-3 text-sm font-semibold text-signal shadow-[0_0_20px_rgba(252,238,10,0.14)] transition hover:bg-signal hover:text-obsidian"
           >
-            Scanner
+            <ScanSearch size={15} />
+            ID Scan
           </a>
         </div>
         <a
@@ -527,6 +543,24 @@ function Hero() {
               Contact Me
             </a>
           </motion.div>
+          <motion.a
+            href="/email-scanner"
+            className="micro-glitch-card group mt-6 flex max-w-2xl items-center justify-between gap-4 rounded-lg border border-signal/30 bg-signal/[0.075] p-4 shadow-[0_0_38px_rgba(252,238,10,0.13)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-signal/70 hover:bg-signal/[0.12]"
+            variants={itemVariants}
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-signal/35 bg-signal/15 text-signal">
+                <ScanSearch size={21} />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-mono text-[11px] uppercase tracking-wide text-signal">Live web app</span>
+                <span className="mt-1 block text-base font-semibold text-white sm:text-lg">Identity Exposure Scanner</span>
+              </span>
+            </span>
+            <span className="hidden rounded border border-white/10 bg-black/25 px-3 py-2 font-mono text-xs uppercase text-haze transition group-hover:border-signal/35 group-hover:text-signal sm:inline-flex">
+              Launch
+            </span>
+          </motion.a>
         </motion.div>
 
         <motion.div

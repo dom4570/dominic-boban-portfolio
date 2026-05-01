@@ -116,15 +116,15 @@ export function EmailScannerPage() {
           <ArrowLeft size={16} />
           Home
         </a>
-        <span className="font-mono text-xs uppercase text-signal">Email exposure scanner</span>
+        <span className="font-mono text-xs uppercase text-signal">Identity exposure scanner</span>
         <span className="hidden font-mono text-xs uppercase text-white/35 sm:inline">/ LeakCheck pass-through</span>
       </nav>
 
       <div className="relative z-10 mx-auto grid max-w-7xl gap-8 py-14 md:py-20 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
         <motion.header initial="hidden" animate="visible" variants={fadeUp}>
           <p className="font-mono text-xs uppercase text-signal">Exposure intelligence / privacy-first lookup</p>
-          <h1 className="micro-glitch-heading mt-4 max-w-4xl text-5xl font-semibold leading-tight text-white md:text-7xl" data-text="Email exposure scanner.">
-            Email exposure scanner.
+          <h1 className="micro-glitch-heading mt-4 max-w-4xl text-5xl font-semibold leading-tight text-white md:text-7xl" data-text="Identity exposure scanner.">
+            Identity exposure scanner.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-haze">
             Check whether your email has appeared in known breach or dark-web data.
