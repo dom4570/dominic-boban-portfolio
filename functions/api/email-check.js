@@ -233,7 +233,7 @@ function normalizeLeakCheckBody(body) {
   }
 
   if (typeof body?.success === "boolean" && body.success === false) {
-    return buildResult(0);
+    return null;
   }
 
   return buildResult(proSources.length, proSources, fieldsFromResponse(body));
@@ -331,6 +331,9 @@ export async function onRequest({ request, env }) {
     }
 
     const result = normalizeLeakCheckBody(upstreamBody);
+    if (!result) {
+      return problem("Unable to complete the LeakCheck exposure lookup.", 502);
+    }
     setCachedResult(emailCacheKey, result);
 
     return json(result);
