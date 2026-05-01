@@ -211,23 +211,23 @@ export function EmailScannerPage() {
         <span className="font-mono text-xs uppercase text-signal">Identity exposure scanner</span>
       </nav>
 
-      <div className="relative z-10 mx-auto grid max-w-7xl gap-6 py-10 md:py-12 lg:grid-cols-[420px_minmax(0,1fr)] lg:items-start">
-        <motion.aside
+      <div className="relative z-10 mx-auto grid max-w-7xl gap-6 py-10 md:py-12">
+        <motion.section
           initial={{ opacity: 0, y: 26 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.55, delay: 0.08 }}
-          className="self-start lg:sticky lg:top-6"
+          className="overflow-hidden rounded-lg border border-white/10 bg-obsidian/75 shadow-glow backdrop-blur-xl"
         >
-          <div className="overflow-hidden rounded-lg border border-white/10 bg-obsidian/75 shadow-glow backdrop-blur-xl">
-            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-              <span className="h-3 w-3 rounded-full bg-trace" />
-              <span className="h-3 w-3 rounded-full bg-volt" />
-              <span className="h-3 w-3 rounded-full bg-signal" />
-              <span className="ml-2 font-mono text-xs text-haze">exposure-check.sh</span>
-            </div>
+          <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+            <span className="h-3 w-3 rounded-full bg-trace" />
+            <span className="h-3 w-3 rounded-full bg-volt" />
+            <span className="h-3 w-3 rounded-full bg-signal" />
+            <span className="ml-2 font-mono text-xs text-haze">exposure-check.sh</span>
+          </div>
 
-            <form onSubmit={submit} className="grid gap-5 p-5 md:p-6">
-              <div>
+          <form onSubmit={submit} className="grid gap-6 p-5 md:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.88fr)] lg:items-start">
+            <div className="grid gap-5">
+              <div className="max-w-3xl">
                 <p className="font-mono text-xs uppercase text-signal">Exposure intelligence / privacy-first lookup</p>
                 <h1 className="micro-glitch-heading mt-3 text-4xl font-semibold leading-tight text-white" data-text="Identity exposure scanner.">
                   Identity exposure scanner.
@@ -237,7 +237,7 @@ export function EmailScannerPage() {
                 </p>
               </div>
 
-              <label className="grid gap-2">
+              <label className="grid max-w-3xl gap-2">
                 <span className="micro-glitch-text font-mono text-xs uppercase text-signal" data-text="$ email --check">
                   $ email --check
                 </span>
@@ -256,16 +256,18 @@ export function EmailScannerPage() {
                 </div>
               </label>
 
-              <button
-                type="submit"
-                disabled={loading || cooldown > 0}
-                className="glitch-control inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-signal px-5 text-sm font-semibold text-obsidian transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {loading ? <Loader2 className="animate-spin" size={17} /> : <ShieldCheck size={17} />}
-                {loading ? "Checking exposure..." : cooldown > 0 ? `Cooldown ${cooldown}s` : "Check Exposure"}
-              </button>
+              <div className="flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="submit"
+                  disabled={loading || cooldown > 0}
+                  className="glitch-control inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-signal px-6 text-sm font-semibold text-obsidian transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-70 sm:w-fit"
+                >
+                  {loading ? <Loader2 className="animate-spin" size={17} /> : <ShieldCheck size={17} />}
+                  {loading ? "Checking exposure..." : cooldown > 0 ? `Cooldown ${cooldown}s` : "Check Exposure"}
+                </button>
+              </div>
 
-              <p className="rounded-md border border-white/10 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-haze">
+              <p className="max-w-3xl rounded-md border border-white/10 bg-white/[0.035] px-4 py-3 text-sm leading-6 text-haze">
                 Submitted emails are checked server-side and not stored by this site. Powered by{" "}
                 <a href="https://haveibeenpwned.com/API/v3" target="_blank" rel="noreferrer" className="text-signal underline decoration-signal/40 underline-offset-4 hover:text-white">
                   Have I Been Pwned
@@ -278,7 +280,7 @@ export function EmailScannerPage() {
               </p>
 
               {error && (
-                <div className="rounded-lg border border-trace/40 bg-trace/10 p-4 text-trace">
+                <div className="max-w-3xl rounded-lg border border-trace/40 bg-trace/10 p-4 text-trace">
                   <div className="flex items-center gap-2 font-mono text-xs uppercase">
                     <AlertTriangle size={16} />
                     Check failed
@@ -286,56 +288,85 @@ export function EmailScannerPage() {
                   <p className="mt-2 leading-7 text-haze">{error}</p>
                 </div>
               )}
-            </form>
+            </div>
 
-            <div className="border-t border-white/10 p-5 md:p-6">
-              {!result ? (
-                <div>
-                  <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
-                    <LockKeyhole size={16} />
-                    What this checks
+            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-5">
+              <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                <LockKeyhole size={16} />
+                What this checks
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+                {scanChecklist.map(([title, body]) => (
+                  <div key={title} className="rounded-md border border-white/10 bg-black/20 p-4">
+                    <p className="text-sm font-semibold text-white">{title}</p>
+                    <p className="mt-2 text-sm leading-6 text-haze">{body}</p>
                   </div>
-                  <div className="grid gap-3">
-                    {scanChecklist.map(([title, body]) => (
-                      <div key={title} className="border-l border-signal/35 pl-3">
-                        <p className="text-sm font-semibold text-white">{title}</p>
-                        <p className="mt-1 text-sm leading-6 text-haze">{body}</p>
-                      </div>
-                    ))}
+                ))}
+              </div>
+            </div>
+          </form>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 26 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, delay: 0.14 }}
+          className="grid gap-4"
+        >
+          {!result ? (
+            <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6 shadow-glow backdrop-blur-xl md:p-8">
+              <p className="font-mono text-xs uppercase text-signal">Signal preview</p>
+              <h2 className="mt-3 text-3xl font-semibold text-white">Awaiting scan target.</h2>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-haze">
+                Results will appear here under the scanner as a clean intelligence report with provider status, timeline, paste exposure, and breach details.
+              </p>
+              <div className="mt-6 grid gap-3 md:grid-cols-3">
+                {[
+                  ["Provider status", "HIBP, LeakCheck, and HIBP Pastes."],
+                  ["Timeline", "Newest-first exposure chronology."],
+                  ["Details", "Breach, paste, and data-class cards."],
+                ].map(([title, body]) => (
+                  <div key={title} className="rounded-lg border border-white/10 bg-black/20 p-4">
+                    <p className="font-mono text-xs uppercase text-signal">{title}</p>
+                    <p className="mt-2 text-sm leading-6 text-haze">{body}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+                <div className={["rounded-lg border p-5", result.provider_limited ? "border-volt/40 bg-volt/10 text-volt" : riskClasses(result.risk_level)].join(" ")}>
+                  <div className="flex items-start gap-3">
+                    {result.provider_limited ? <AlertTriangle size={24} /> : result.compromised ? <ShieldAlert size={24} /> : <CheckCircle2 size={24} />}
+                    <div>
+                      <p className="font-mono text-xs uppercase">{result.cached ? "Cached scan result" : "Scan result"}</p>
+                      <h2 className="mt-1 text-2xl font-semibold text-white">{result.message}</h2>
+                    </div>
+                  </div>
+                  <div className="mt-5 grid gap-3 sm:grid-cols-4">
+                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                      <p className="font-mono text-[11px] uppercase text-haze">Compromised</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{result.compromised ? "Yes" : "No"}</p>
+                    </div>
+                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                      <p className="font-mono text-[11px] uppercase text-haze">Risk level</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{result.risk_level}</p>
+                    </div>
+                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                      <p className="font-mono text-[11px] uppercase text-haze">Breaches</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{result.breach_count}</p>
+                    </div>
+                    <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                      <p className="font-mono text-[11px] uppercase text-haze">Pastes</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{result.paste_count || 0}</p>
+                    </div>
                   </div>
                 </div>
-              ) : (
-                <div className="grid gap-5">
-                  <div className={["rounded-lg border p-4", result.provider_limited ? "border-volt/40 bg-volt/10 text-volt" : riskClasses(result.risk_level)].join(" ")}>
-                    <div className="flex items-start gap-3">
-                      {result.provider_limited ? <AlertTriangle size={22} /> : result.compromised ? <ShieldAlert size={22} /> : <CheckCircle2 size={22} />}
-                      <div>
-                        <p className="font-mono text-xs uppercase">{result.cached ? "Cached scan result" : "Scan result"}</p>
-                        <h2 className="mt-1 text-xl font-semibold text-white">{result.message}</h2>
-                      </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div>
-                        <p className="font-mono text-[11px] uppercase text-haze">Compromised</p>
-                        <p className="mt-1 text-lg font-semibold text-white">{result.compromised ? "Yes" : "No"}</p>
-                      </div>
-                      <div>
-                        <p className="font-mono text-[11px] uppercase text-haze">Risk</p>
-                        <p className="mt-1 text-lg font-semibold text-white">{result.risk_level}</p>
-                      </div>
-                      <div>
-                        <p className="font-mono text-[11px] uppercase text-haze">Breaches</p>
-                        <p className="mt-1 text-lg font-semibold text-white">{result.breach_count}</p>
-                      </div>
-                      <div>
-                        <p className="font-mono text-[11px] uppercase text-haze">Pastes</p>
-                        <p className="mt-1 text-lg font-semibold text-white">{result.paste_count || 0}</p>
-                      </div>
-                    </div>
-                  </div>
 
+                <div className="grid gap-4">
                   {providerEntries.length > 0 && (
-                    <div>
+                    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
                       <div className="mb-3 flex items-center gap-2 font-mono text-xs uppercase text-signal">
                         <ShieldCheck size={16} />
                         Provider status
@@ -360,7 +391,7 @@ export function EmailScannerPage() {
                   )}
 
                   {topRecommendations.length > 0 && (
-                    <div>
+                    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
                       <div className="mb-3 flex items-center gap-2 font-mono text-xs uppercase text-signal">
                         <KeyRound size={16} />
                         Priority actions
@@ -376,39 +407,8 @@ export function EmailScannerPage() {
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
-        </motion.aside>
-
-        <motion.section
-          initial={{ opacity: 0, y: 26 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.55, delay: 0.14 }}
-          className="grid gap-4"
-        >
-          {!result ? (
-            <div className="rounded-lg border border-white/10 bg-white/[0.04] p-6 shadow-glow backdrop-blur-xl md:p-8">
-              <p className="font-mono text-xs uppercase text-signal">Signal preview</p>
-              <h2 className="mt-3 text-3xl font-semibold text-white">Awaiting scan target.</h2>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-haze">
-                Results will appear here as a compact intelligence workspace, while the scan controls and summary stay anchored on the left.
-              </p>
-              <div className="mt-6 grid gap-3 md:grid-cols-3">
-                {[
-                  ["Provider status", "HIBP, LeakCheck, and HIBP Pastes."],
-                  ["Timeline", "Newest-first exposure chronology."],
-                  ["Details", "Breach, paste, and data-class cards."],
-                ].map(([title, body]) => (
-                  <div key={title} className="rounded-lg border border-white/10 bg-black/20 p-4">
-                    <p className="font-mono text-xs uppercase text-signal">{title}</p>
-                    <p className="mt-2 text-sm leading-6 text-haze">{body}</p>
-                  </div>
-                ))}
               </div>
-            </div>
-          ) : (
-            <>
+
               {!result.compromised && (
                 <div className={["rounded-lg border p-5", result.provider_limited ? "border-volt/40 bg-volt/10 text-volt" : riskClasses(result.risk_level)].join(" ")}>
                   <div className="flex items-center gap-3">
