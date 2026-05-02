@@ -1,5 +1,15 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
+const DATE_RANGES = {
+  "24h": { radar: "1d", aggInterval: "1h", label: "24 hours" },
+  "7d": { radar: "7d", aggInterval: "1d", label: "7 days" },
+  "30d": { radar: "30d", aggInterval: "1d", label: "30 days" },
+};
+const LOCATION_TRAFFIC = {
+  all: {},
+  bot: { botClass: "LIKELY_AUTOMATED" },
+  human: { botClass: "LIKELY_HUMAN" },
+};
 
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
@@ -178,31 +188,47 @@ function latestUpdated(...responses) {
   return updated.at(-1) || new Date().toISOString();
 }
 
+function requestOptions(request) {
+  const url = new URL(request.url);
+  const rangeKey = DATE_RANGES[url.searchParams.get("range")] ? url.searchParams.get("range") : "24h";
+  const trafficKey = LOCATION_TRAFFIC[url.searchParams.get("traffic")] ? url.searchParams.get("traffic") : "all";
+
+  return {
+    rangeKey,
+    trafficKey,
+    range: DATE_RANGES[rangeKey],
+    locationTraffic: LOCATION_TRAFFIC[trafficKey],
+  };
+}
+
 async function readCached(request) {
   if (typeof caches === "undefined") return null;
 
-  const cacheKey = new Request(new URL(request.url).origin + "/api/radar-dashboard");
+  const url = new URL(request.url);
+  const cacheKey = new Request(`${url.origin}/api/radar-dashboard?range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}`);
   return caches.default.match(cacheKey);
 }
 
 async function writeCached(request, response) {
   if (typeof caches === "undefined") return;
 
-  const cacheKey = new Request(new URL(request.url).origin + "/api/radar-dashboard");
+  const url = new URL(request.url);
+  const cacheKey = new Request(`${url.origin}/api/radar-dashboard?range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}`);
   await caches.default.put(cacheKey, response.clone());
 }
 
 async function buildDashboard(request, token) {
+  const options = requestOptions(request);
   const commonParams = {
-    dateRange: "1d",
-    aggInterval: "1h",
+    dateRange: options.range.radar,
+    aggInterval: options.range.aggInterval,
     format: "json",
   };
 
   const [httpResponse, botResponse] = await Promise.all([
     fetchRadar("/http/timeseries", token, commonParams),
     fetchFirstRadar(["/http/summary/BOT_CLASS", "/http/summary/bot_class"], token, {
-      dateRange: "1d",
+      dateRange: options.range.radar,
       format: "json",
     }),
   ]);
@@ -222,13 +248,14 @@ async function buildDashboard(request, token) {
   const [layer7TimeResult, layer7SummaryResult, topLocationsResult] = await Promise.allSettled([
     fetchRadar("/attacks/layer7/timeseries", token, commonParams),
     fetchFirstRadar(["/attacks/layer7/summary/MITIGATION_PRODUCT", "/attacks/layer7/summary/mitigation_product"], token, {
-      dateRange: "1d",
+      dateRange: options.range.radar,
       format: "json",
     }),
     fetchRadar("/http/top/locations", token, {
-      dateRange: "1d",
+      dateRange: options.range.radar,
       format: "json",
       limit: 8,
+      ...options.locationTraffic,
     }),
   ]);
 
@@ -272,6 +299,11 @@ async function buildDashboard(request, token) {
     top_locations: topLocations,
     layer7_trend: layer7Trend,
     warnings,
+    filters: {
+      range: options.rangeKey,
+      range_label: options.range.label,
+      location_traffic: options.trafficKey,
+    },
     note: "This dashboard uses aggregated Cloudflare Radar data, not individual live attack events.",
   };
 }
