@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   ArrowRight,
   BarChart3,
-  Bot,
   ChevronDown,
   Clipboard,
   Download,
@@ -15,7 +14,6 @@ import {
   Radar,
   Search,
   ShieldAlert,
-  Users,
   Zap,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -64,6 +62,7 @@ type RadarDashboard = {
   bot_human: SplitPoint[];
   top_locations: LocationPoint[];
   layer7_trend: TrendPoint[];
+  layer7_mitigation_mix?: SplitPoint[];
   attack_geography?: {
     origins: AttackLocationPoint[];
     targets: AttackLocationPoint[];
@@ -83,8 +82,6 @@ type RadarDashboard = {
 };
 
 type RangeKey = "24h" | "7d" | "30d";
-type MetricKey = "http" | "layer7";
-type LocationTrafficKey = "all" | "bot" | "human";
 type AttackGeoTab = "origins" | "targets" | "flows";
 type RadarScopeKey = "worldwide" | `continent:${string}` | `country:${string}` | `asn:${string}`;
 type RadarScopeOption = {
@@ -99,17 +96,6 @@ const rangeOptions: Array<{ key: RangeKey; label: string }> = [
   { key: "24h", label: "24h" },
   { key: "7d", label: "7d" },
   { key: "30d", label: "30d" },
-];
-
-const metricOptions: Array<{ key: MetricKey; label: string; tone: "signal" | "trace" }> = [
-  { key: "http", label: "HTTP requests", tone: "signal" },
-  { key: "layer7", label: "Layer 7 attacks", tone: "trace" },
-];
-
-const locationTrafficOptions: Array<{ key: LocationTrafficKey; label: string }> = [
-  { key: "all", label: "All traffic" },
-  { key: "bot", label: "Bot traffic" },
-  { key: "human", label: "Human traffic" },
 ];
 
 const attackGeoTabs: Array<{ key: AttackGeoTab; label: string }> = [
@@ -204,28 +190,20 @@ function peakPoint(data: TrendPoint[]) {
 
 function buildAnalystInsights(data: RadarDashboard) {
   const insights = [];
-  const botPercent = data.summary.bot_percent || 0;
-  const httpPeak = peakPoint(data.http_trend);
   const layer7Peak = peakPoint(data.layer7_trend);
   const layer7Delta = trendDelta(data.layer7_trend);
-  const topLocation = data.top_locations[0];
   const topOrigin = data.attack_geography?.origins?.[0];
   const topTarget = data.attack_geography?.targets?.[0];
   const topFlow = data.attack_geography?.flows?.[0];
+  const topMitigation = data.layer7_mitigation_mix?.[0];
   const scopeLabel = data.filters?.scope_label || "Worldwide";
 
   if (scopeLabel !== "Worldwide") {
     insights.push(`Scope filter active: ${scopeLabel}. Radar endpoints that support this scope are filtered before results are normalized.`);
   }
 
-  if (botPercent >= 35) {
-    insights.push(`Bot traffic is elevated at ${formatPercent(botPercent)}, so automated activity is a major part of the global HTTP mix.`);
-  } else {
-    insights.push(`Human traffic is currently dominant, with bots at ${formatPercent(botPercent)} of the global HTTP mix.`);
-  }
-
-  if (httpPeak) {
-    insights.push(`HTTP request pressure peaked around ${formatTime(httpPeak.timestamp)} with an index value of ${formatCompact(httpPeak.value)}.`);
+  if (topMitigation) {
+    insights.push(`${topMitigation.label} leads the application-layer mitigation mix at ${formatPercent(topMitigation.value)}.`);
   }
 
   if (layer7Peak) {
@@ -235,10 +213,6 @@ function buildAnalystInsights(data: RadarDashboard) {
   if (layer7Delta !== null) {
     const direction = layer7Delta >= 0 ? "up" : "down";
     insights.push(`The latest Layer 7 point is ${direction} ${Math.abs(layer7Delta).toFixed(1)}% compared with the previous point.`);
-  }
-
-  if (topLocation) {
-    insights.push(`${topLocation.name} leads the selected location view with ${formatCompact(topLocation.value)}% share.`);
   }
 
   if (topOrigin) {
@@ -413,37 +387,43 @@ function LineChart({
   );
 }
 
-function DonutChart({ data }: { data: SplitPoint[] }) {
-  const bot = data.find((point) => point.label.toLowerCase() === "bot")?.value || 0;
-  const human = data.find((point) => point.label.toLowerCase() === "human")?.value || 0;
-  const total = bot + human || 1;
-  const botDegrees = (bot / total) * 360;
+const attackPalette = ["#67e8f9", "#f97316", "#3b82f6", "#fcee0a", "#22c55e", "#d946ef", "#ef4444", "#a855f7"];
+
+function DonutChart({ data, centerLabel = "Top share" }: { data: SplitPoint[]; centerLabel?: string }) {
+  const rows = data.length ? data.slice(0, 4) : [{ label: "Unavailable", value: 100 }];
+  const total = rows.reduce((sum, row) => sum + row.value, 0) || 1;
+  let cursor = 0;
+  const gradient = rows
+    .map((row, index) => {
+      const start = cursor;
+      cursor += (row.value / total) * 360;
+      return `${attackPalette[index % attackPalette.length]} ${start}deg ${cursor}deg`;
+    })
+    .join(", ");
+  const lead = rows[0];
 
   return (
     <div className="grid gap-5 rounded-lg border border-white/10 bg-black/20 p-5 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-center">
       <div
         className="relative mx-auto h-44 w-44 rounded-full"
         style={{
-          background: `conic-gradient(#fcee0a 0deg ${botDegrees}deg, #67e8f9 ${botDegrees}deg 360deg)`,
+          background: `conic-gradient(${gradient})`,
           boxShadow: "0 0 38px rgba(252,238,10,0.12)",
         }}
       >
         <div className="absolute inset-5 grid place-items-center rounded-full border border-white/10 bg-obsidian text-center">
-          <span className="font-mono text-xs uppercase text-haze">Bot share</span>
-          <span className="text-3xl font-semibold text-white">{formatPercent(bot)}</span>
+          <span className="font-mono text-xs uppercase text-haze">{centerLabel}</span>
+          <span className="text-3xl font-semibold text-white">{formatPercent(lead.value)}</span>
         </div>
       </div>
       <div className="grid gap-3">
-        {[
-          ["Bot", bot, "bg-signal"],
-          ["Human", human, "bg-cyan-300"],
-        ].map(([label, value, swatch]) => (
-          <div key={label} className="flex items-center justify-between gap-4 rounded-md border border-white/10 bg-white/[0.035] px-4 py-3">
+        {rows.map((row, index) => (
+          <div key={row.label} className="flex items-center justify-between gap-4 rounded-md border border-white/10 bg-white/[0.035] px-4 py-3">
             <span className="flex items-center gap-3 text-sm text-haze">
-              <span className={`h-3 w-3 rounded-full ${swatch}`} />
-              {label} traffic
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: attackPalette[index % attackPalette.length] }} />
+              {row.label}
             </span>
-            <span className="font-mono text-sm font-semibold text-white">{formatPercent(Number(value))}</span>
+            <span className="font-mono text-sm font-semibold text-white">{formatPercent(row.value)}</span>
           </div>
         ))}
       </div>
@@ -482,6 +462,34 @@ function LocationBars({ data }: { data: LocationPoint[] }) {
   );
 }
 
+const countryCoordinates: Record<string, { x: number; y: number }> = {
+  US: { x: 190, y: 178 },
+  CA: { x: 182, y: 108 },
+  BR: { x: 300, y: 306 },
+  GB: { x: 431, y: 145 },
+  FR: { x: 443, y: 171 },
+  DE: { x: 465, y: 158 },
+  NL: { x: 455, y: 151 },
+  BE: { x: 452, y: 162 },
+  ES: { x: 424, y: 194 },
+  IT: { x: 475, y: 197 },
+  NG: { x: 468, y: 260 },
+  ZA: { x: 506, y: 360 },
+  CN: { x: 680, y: 195 },
+  IN: { x: 623, y: 243 },
+  ID: { x: 706, y: 305 },
+  JP: { x: 760, y: 191 },
+  SG: { x: 688, y: 288 },
+  MY: { x: 678, y: 280 },
+  HK: { x: 697, y: 221 },
+  VN: { x: 681, y: 248 },
+  AU: { x: 744, y: 354 },
+};
+
+function mapPoint(code?: string, index = 0) {
+  return code && countryCoordinates[code] ? countryCoordinates[code] : { x: 90 + (index % 6) * 118, y: 110 + Math.floor(index / 6) * 60 };
+}
+
 function AttackLocationBars({ data, emptyLabel }: { data: AttackLocationPoint[]; emptyLabel: string }) {
   const max = Math.max(...data.map((point) => point.value), 1);
 
@@ -515,6 +523,172 @@ function AttackLocationBars({ data, emptyLabel }: { data: AttackLocationPoint[];
         </div>
       ))}
     </div>
+  );
+}
+
+function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab; origins: AttackLocationPoint[]; targets: AttackLocationPoint[]; flows: AttackFlowPoint[] }) {
+  const points = mode === "targets" ? targets : origins;
+  const maxValue = Math.max(...points.map((point) => point.value), ...flows.map((flow) => flow.value), 1);
+  const mapTitle = mode === "targets" ? "Top attacks by target location" : mode === "flows" ? "Top attack country flows" : "Top attacks by source location";
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-white/10 bg-[#07090b] p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-mono text-xs uppercase text-signal">{mapTitle}</p>
+          <p className="mt-1 text-sm text-haze">Aggregated Layer 7 Radar geography</p>
+        </div>
+        <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-xs uppercase text-haze">
+          {mode === "origins" ? "Source" : mode === "targets" ? "Target" : "Flow"}
+        </span>
+      </div>
+
+      <svg viewBox="0 0 900 440" className="h-[360px] w-full rounded-md bg-black/45" role="img" aria-label="World attack geography map">
+        <defs>
+          <filter id="map-glow">
+            <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="rgba(103,232,249,0.35)" />
+          </filter>
+          <linearGradient id="attack-line" x1="0" x2="1">
+            <stop offset="0%" stopColor="#fcee0a" stopOpacity="0.1" />
+            <stop offset="50%" stopColor="#67e8f9" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#ff2a3d" stopOpacity="0.2" />
+          </linearGradient>
+        </defs>
+
+        {[0, 1, 2, 3, 4, 5].map((line) => (
+          <line key={`v-${line}`} x1={80 + line * 140} x2={80 + line * 140} y1="54" y2="390" stroke="rgba(255,255,255,0.055)" strokeDasharray="4 9" />
+        ))}
+        {[0, 1, 2, 3].map((line) => (
+          <line key={`h-${line}`} x1="35" x2="865" y1={90 + line * 82} y2={90 + line * 82} stroke="rgba(255,255,255,0.055)" strokeDasharray="4 9" />
+        ))}
+
+        <path d="M90 118 C130 72 214 80 254 126 C237 160 176 169 124 154 C92 147 74 139 90 118Z" fill="rgba(176,235,244,0.8)" stroke="rgba(255,255,255,0.18)" />
+        <path d="M265 247 C310 236 355 278 339 331 C323 382 293 407 271 363 C256 331 232 283 265 247Z" fill="rgba(176,235,244,0.72)" stroke="rgba(255,255,255,0.15)" />
+        <path d="M412 120 C464 97 523 116 535 165 C497 189 422 184 385 155 C380 139 391 128 412 120Z" fill="rgba(176,235,244,0.78)" stroke="rgba(255,255,255,0.17)" />
+        <path d="M468 205 C521 193 561 241 542 310 C527 363 485 353 464 303 C448 265 428 222 468 205Z" fill="rgba(176,235,244,0.72)" stroke="rgba(255,255,255,0.15)" />
+        <path d="M545 139 C650 78 782 110 815 183 C740 220 630 211 548 177 C522 166 518 152 545 139Z" fill="rgba(176,235,244,0.8)" stroke="rgba(255,255,255,0.18)" />
+        <path d="M660 274 C710 255 773 276 800 336 C758 374 686 364 654 317 C642 300 644 284 660 274Z" fill="rgba(176,235,244,0.72)" stroke="rgba(255,255,255,0.15)" />
+        <path d="M381 78 C408 53 453 58 466 91 C446 114 397 111 373 94 C367 86 371 81 381 78Z" fill="rgba(176,235,244,0.45)" stroke="rgba(255,255,255,0.12)" />
+
+        {mode === "flows" &&
+          flows.map((flow, index) => {
+            const start = mapPoint(flow.origin_code, index);
+            const end = mapPoint(flow.target_code, index + 3);
+            const curveY = Math.min(start.y, end.y) - 70 - index * 5;
+            const width = Math.max(1.2, Math.min(8, (flow.value / maxValue) * 8));
+
+            return (
+              <path
+                key={`${flow.origin_code}-${flow.target_code}-${index}`}
+                d={`M ${start.x} ${start.y} C ${start.x + 100} ${curveY}, ${end.x - 100} ${curveY}, ${end.x} ${end.y}`}
+                fill="none"
+                stroke="url(#attack-line)"
+                strokeWidth={width}
+                strokeLinecap="round"
+              />
+            );
+          })}
+
+        {(mode === "flows" ? flows.flatMap((flow, index) => [
+          { code: flow.origin_code, name: flow.origin_name, value: flow.value, kind: "source", index },
+          { code: flow.target_code, name: flow.target_name, value: flow.value, kind: "target", index: index + flows.length },
+        ]) : points.map((point, index) => ({ ...point, kind: mode, index }))).map((point, index) => {
+          const coords = mapPoint(point.code, point.index || index);
+          const color = attackPalette[index % attackPalette.length];
+          const radius = Math.max(6, Math.min(18, 6 + (point.value / maxValue) * 18));
+
+          return (
+            <g key={`${point.code}-${point.name}-${index}`} filter="url(#map-glow)">
+              <circle cx={coords.x} cy={coords.y} r={radius + 4} fill="none" stroke={color} strokeOpacity="0.24" strokeWidth="2" />
+              <circle cx={coords.x} cy={coords.y} r={radius} fill="#07090b" stroke={color} strokeWidth="4" />
+              <text x={coords.x + radius + 7} y={coords.y + 4} fill="#ffffff" fontSize="12" fontWeight="700">
+                {point.code || point.name}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function AttackFlowDiagram({ data }: { data: AttackFlowPoint[] }) {
+  const max = Math.max(...data.map((point) => point.value), 1);
+
+  if (!data.length) {
+    return (
+      <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
+        Attack flow data unavailable.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="font-mono text-xs uppercase text-signal">Attacks by flow</p>
+        <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-xs uppercase text-haze">Source {"->"} Target</span>
+      </div>
+      <svg viewBox="0 0 420 410" className="h-[360px] w-full" role="img" aria-label="Layer 7 attack flow diagram">
+        {data.map((flow, index) => {
+          const y = 40 + index * 42;
+          const thickness = Math.max(3, Math.min(34, (flow.value / max) * 34));
+          const color = attackPalette[index % attackPalette.length];
+
+          return (
+            <g key={`${flow.origin_code}-${flow.target_code}-${index}`}>
+              <path
+                d={`M 74 ${y} C 165 ${y}, 245 ${y + (index % 2 === 0 ? 26 : -22)}, 344 ${y}`}
+                fill="none"
+                stroke={color}
+                strokeOpacity="0.5"
+                strokeWidth={thickness}
+                strokeLinecap="round"
+              />
+              <rect x="12" y={y - 15} width="74" height="30" rx="4" fill="rgba(255,255,255,0.08)" />
+              <rect x="334" y={y - 15} width="74" height="30" rx="4" fill="rgba(255,255,255,0.08)" />
+              <text x="22" y={y + 5} fill="#ffffff" fontSize="13" fontWeight="700">
+                {flow.origin_code || flow.origin_name.slice(0, 3)}
+              </text>
+              <text x="374" y={y + 5} fill="#ffffff" fontSize="13" fontWeight="700" textAnchor="middle">
+                {flow.target_code || flow.target_name.slice(0, 3)}
+              </text>
+              <text x="210" y={y - Math.max(12, thickness / 2)} fill="#d7c99e" fontSize="11" textAnchor="middle">
+                {formatPercent(flow.value)}
+              </text>
+            </g>
+          );
+        })}
+        <text x="18" y="396" fill="#67e8f9" fontSize="12" fontWeight="700">
+          Source
+        </text>
+        <text x="370" y="396" fill="#67e8f9" fontSize="12" fontWeight="700" textAnchor="middle">
+          Target
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+function ApplicationLayerSecurityPanel({
+  geography,
+  mode,
+  scopeLabel,
+}: {
+  geography: { origins: AttackLocationPoint[]; targets: AttackLocationPoint[]; flows: AttackFlowPoint[] };
+  mode: AttackGeoTab;
+  scopeLabel: string;
+}) {
+  return (
+    <Panel eyebrow="Application layer security" title={`Attack geography / ${scopeLabel}`}>
+      <div className="grid gap-5 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+        <AttackWorldMap mode={mode} origins={geography.origins} targets={geography.targets} flows={geography.flows} />
+        <AttackFlowDiagram data={geography.flows} />
+      </div>
+      <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
+        Attack geography is aggregated Cloudflare Radar Layer 7 data. It is not a live attack map for this portfolio website.
+      </p>
+    </Panel>
   );
 }
 
@@ -606,8 +780,6 @@ export function GlobalThreatDashboardPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<RangeKey>("24h");
-  const [metric, setMetric] = useState<MetricKey>("http");
-  const [locationTraffic, setLocationTraffic] = useState<LocationTrafficKey>("all");
   const [attackGeoTab, setAttackGeoTab] = useState<AttackGeoTab>("origins");
   const [scopeKey, setScopeKey] = useState<RadarScopeKey>("worldwide");
   const [scopeQuery, setScopeQuery] = useState("");
@@ -619,7 +791,6 @@ export function GlobalThreatDashboardPage() {
     let cancelled = false;
     const params = new URLSearchParams({
       range,
-      traffic: locationTraffic,
       scope: scopeKey,
       scopeLabel: selectedScope(scopeKey).label,
     });
@@ -647,14 +818,13 @@ export function GlobalThreatDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [range, locationTraffic, scopeKey]);
+  }, [range, scopeKey]);
 
   const latestAttackValue = useMemo(() => {
     const latest = data?.layer7_trend ? lastItem(data.layer7_trend) : undefined;
     return latest?.value ?? null;
   }, [data]);
-  const activeMetric = metricOptions.find((option) => option.key === metric) || metricOptions[0];
-  const activeTrend = metric === "http" ? data?.http_trend || [] : data?.layer7_trend || [];
+  const activeTrend = data?.layer7_trend || [];
   const activeTrendPoint = selectedPoint !== null ? activeTrend[selectedPoint] : lastItem(activeTrend);
   const attackGeography = data?.attack_geography || { origins: [], targets: [], flows: [] };
   const scope = selectedScope(scopeKey);
@@ -662,9 +832,9 @@ export function GlobalThreatDashboardPage() {
   const scopeGroups = groupedScopeOptions(scopeQuery);
   const insights = data ? buildAnalystInsights(data) : [];
   const severity =
-    (data?.summary.bot_percent || 0) >= 40 || Math.abs(trendDelta(data?.layer7_trend || []) || 0) >= 20
+    Math.abs(trendDelta(data?.layer7_trend || []) || 0) >= 20
       ? "Elevated"
-      : (data?.summary.bot_percent || 0) >= 30
+      : Math.abs(trendDelta(data?.layer7_trend || []) || 0) >= 8
         ? "Watch"
         : "Normal";
   const severityClass =
@@ -679,8 +849,6 @@ export function GlobalThreatDashboardPage() {
         "Global Threat Dashboard analyst summary",
         `Range: ${data.filters?.range_label || range}`,
         `Scope: ${data.filters?.scope_label || scope.label}`,
-        `Bot traffic: ${formatPercent(data.summary.bot_percent)}`,
-        `Human traffic: ${formatPercent(data.summary.human_percent)}`,
         `Application attack insight: ${data.summary.application_attack_insight}`,
         ...insights.map((insight) => `- ${insight}`),
       ].join("\n")
@@ -699,7 +867,7 @@ export function GlobalThreatDashboardPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `cloudflare-radar-${range}-${locationTraffic}-${scopeKey.replace(":", "-")}.json`;
+    link.download = `cloudflare-radar-attacks-${range}-${scopeKey.replace(":", "-")}.json`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -719,12 +887,12 @@ export function GlobalThreatDashboardPage() {
         <motion.header initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.55 }} className="rounded-lg border border-white/10 bg-obsidian/75 p-6 shadow-glow backdrop-blur-xl md:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="font-mono text-xs uppercase text-signal">Cloudflare Radar / aggregated internet telemetry</p>
+              <p className="font-mono text-xs uppercase text-signal">Cloudflare Radar / application-layer attack telemetry</p>
               <h1 className="micro-glitch-heading mt-3 max-w-4xl text-4xl font-semibold leading-tight text-white md:text-6xl" data-text="Global Threat Dashboard.">
                 Global Threat Dashboard.
               </h1>
               <p className="mt-5 max-w-3xl text-base leading-7 text-haze md:text-lg">
-                A SOC-style view of global HTTP traffic, bot activity, application-layer attack patterns, and top internet locations from Cloudflare Radar.
+                A SOC-style view of Layer 7 attack volume, mitigation mix, source countries, target countries, and attack flows from Cloudflare Radar.
               </p>
             </div>
             <div className="rounded-lg border border-signal/25 bg-signal/10 p-4 text-sm leading-6 text-haze lg:max-w-sm">
@@ -838,45 +1006,6 @@ export function GlobalThreatDashboardPage() {
               </div>
 
               <div>
-                <p className="mb-3 font-mono text-xs uppercase text-haze">Graph metric</p>
-                <div className="grid gap-2">
-                  {metricOptions.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => {
-                        setMetric(option.key);
-                        setSelectedPoint(null);
-                      }}
-                      className={`glitch-control rounded-md border px-4 py-2 text-left text-sm font-semibold transition ${
-                        metric === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="mb-3 font-mono text-xs uppercase text-haze">Location filter</p>
-                <div className="grid gap-2">
-                  {locationTrafficOptions.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => setLocationTraffic(option.key)}
-                      className={`glitch-control rounded-md border px-4 py-2 text-left text-sm font-semibold transition ${
-                        locationTraffic === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
                 <p className="mb-3 font-mono text-xs uppercase text-haze">Attack geography</p>
                 <div className="grid gap-2">
                   {attackGeoTabs.map((tab) => (
@@ -952,15 +1081,17 @@ export function GlobalThreatDashboardPage() {
                   </div>
                 )}
 
-                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(340px,0.7fr)]">
-                  <Panel eyebrow="Interactive trend analysis" title={`${activeMetric.label} / ${data.filters?.scope_label || scope.label}`}>
-                    <LineChart data={activeTrend} tone={activeMetric.tone} selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
+                <ApplicationLayerSecurityPanel geography={attackGeography} mode={attackGeoTab} scopeLabel={data.filters?.scope_label || scope.label} />
+
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
+                  <Panel eyebrow="Layer 7 attack volume" title={`Application attack trend / ${data.filters?.scope_label || scope.label}`}>
+                    <LineChart data={activeTrend} tone="trace" selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
                     <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
                       <p className="font-mono text-xs uppercase text-signal">Selected point</p>
                       <div className="mt-3 grid gap-3 sm:grid-cols-3">
                         <div>
                           <p className="font-mono text-[11px] uppercase text-haze">Metric</p>
-                          <p className="mt-1 font-semibold text-white">{activeMetric.label}</p>
+                          <p className="mt-1 font-semibold text-white">Layer 7 attacks</p>
                         </div>
                         <div>
                           <p className="font-mono text-[11px] uppercase text-haze">Time</p>
@@ -974,35 +1105,15 @@ export function GlobalThreatDashboardPage() {
                     </div>
                   </Panel>
 
-                  <Panel eyebrow="Bot split" title="Bot vs human traffic">
-                    <DonutChart data={data.bot_human} />
-                  </Panel>
-                </div>
-
-                <Panel eyebrow="Layer 7 attack geography" title={`Country attack map / ${data.filters?.scope_label || scope.label}`}>
-                  {attackGeoTab === "origins" && <AttackLocationBars data={attackGeography.origins} emptyLabel="Attack origin country data unavailable." />}
-                  {attackGeoTab === "targets" && <AttackLocationBars data={attackGeography.targets} emptyLabel="Target country data unavailable." />}
-                  {attackGeoTab === "flows" && <AttackFlowBars data={attackGeography.flows} />}
-
-                  <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
-                    Country attack geography is aggregated Cloudflare Radar Layer 7 data. It is not a live attack map for this portfolio website.
-                  </p>
-                </Panel>
-
-                <div className="grid gap-6 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.2fr)]">
-                  <Panel eyebrow="Top locations" title={`${locationTrafficOptions.find((option) => option.key === locationTraffic)?.label || "All traffic"} by location`}>
-                    <LocationBars data={data.top_locations} />
-                  </Panel>
-
-                  <Panel eyebrow="Layer 7 activity" title="Application attack trend">
-                    <LineChart data={data.layer7_trend} tone="trace" />
+                  <Panel eyebrow="Mitigation mix" title="Application attack type split">
+                    <DonutChart data={data.layer7_mitigation_mix || []} centerLabel="Lead attack" />
                   </Panel>
                 </div>
 
                 <motion.section initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.55, delay: 0.08 }} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <SummaryCard icon={Bot} label="Bot traffic" value={formatPercent(data.summary.bot_percent)} body="Likely automated HTTP traffic share over the selected global Radar window." />
-                  <SummaryCard icon={Users} label="Human traffic" value={formatPercent(data.summary.human_percent)} body="Likely human HTTP traffic share for the same global period." tone="cyan" />
                   <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
+                  <SummaryCard icon={MapPin} label="Top attack origin" value={attackGeography.origins[0]?.code || "N/A"} body={attackGeography.origins[0] ? `${attackGeography.origins[0].name} leads source locations at ${formatPercent(attackGeography.origins[0].value)}.` : "Origin country data unavailable."} tone="cyan" />
+                  <SummaryCard icon={Globe2} label="Top target" value={attackGeography.targets[0]?.code || "N/A"} body={attackGeography.targets[0] ? `${attackGeography.targets[0].name} leads target locations at ${formatPercent(attackGeography.targets[0].value)}.` : "Target country data unavailable."} />
                   <SummaryCard icon={Activity} label="Last updated" value={formatTime(data.summary.last_updated)} body="Timestamp from Cloudflare Radar metadata for the newest dataset used." />
                 </motion.section>
 
@@ -1011,7 +1122,7 @@ export function GlobalThreatDashboardPage() {
                     <p className="font-mono text-xs uppercase">Global signal severity</p>
                     <h2 className="mt-2 text-3xl font-semibold text-white">{severity}</h2>
                     <p className="mt-3 text-sm leading-6 text-haze">
-                      This is an analyst-style signal based on aggregated Radar bot share and Layer 7 trend movement. It does not indicate attacks against this portfolio.
+                      This is an analyst-style signal based on aggregated Radar Layer 7 trend movement and application-layer attack context. It does not indicate attacks against this portfolio.
                     </p>
                   </div>
 
@@ -1033,7 +1144,7 @@ export function GlobalThreatDashboardPage() {
                 <section className="grid gap-4 md:grid-cols-3">
                   {[
                     [Globe2, "Global scope", "Radar aggregates activity from Cloudflare's global network rather than this individual portfolio site."],
-                    [Radar, "Security context", "Useful for showing internet-wide patterns across bots, HTTP traffic, and application attack telemetry."],
+                    [Radar, "Security context", "Useful for showing internet-wide application-layer attack patterns, source countries, targets, and flow telemetry."],
                     [Zap, "Cached edge view", "Successful dashboard responses are cached briefly to keep the public page fast and token usage low."],
                   ].map(([Icon, title, body]) => (
                     <div key={String(title)} className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
