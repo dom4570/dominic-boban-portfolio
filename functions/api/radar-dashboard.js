@@ -1,6 +1,9 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
-const CACHE_VERSION = "attack-map-v1";
+const CACHE_VERSION = "attack-flow-v2";
+const FLOW_LIMIT = 25;
+const FLOW_FALLBACK_LIMIT = 40;
+const FLOW_LIMIT_PER_LOCATION = 10;
 const DATE_RANGES = {
   "24h": { radar: "1d", aggInterval: "1h", label: "24 hours" },
   "7d": { radar: "7d", aggInterval: "1d", label: "7 days" },
@@ -224,10 +227,10 @@ function normalizeAttackLocations(raw, kind) {
       };
     })
     .filter((row) => row.name && row.value !== null)
-    .slice(0, 8);
+    .slice(0, 10);
 }
 
-function normalizeAttackFlows(raw) {
+function normalizeAttackFlows(raw, limit = FLOW_LIMIT) {
   const result = raw?.result || {};
   const rows = Array.isArray(result.top_0) ? result.top_0 : [];
 
@@ -249,7 +252,146 @@ function normalizeAttackFlows(raw) {
       };
     })
     .filter((row) => row.origin_name && row.target_name && row.value !== null)
-    .slice(0, 8);
+    .slice(0, limit);
+}
+
+function mergeAttackFlows(...flowSets) {
+  const merged = new Map();
+
+  flowSets.flat().forEach((flow) => {
+    const originKey = flow.origin_code || flow.origin_name;
+    const targetKey = flow.target_code || flow.target_name;
+    const key = `${originKey}->${targetKey}`.toUpperCase();
+    const existing = merged.get(key);
+
+    if (!existing || flow.value > existing.value) {
+      merged.set(key, { ...flow });
+    }
+  });
+
+  return Array.from(merged.values())
+    .sort((a, b) => b.value - a.value)
+    .map((flow, index) => ({ ...flow, rank: index + 1 }))
+    .slice(0, FLOW_LIMIT);
+}
+
+function prioritizeCountryFlows(flows, scope) {
+  if (scope?.type !== "country") return flows;
+
+  const selected = scope.value.toUpperCase();
+  const originMatches = flows.filter((flow) => String(flow.origin_code).toUpperCase() === selected);
+  const targetMatches = flows.filter((flow) => String(flow.target_code).toUpperCase() === selected && String(flow.origin_code).toUpperCase() !== selected);
+  const otherMatches = flows.filter((flow) => String(flow.origin_code).toUpperCase() !== selected && String(flow.target_code).toUpperCase() !== selected);
+  const ordered = originMatches.length ? [...originMatches, ...targetMatches, ...otherMatches] : flows;
+
+  return ordered.map((flow, index) => ({ ...flow, rank: index + 1 })).slice(0, FLOW_LIMIT);
+}
+
+function ensureCountryFocusOrigin(origins, flows, scope) {
+  if (scope?.type !== "country") return origins;
+
+  const selected = scope.value.toUpperCase();
+  if (origins.some((origin) => String(origin.code).toUpperCase() === selected)) return origins;
+
+  const focusValue = Math.max(
+    ...flows.filter((flow) => String(flow.origin_code).toUpperCase() === selected).map((flow) => flow.value),
+    0,
+  );
+
+  return [
+    {
+      rank: 0,
+      code: selected,
+      name: scope.label || selected,
+      value: Number(focusValue.toFixed(2)),
+      focus: true,
+    },
+    ...origins,
+  ].slice(0, 10);
+}
+
+function attackFlowStatus(result, rows) {
+  if (result.status === "rejected") return "unavailable";
+  return rows.length ? "checked" : "empty";
+}
+
+function flowScopeNote(options, flows) {
+  const label = options.scope.label;
+
+  if (!flows.length) {
+    return `${label} rankings only / flow pairs unavailable`;
+  }
+
+  if (options.scope.type === "country") {
+    const selected = options.scope.value.toUpperCase();
+    const hasOriginFlows = flows.some((flow) => String(flow.origin_code).toUpperCase() === selected);
+    const hasTargetFlows = flows.some((flow) => String(flow.target_code).toUpperCase() === selected);
+
+    if (hasOriginFlows) return `${label} as origin focus / ${options.range.label}`;
+    if (hasTargetFlows) return `${label} appears as target / ${options.range.label}`;
+    return `${label} scoped flow context / ${options.range.label}`;
+  }
+
+  if (options.scope.type === "continent") {
+    return `${label} merged origin-target flows / ${options.range.label}`;
+  }
+
+  return `Worldwide merged origin-target flows / ${options.range.label}`;
+}
+
+async function fetchAttackFlowBundle(token, options) {
+  const baseParams = {
+    dateRange: options.range.radar,
+    format: "json",
+    limit: FLOW_LIMIT,
+    limitPerLocation: FLOW_LIMIT_PER_LOCATION,
+    ...scopeParams(options.scope, ["continent", "location", "asn"]),
+  };
+  const [originLimitedResult, targetLimitedResult] = await Promise.allSettled([
+    fetchRadar("/attacks/layer7/top/attacks", token, {
+      ...baseParams,
+      limitDirection: "ORIGIN",
+    }),
+    fetchRadar("/attacks/layer7/top/attacks", token, {
+      ...baseParams,
+      limitDirection: "TARGET",
+    }),
+  ]);
+  const originLimitedFlows = originLimitedResult.status === "fulfilled" ? normalizeAttackFlows(originLimitedResult.value, FLOW_LIMIT) : [];
+  const targetLimitedFlows = targetLimitedResult.status === "fulfilled" ? normalizeAttackFlows(targetLimitedResult.value, FLOW_LIMIT) : [];
+  let flows = mergeAttackFlows(originLimitedFlows, targetLimitedFlows);
+  let fallbackResult = null;
+  let fallbackFlows = [];
+
+  if (!flows.length) {
+    fallbackResult = await fetchRadar("/attacks/layer7/top/attacks", token, {
+      dateRange: options.range.radar,
+      format: "json",
+      limit: FLOW_FALLBACK_LIMIT,
+      ...scopeParams(options.scope, ["continent", "location", "asn"]),
+    })
+      .then((value) => ({ status: "fulfilled", value }))
+      .catch(() => ({ status: "rejected" }));
+    fallbackFlows = fallbackResult.status === "fulfilled" ? normalizeAttackFlows(fallbackResult.value, FLOW_FALLBACK_LIMIT) : [];
+    flows = mergeAttackFlows(fallbackFlows);
+  }
+
+  flows = prioritizeCountryFlows(flows, options.scope);
+
+  return {
+    flows,
+    rawResponses: [
+      originLimitedResult.status === "fulfilled" ? originLimitedResult.value : null,
+      targetLimitedResult.status === "fulfilled" ? targetLimitedResult.value : null,
+      fallbackResult?.status === "fulfilled" ? fallbackResult.value : null,
+    ].filter(Boolean),
+    status: {
+      origin_limited: attackFlowStatus(originLimitedResult, originLimitedFlows),
+      target_limited: attackFlowStatus(targetLimitedResult, targetLimitedFlows),
+      fallback: fallbackResult ? attackFlowStatus(fallbackResult, fallbackFlows) : "not_needed",
+    },
+    fallback_used: Boolean(fallbackResult && fallbackFlows.length),
+  };
 }
 
 function latestUpdated(...responses) {
@@ -374,23 +516,16 @@ async function buildDashboard(request, token) {
     fetchRadar("/attacks/layer7/top/locations/origin", token, {
       dateRange: options.range.radar,
       format: "json",
-      limit: 8,
+      limit: 10,
       ...scopeParams(options.scope, ["continent", "asn"]),
     }),
     fetchRadar("/attacks/layer7/top/locations/target", token, {
       dateRange: options.range.radar,
       format: "json",
-      limit: 8,
+      limit: 10,
       ...scopeParams(options.scope, ["continent"]),
     }),
-    fetchRadar("/attacks/layer7/top/attacks", token, {
-      dateRange: options.range.radar,
-      format: "json",
-      limit: 8,
-      limitDirection: "ORIGIN",
-      limitPerLocation: 3,
-      ...scopeParams(options.scope, ["continent", "location", "asn"]),
-    }),
+    fetchAttackFlowBundle(token, options),
   ]);
 
   if (layer7TimeResult.status === "fulfilled") {
@@ -425,10 +560,12 @@ async function buildDashboard(request, token) {
   }
 
   if (attackFlowResult.status === "fulfilled") {
-    attackFlows = normalizeAttackFlows(attackFlowResult.value);
+    attackFlows = attackFlowResult.value.flows;
   } else {
     warnings.push("Layer 7 attack flow pairs are temporarily unavailable.");
   }
+
+  attackOrigins = ensureCountryFocusOrigin(attackOrigins, attackFlows, options.scope);
 
   const botPercent = botHuman.find((row) => row.label === "Bot")?.value ?? null;
   const humanPercent = botHuman.find((row) => row.label === "Human")?.value ?? null;
@@ -440,8 +577,17 @@ async function buildDashboard(request, token) {
     topLocationsResult.status === "fulfilled" ? topLocationsResult.value : null,
     attackOriginResult.status === "fulfilled" ? attackOriginResult.value : null,
     attackTargetResult.status === "fulfilled" ? attackTargetResult.value : null,
-    attackFlowResult.status === "fulfilled" ? attackFlowResult.value : null,
+    ...(attackFlowResult.status === "fulfilled" ? attackFlowResult.value.rawResponses : []),
   );
+  const flowStatus =
+    attackFlowResult.status === "fulfilled"
+      ? attackFlowResult.value.status
+      : {
+          origin_limited: "unavailable",
+          target_limited: "unavailable",
+          fallback: "unavailable",
+        };
+  const flowMode = attackFlows.length ? (flowStatus.origin_limited === "unavailable" || flowStatus.target_limited === "unavailable" ? "partial_flows" : "merged_flows") : "rankings_only";
 
   return {
     summary: {
@@ -459,6 +605,13 @@ async function buildDashboard(request, token) {
       origins: attackOrigins,
       targets: attackTargets,
       flows: attackFlows,
+      flow_mode: flowMode,
+      flow_scope_note: flowScopeNote(options, attackFlows),
+      flow_status: flowStatus,
+      flow_coverage: {
+        flow_count: attackFlows.length,
+        fallback_used: attackFlowResult.status === "fulfilled" ? attackFlowResult.value.fallback_used : false,
+      },
     },
     warnings,
     filters: {
