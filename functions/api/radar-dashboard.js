@@ -1,5 +1,6 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
+const CACHE_VERSION = "geo-v2";
 const DATE_RANGES = {
   "24h": { radar: "1d", aggInterval: "1h", label: "24 hours" },
   "7d": { radar: "7d", aggInterval: "1d", label: "7 days" },
@@ -265,15 +266,24 @@ async function readCached(request) {
   if (typeof caches === "undefined") return null;
 
   const url = new URL(request.url);
-  const cacheKey = new Request(`${url.origin}/api/radar-dashboard?range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}`);
-  return caches.default.match(cacheKey);
+  const cacheKey = new Request(`${url.origin}/api/radar-dashboard?version=${CACHE_VERSION}&range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}`);
+  const cached = await caches.default.match(cacheKey);
+  if (!cached) return null;
+
+  return new Response(cached.body, {
+    status: cached.status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 async function writeCached(request, response) {
   if (typeof caches === "undefined") return;
 
   const url = new URL(request.url);
-  const cacheKey = new Request(`${url.origin}/api/radar-dashboard?range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}`);
+  const cacheKey = new Request(`${url.origin}/api/radar-dashboard?version=${CACHE_VERSION}&range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}`);
   await caches.default.put(cacheKey, response.clone());
 }
 
@@ -437,11 +447,13 @@ export async function onRequest(context) {
 
   try {
     const dashboard = await buildDashboard(request, token);
-    const response = json(dashboard);
+    const response = json(dashboard, 200, { "Cache-Control": "no-store" });
+    const cacheResponse = json(dashboard);
 
     // Successful Radar responses are cached briefly at the edge to reduce token
-    // use and keep the public dashboard fast. Error responses are never cached.
-    await writeCached(request, response);
+    // use and keep the public dashboard fast. The browser receives no-store so
+    // old schema responses do not linger after dashboard upgrades.
+    await writeCached(request, cacheResponse);
 
     return response;
   } catch {
