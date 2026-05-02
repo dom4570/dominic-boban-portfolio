@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   BarChart3,
   Bot,
+  Clipboard,
+  Download,
   Globe2,
   Loader2,
   Radar,
@@ -42,8 +44,34 @@ type RadarDashboard = {
   top_locations: LocationPoint[];
   layer7_trend: TrendPoint[];
   warnings: string[];
+  filters?: {
+    range: string;
+    range_label: string;
+    location_traffic: string;
+  };
   note: string;
 };
+
+type RangeKey = "24h" | "7d" | "30d";
+type MetricKey = "http" | "layer7";
+type LocationTrafficKey = "all" | "bot" | "human";
+
+const rangeOptions: Array<{ key: RangeKey; label: string }> = [
+  { key: "24h", label: "24h" },
+  { key: "7d", label: "7d" },
+  { key: "30d", label: "30d" },
+];
+
+const metricOptions: Array<{ key: MetricKey; label: string; tone: "signal" | "trace" }> = [
+  { key: "http", label: "HTTP requests", tone: "signal" },
+  { key: "layer7", label: "Layer 7 attacks", tone: "trace" },
+];
+
+const locationTrafficOptions: Array<{ key: LocationTrafficKey; label: string }> = [
+  { key: "all", label: "All traffic" },
+  { key: "bot", label: "Bot traffic" },
+  { key: "human", label: "Human traffic" },
+];
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -87,6 +115,53 @@ function lastItem<T>(items: T[]) {
   return items.length ? items[items.length - 1] : undefined;
 }
 
+function trendDelta(data: TrendPoint[]) {
+  if (data.length < 2) return null;
+  const previous = data[data.length - 2].value;
+  const current = data[data.length - 1].value;
+  if (previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+function peakPoint(data: TrendPoint[]) {
+  if (!data.length) return null;
+  return data.reduce((peak, point) => (point.value > peak.value ? point : peak), data[0]);
+}
+
+function buildAnalystInsights(data: RadarDashboard) {
+  const insights = [];
+  const botPercent = data.summary.bot_percent || 0;
+  const httpPeak = peakPoint(data.http_trend);
+  const layer7Peak = peakPoint(data.layer7_trend);
+  const layer7Delta = trendDelta(data.layer7_trend);
+  const topLocation = data.top_locations[0];
+
+  if (botPercent >= 35) {
+    insights.push(`Bot traffic is elevated at ${formatPercent(botPercent)}, so automated activity is a major part of the global HTTP mix.`);
+  } else {
+    insights.push(`Human traffic is currently dominant, with bots at ${formatPercent(botPercent)} of the global HTTP mix.`);
+  }
+
+  if (httpPeak) {
+    insights.push(`HTTP request pressure peaked around ${formatTime(httpPeak.timestamp)} with an index value of ${formatCompact(httpPeak.value)}.`);
+  }
+
+  if (layer7Peak) {
+    insights.push(`Layer 7 activity peaked around ${formatTime(layer7Peak.timestamp)} with an index value of ${formatCompact(layer7Peak.value)}.`);
+  }
+
+  if (layer7Delta !== null) {
+    const direction = layer7Delta >= 0 ? "up" : "down";
+    insights.push(`The latest Layer 7 point is ${direction} ${Math.abs(layer7Delta).toFixed(1)}% compared with the previous point.`);
+  }
+
+  if (topLocation) {
+    insights.push(`${topLocation.name} leads the selected location view with ${formatCompact(topLocation.value)}% share.`);
+  }
+
+  return insights.slice(0, 5);
+}
+
 function chartPath(points: TrendPoint[], width: number, height: number, padding: number) {
   if (!points.length) return "";
 
@@ -106,7 +181,17 @@ function chartPath(points: TrendPoint[], width: number, height: number, padding:
     .join(" ");
 }
 
-function LineChart({ data, tone = "signal" }: { data: TrendPoint[]; tone?: "signal" | "trace" }) {
+function LineChart({
+  data,
+  tone = "signal",
+  selectedIndex,
+  onSelect,
+}: {
+  data: TrendPoint[];
+  tone?: "signal" | "trace";
+  selectedIndex?: number;
+  onSelect?: (index: number) => void;
+}) {
   const width = 760;
   const height = 240;
   const padding = 26;
@@ -115,6 +200,16 @@ function LineChart({ data, tone = "signal" }: { data: TrendPoint[]; tone?: "sign
   const latest = lastItem(values);
   const stroke = tone === "trace" ? "#ff2a3d" : "#fcee0a";
   const shadow = tone === "trace" ? "rgba(255,42,61,0.35)" : "rgba(252,238,10,0.35)";
+  const chartPoint = (point: TrendPoint, index: number) => {
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min || 1;
+    const usableWidth = width - padding * 2;
+    const usableHeight = height - padding * 2;
+    const x = padding + (data.length === 1 ? usableWidth / 2 : (index / (data.length - 1)) * usableWidth);
+    const y = padding + (1 - (point.value - min) / span) * usableHeight;
+    return { x, y };
+  };
 
   if (!data.length) {
     return (
@@ -149,6 +244,26 @@ function LineChart({ data, tone = "signal" }: { data: TrendPoint[]; tone?: "sign
         ))}
         <path d={`${path} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`} fill={`url(#line-fill-${tone})`} />
         <path d={path} fill="none" stroke={stroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" filter={`url(#line-glow-${tone})`} />
+        {data.map((point, index) => {
+          const { x, y } = chartPoint(point, index);
+          const selected = selectedIndex === index;
+
+          return (
+            <circle
+              key={`${point.timestamp}-${index}`}
+              cx={x}
+              cy={y}
+              r={selected ? 7 : 4}
+              fill={selected ? "#ffffff" : stroke}
+              stroke={stroke}
+              strokeWidth="2"
+              className="cursor-crosshair"
+              onMouseEnter={() => onSelect?.(index)}
+              onFocus={() => onSelect?.(index)}
+              tabIndex={0}
+            />
+          );
+        })}
       </svg>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-haze">
         <span>{formatTime(data[0]?.timestamp)}</span>
@@ -274,11 +389,23 @@ export function GlobalThreatDashboardPage() {
   const [data, setData] = useState<RadarDashboard | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<RangeKey>("24h");
+  const [metric, setMetric] = useState<MetricKey>("http");
+  const [locationTraffic, setLocationTraffic] = useState<LocationTrafficKey>("all");
+  const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
+  const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
     let cancelled = false;
+    const params = new URLSearchParams({
+      range,
+      traffic: locationTraffic,
+    });
 
-    fetch("/api/radar-dashboard", {
+    setLoading(true);
+    setError("");
+
+    fetch(`/api/radar-dashboard?${params.toString()}`, {
       headers: {
         Accept: "application/json",
       },
@@ -297,12 +424,57 @@ export function GlobalThreatDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [range, locationTraffic]);
 
   const latestAttackValue = useMemo(() => {
     const latest = data?.layer7_trend ? lastItem(data.layer7_trend) : undefined;
     return latest?.value ?? null;
   }, [data]);
+  const activeMetric = metricOptions.find((option) => option.key === metric) || metricOptions[0];
+  const activeTrend = metric === "http" ? data?.http_trend || [] : data?.layer7_trend || [];
+  const activeTrendPoint = selectedPoint !== null ? activeTrend[selectedPoint] : lastItem(activeTrend);
+  const insights = data ? buildAnalystInsights(data) : [];
+  const severity =
+    (data?.summary.bot_percent || 0) >= 40 || Math.abs(trendDelta(data?.layer7_trend || []) || 0) >= 20
+      ? "Elevated"
+      : (data?.summary.bot_percent || 0) >= 30
+        ? "Watch"
+        : "Normal";
+  const severityClass =
+    severity === "Elevated"
+      ? "border-trace/40 bg-trace/10 text-trace"
+      : severity === "Watch"
+        ? "border-volt/40 bg-volt/10 text-volt"
+        : "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
+
+  const analystSummary = data
+    ? [
+        "Global Threat Dashboard analyst summary",
+        `Range: ${data.filters?.range_label || range}`,
+        `Bot traffic: ${formatPercent(data.summary.bot_percent)}`,
+        `Human traffic: ${formatPercent(data.summary.human_percent)}`,
+        `Application attack insight: ${data.summary.application_attack_insight}`,
+        ...insights.map((insight) => `- ${insight}`),
+      ].join("\n")
+    : "";
+
+  const copySummary = async () => {
+    if (!analystSummary) return;
+    await navigator.clipboard.writeText(analystSummary);
+    setCopyStatus("Copied");
+    window.setTimeout(() => setCopyStatus(""), 1800);
+  };
+
+  const downloadJson = () => {
+    if (!data) return;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cloudflare-radar-${range}-${locationTraffic}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="relative min-h-screen px-5 py-6">
@@ -336,6 +508,89 @@ export function GlobalThreatDashboardPage() {
             </div>
           </div>
         </motion.header>
+
+        <section className="grid gap-4 rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-glow backdrop-blur-xl lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
+          <div>
+            <p className="mb-3 font-mono text-xs uppercase text-signal">Time range</p>
+            <div className="flex flex-wrap gap-2">
+              {rangeOptions.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => {
+                    setRange(option.key);
+                    setSelectedPoint(null);
+                  }}
+                  className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
+                    range === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-3 font-mono text-xs uppercase text-signal">Graph metric</p>
+            <div className="flex flex-wrap gap-2">
+              {metricOptions.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => {
+                    setMetric(option.key);
+                    setSelectedPoint(null);
+                  }}
+                  className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
+                    metric === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-3 font-mono text-xs uppercase text-signal">Location filter</p>
+            <div className="flex flex-wrap gap-2">
+              {locationTrafficOptions.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => setLocationTraffic(option.key)}
+                  className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
+                    locationTraffic === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={copySummary}
+              disabled={!data}
+              className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Clipboard size={16} />
+              {copyStatus || "Copy summary"}
+            </button>
+            <button
+              type="button"
+              onClick={downloadJson}
+              disabled={!data}
+              className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={16} />
+              JSON
+            </button>
+          </div>
+        </section>
 
         {loading && (
           <div className="grid min-h-[360px] place-items-center rounded-lg border border-white/10 bg-white/[0.04] p-8 text-center shadow-glow backdrop-blur-xl">
@@ -378,9 +633,50 @@ export function GlobalThreatDashboardPage() {
               </div>
             )}
 
+            <section className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+              <div className={`rounded-lg border p-5 ${severityClass}`}>
+                <p className="font-mono text-xs uppercase">Global signal severity</p>
+                <h2 className="mt-2 text-3xl font-semibold text-white">{severity}</h2>
+                <p className="mt-3 text-sm leading-6 text-haze">
+                  This is an analyst-style signal based on aggregated Radar bot share and Layer 7 trend movement. It does not indicate attacks against this portfolio.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                  <BarChart3 size={16} />
+                  Analyst insights
+                </div>
+                <ul className="grid gap-2">
+                  {insights.map((insight) => (
+                    <li key={insight} className="leading-7 text-haze">
+                      {insight}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(340px,0.7fr)]">
-              <Panel eyebrow="HTTP request trend" title="Global request pressure">
-                <LineChart data={data.http_trend} />
+              <Panel eyebrow="Interactive trend analysis" title={activeMetric.label}>
+                <LineChart data={activeTrend} tone={activeMetric.tone} selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
+                <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
+                  <p className="font-mono text-xs uppercase text-signal">Selected point</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <p className="font-mono text-[11px] uppercase text-haze">Metric</p>
+                      <p className="mt-1 font-semibold text-white">{activeMetric.label}</p>
+                    </div>
+                    <div>
+                      <p className="font-mono text-[11px] uppercase text-haze">Time</p>
+                      <p className="mt-1 font-semibold text-white">{formatTime(activeTrendPoint?.timestamp)}</p>
+                    </div>
+                    <div>
+                      <p className="font-mono text-[11px] uppercase text-haze">Index</p>
+                      <p className="mt-1 font-semibold text-white">{formatCompact(activeTrendPoint?.value)}</p>
+                    </div>
+                  </div>
+                </div>
               </Panel>
 
               <Panel eyebrow="Bot split" title="Bot vs human traffic">
@@ -389,7 +685,7 @@ export function GlobalThreatDashboardPage() {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.2fr)]">
-              <Panel eyebrow="Top locations" title="HTTP traffic by location">
+              <Panel eyebrow="Top locations" title={`${locationTrafficOptions.find((option) => option.key === locationTraffic)?.label || "All traffic"} by location`}>
                 <LocationBars data={data.top_locations} />
               </Panel>
 
