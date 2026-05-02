@@ -16,8 +16,7 @@ import {
   ShieldAlert,
   Zap,
 } from "lucide-react";
-import { motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 
 type TrendPoint = {
   timestamp: string;
@@ -132,11 +131,6 @@ const radarScopeOptions: RadarScopeOption[] = [
   { key: "asn:32934", label: "AS32934 - Meta", meta: "Autonomous system", group: "Autonomous Systems", icon: Network },
   { key: "asn:14061", label: "AS14061 - DigitalOcean", meta: "Autonomous system", group: "Autonomous Systems", icon: Network },
 ];
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0 },
-};
 
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null);
@@ -557,15 +551,7 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
   const mapPoints = mode === "flows" ? flowEndpointPoints(flows) : points;
   const maxValue = Math.max(...mapPoints.map((point) => point.value), ...flows.map((flow) => flow.value), 1);
   const mapTitle = mode === "targets" ? "Top attacks by target location" : mode === "flows" ? "Top attack country flows" : "Top attacks by source location";
-  const landShapes = [
-    "M89 143 L117 107 L168 86 L219 95 L252 118 L281 120 L260 151 L207 162 L149 154 L106 166 Z",
-    "M275 236 L315 248 L345 290 L338 341 L311 393 L283 356 L265 309 Z",
-    "M397 126 L431 103 L480 107 L523 132 L542 167 L501 191 L443 179 L390 158 Z",
-    "M470 190 L521 206 L548 262 L535 334 L497 369 L463 316 L446 250 Z",
-    "M538 143 L611 106 L704 105 L781 128 L837 177 L811 213 L719 222 L624 202 L557 177 Z",
-    "M655 285 L719 263 L781 290 L823 346 L787 374 L710 358 L657 323 Z",
-    "M384 82 L425 58 L467 75 L476 100 L430 113 L383 101 Z",
-  ];
+  const centralPoint = mode === "targets" ? mapPoint(points[0]?.code, 0) : { x: 700, y: 170 };
 
   return (
     <div className="overflow-hidden rounded-lg border border-white/10 bg-[#07090b] p-4">
@@ -580,11 +566,8 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <svg viewBox="0 0 920 430" className="h-[340px] w-full rounded-md bg-black/45 md:h-[430px]" role="img" aria-label="World attack geography map">
+        <svg viewBox="0 0 920 390" className="h-[300px] w-full rounded-md bg-black/45 md:h-[340px]" role="img" aria-label="Radar attack geography board">
           <defs>
-            <filter id="map-glow">
-              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="rgba(103,232,249,0.45)" />
-            </filter>
             <radialGradient id="map-radar-glow" cx="50%" cy="44%" r="70%">
               <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.16" />
               <stop offset="100%" stopColor="#67e8f9" stopOpacity="0" />
@@ -596,40 +579,49 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
             </linearGradient>
           </defs>
 
-          <rect width="920" height="430" fill="url(#map-radar-glow)" />
+          <rect width="920" height="390" fill="url(#map-radar-glow)" />
           {[0, 1, 2, 3, 4, 5].map((line) => (
-            <line key={`v-${line}`} x1={100 + line * 140} x2={100 + line * 140} y1="46" y2="392" stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
+            <line key={`v-${line}`} x1={100 + line * 140} x2={100 + line * 140} y1="38" y2="320" stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
           ))}
           {[0, 1, 2, 3, 4].map((line) => (
-            <line key={`h-${line}`} x1="42" x2="880" y1={70 + line * 78} y2={70 + line * 78} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
+            <line key={`h-${line}`} x1="42" x2="880" y1={50 + line * 62} y2={50 + line * 62} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
           ))}
-
-          {landShapes.map((shape, index) => (
-            <path key={shape} d={shape} fill="rgba(151,232,241,0.22)" stroke="rgba(187,247,255,0.36)" strokeWidth={index === 6 ? 1 : 1.35} />
-          ))}
+          <circle cx="460" cy="180" r="126" fill="none" stroke="rgba(103,232,249,0.1)" strokeWidth="1" />
+          <circle cx="460" cy="180" r="205" fill="none" stroke="rgba(252,238,10,0.08)" strokeWidth="1" />
+          <line x1="460" x2="460" y1="30" y2="330" stroke="rgba(255,255,255,0.045)" />
+          <line x1="60" x2="860" y1="180" y2="180" stroke="rgba(255,255,255,0.045)" />
 
           {mode === "flows" &&
-            flows.slice(0, 8).map((flow, index) => {
+            flows.slice(0, 6).map((flow, index) => {
               const start = mapPoint(flow.origin_code, index);
               const end = mapPoint(flow.target_code, index + 3);
               const curveY = Math.max(42, Math.min(start.y, end.y) - 68 - (index % 4) * 12);
-              const width = Math.max(1.5, Math.min(9, (flow.value / maxValue) * 9));
+              const width = Math.max(1.4, Math.min(6, (flow.value / maxValue) * 6));
               const samePoint = Math.abs(start.x - end.x) < 3 && Math.abs(start.y - end.y) < 3;
               const d = samePoint
                 ? `M ${start.x} ${start.y} C ${start.x - 82} ${start.y - 82}, ${start.x + 82} ${start.y - 82}, ${end.x} ${end.y}`
                 : `M ${start.x} ${start.y} C ${start.x + 110} ${curveY}, ${end.x - 110} ${curveY}, ${end.x} ${end.y}`;
 
-              return <path key={`${flow.origin_code}-${flow.target_code}-${index}`} d={d} fill="none" stroke="url(#attack-line)" strokeWidth={width} strokeLinecap="round" />;
+              return <path key={`${flow.origin_code}-${flow.target_code}-${index}`} d={d} fill="none" stroke="url(#attack-line)" strokeWidth={width} strokeLinecap="round" opacity="0.82" />;
             })}
 
           {mapPoints.map((point, index) => {
             const coords = mapPoint(point.code, index);
             const color = attackPalette[index % attackPalette.length];
-            const radius = Math.max(7, Math.min(22, 7 + (point.value / maxValue) * 18));
+            const radius = Math.max(6, Math.min(17, 6 + (point.value / maxValue) * 14));
 
             return (
-              <g key={`${point.code}-${point.name}-${index}`} filter="url(#map-glow)">
-                <circle cx={coords.x} cy={coords.y} r={radius + 8} fill={color} opacity="0.12" />
+              <g key={`${point.code}-${point.name}-${index}`}>
+                {mode !== "flows" && (
+                  <path
+                    d={`M ${coords.x} ${coords.y} C ${(coords.x + centralPoint.x) / 2} ${Math.min(coords.y, centralPoint.y) - 64}, ${(coords.x + centralPoint.x) / 2} ${Math.max(coords.y, centralPoint.y) + 36}, ${centralPoint.x} ${centralPoint.y}`}
+                    fill="none"
+                    stroke={color}
+                    strokeOpacity="0.32"
+                    strokeWidth="1.5"
+                  />
+                )}
+                <circle cx={coords.x} cy={coords.y} r={radius + 7} fill={color} opacity="0.1" />
                 <circle cx={coords.x} cy={coords.y} r={radius + 3} fill="#050608" stroke={color} strokeWidth="2.5" />
                 <circle cx={coords.x} cy={coords.y} r={Math.max(3, radius * 0.34)} fill={color} />
                 <text x={coords.x + radius + 9} y={coords.y + 5} fill="#ffffff" fontSize="12" fontWeight="800">
@@ -638,6 +630,16 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
               </g>
             );
           })}
+
+          {mode !== "flows" && points.length > 0 && (
+            <g>
+              <circle cx={centralPoint.x} cy={centralPoint.y} r="15" fill="#050608" stroke="#fcee0a" strokeWidth="2.5" />
+              <circle cx={centralPoint.x} cy={centralPoint.y} r="5" fill="#fcee0a" />
+              <text x={centralPoint.x + 21} y={centralPoint.y + 5} fill="#fcee0a" fontSize="12" fontWeight="800">
+                {mode === "targets" ? "TARGET" : "ATTACK"}
+              </text>
+            </g>
+          )}
         </svg>
 
         <div className="rounded-md border border-white/10 bg-black/25 p-3">
@@ -673,12 +675,12 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
 }
 
 function AttackFlowDiagram({ data }: { data: AttackFlowPoint[] }) {
-  const rows = data.slice(0, 8);
+  const rows = data.slice(0, 6);
   const max = Math.max(...rows.map((point) => point.value), 1);
 
   if (!rows.length) {
     return (
-      <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
+      <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
         Attack flow data unavailable.
       </div>
     );
@@ -690,49 +692,24 @@ function AttackFlowDiagram({ data }: { data: AttackFlowPoint[] }) {
         <p className="font-mono text-xs uppercase text-signal">Attacks by flow</p>
         <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-xs uppercase text-haze">Source {"->"} Target</span>
       </div>
-      <svg viewBox="0 0 560 500" className="min-h-[430px] w-full" role="img" aria-label="Layer 7 attack flow diagram">
-        <defs>
-          <filter id="flow-glow">
-            <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="rgba(103,232,249,0.35)" />
-          </filter>
-        </defs>
+      <div className="grid gap-2">
         {rows.map((flow, index) => {
-          const y = 52 + index * 50;
-          const thickness = Math.max(4, Math.min(32, (flow.value / max) * 32));
           const color = attackPalette[index % attackPalette.length];
 
           return (
-            <g key={`${flow.origin_code}-${flow.target_code}-${index}`}>
-              <path
-                d={`M 128 ${y} C 228 ${y}, 326 ${y + (index % 2 === 0 ? 22 : -18)}, 432 ${y}`}
-                fill="none"
-                stroke={color}
-                strokeOpacity="0.56"
-                strokeWidth={thickness}
-                strokeLinecap="round"
-                filter="url(#flow-glow)"
-              />
-              <rect x="22" y={y - 17} width="92" height="34" rx="5" fill="rgba(255,255,255,0.08)" />
-              <rect x="446" y={y - 17} width="92" height="34" rx="5" fill="rgba(255,255,255,0.08)" />
-              <text x="38" y={y + 5} fill="#ffffff" fontSize="14" fontWeight="800">
-                {flow.origin_code || flow.origin_name.slice(0, 3)}
-              </text>
-              <text x="492" y={y + 5} fill="#ffffff" fontSize="14" fontWeight="800" textAnchor="middle">
-                {flow.target_code || flow.target_name.slice(0, 3)}
-              </text>
-              <text x="280" y={y - Math.max(14, thickness / 2 + 4)} fill="#d7c99e" fontSize="12" fontWeight="700" textAnchor="middle">
-                {formatPercent(flow.value)}
-              </text>
-            </g>
+            <div key={`${flow.origin_code}-${flow.target_code}-${index}`} className="grid gap-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2.5">
+              <div className="grid grid-cols-[52px_minmax(0,1fr)_52px_auto] items-center gap-3 text-sm">
+                <span className="rounded bg-white/10 px-2 py-1 text-center font-mono font-bold text-white">{flow.origin_code || flow.origin_name.slice(0, 3)}</span>
+                <span className="relative h-2 overflow-hidden rounded-full bg-white/10">
+                  <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.max(7, (flow.value / max) * 100)}%`, backgroundColor: color }} />
+                </span>
+                <span className="rounded bg-white/10 px-2 py-1 text-center font-mono font-bold text-white">{flow.target_code || flow.target_name.slice(0, 3)}</span>
+                <span className="font-mono text-xs text-haze">{formatPercent(flow.value)}</span>
+              </div>
+            </div>
           );
         })}
-        <text x="32" y="480" fill="#67e8f9" fontSize="12" fontWeight="800">
-          Source
-        </text>
-        <text x="506" y="480" fill="#67e8f9" fontSize="12" fontWeight="800" textAnchor="middle">
-          Target
-        </text>
-      </svg>
+      </div>
     </div>
   );
 }
@@ -821,7 +798,7 @@ function SummaryCard({
         : "border-signal/30 bg-signal/10 text-signal";
 
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
+    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
       <div className={`mb-5 inline-flex h-11 w-11 items-center justify-center rounded-lg border ${toneClass}`}>
         <Icon size={20} />
       </div>
@@ -832,9 +809,9 @@ function SummaryCard({
   );
 }
 
-function Panel({ title, eyebrow, children }: { title: string; eyebrow: string; children: React.ReactNode }) {
+function Panel({ title, eyebrow, children }: { title: string; eyebrow: string; children: ReactNode }) {
   return (
-    <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-glow backdrop-blur-xl md:p-6">
+    <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5 md:p-6">
       <p className="font-mono text-xs uppercase text-signal">{eyebrow}</p>
       <h2 className="mt-2 text-2xl font-semibold text-white">{title}</h2>
       <div className="mt-5">{children}</div>
@@ -940,10 +917,10 @@ export function GlobalThreatDashboardPage() {
   };
 
   return (
-    <div className="relative min-h-screen px-5 py-6">
+    <div className="radar-dashboard relative min-h-screen px-5 py-6">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_12%,rgba(252,238,10,0.14),transparent_28%),radial-gradient(circle_at_84%_18%,rgba(255,42,61,0.12),transparent_24%)]" aria-hidden="true" />
-      <nav className="relative z-10 mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-obsidian/70 px-4 py-3 backdrop-blur-xl">
-        <a href="/" className="glitch-control inline-flex items-center gap-2 text-sm font-semibold uppercase text-white">
+      <nav className="relative z-10 mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-obsidian/80 px-4 py-3">
+        <a href="/" className="inline-flex items-center gap-2 text-sm font-semibold uppercase text-white transition hover:text-signal">
           <ArrowLeft size={16} />
           Home
         </a>
@@ -951,11 +928,11 @@ export function GlobalThreatDashboardPage() {
       </nav>
 
       <div className="relative z-10 mx-auto grid max-w-7xl gap-6 py-10 md:py-12">
-        <motion.header initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.55 }} className="rounded-lg border border-white/10 bg-obsidian/75 p-6 shadow-glow backdrop-blur-xl md:p-8">
+        <header className="rounded-lg border border-white/10 bg-obsidian/80 p-6 md:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="font-mono text-xs uppercase text-signal">Cloudflare Radar / application-layer attack telemetry</p>
-              <h1 className="micro-glitch-heading mt-3 max-w-4xl text-4xl font-semibold leading-tight text-white md:text-6xl" data-text="Global Threat Dashboard.">
+              <h1 className="mt-3 max-w-4xl text-4xl font-semibold leading-tight text-white md:text-6xl">
                 Global Threat Dashboard.
               </h1>
               <p className="mt-5 max-w-3xl text-base leading-7 text-haze md:text-lg">
@@ -970,10 +947,10 @@ export function GlobalThreatDashboardPage() {
               This dashboard uses aggregated Cloudflare Radar data, not individual live attack events.
             </div>
           </div>
-        </motion.header>
+        </header>
 
         <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start">
-          <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-glow backdrop-blur-xl lg:sticky lg:top-6">
+          <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-5 lg:sticky lg:top-6">
             <div className="mb-5 flex items-center gap-2 font-mono text-xs uppercase text-signal">
               <Radar size={16} />
               Dashboard controls
@@ -985,7 +962,7 @@ export function GlobalThreatDashboardPage() {
                 <button
                   type="button"
                   onClick={() => setScopeOpen((open) => !open)}
-                  className="glitch-control flex w-full items-center justify-between gap-3 rounded-lg border border-signal/35 bg-black/25 px-4 py-3 text-left text-white shadow-[0_0_24px_rgba(252,238,10,0.1)] transition hover:border-signal/70"
+                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-signal/35 bg-black/25 px-4 py-3 text-left text-white transition hover:border-signal/70"
                 >
                   <span className="flex min-w-0 items-center gap-3">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-signal/30 bg-signal/10 text-signal">
@@ -1062,7 +1039,7 @@ export function GlobalThreatDashboardPage() {
                         setRange(option.key);
                         setSelectedPoint(null);
                       }}
-                      className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
+                      className={`rounded-md border px-4 py-2 text-sm font-semibold transition ${
                         range === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
                       }`}
                     >
@@ -1080,7 +1057,7 @@ export function GlobalThreatDashboardPage() {
                       key={tab.key}
                       type="button"
                       onClick={() => setAttackGeoTab(tab.key)}
-                      className={`glitch-control rounded-md border px-4 py-2 text-left text-sm font-semibold transition ${
+                      className={`rounded-md border px-4 py-2 text-left text-sm font-semibold transition ${
                         attackGeoTab === tab.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
                       }`}
                     >
@@ -1095,7 +1072,7 @@ export function GlobalThreatDashboardPage() {
                   type="button"
                   onClick={copySummary}
                   disabled={!data}
-                  className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Clipboard size={16} />
                   {copyStatus || "Copy summary"}
@@ -1104,7 +1081,7 @@ export function GlobalThreatDashboardPage() {
                   type="button"
                   onClick={downloadJson}
                   disabled={!data}
-                  className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Download size={16} />
                   Download JSON
@@ -1115,7 +1092,7 @@ export function GlobalThreatDashboardPage() {
 
           <div className="grid gap-6">
             {loading && (
-              <div className="grid min-h-[360px] place-items-center rounded-lg border border-white/10 bg-white/[0.04] p-8 text-center shadow-glow backdrop-blur-xl">
+              <div className="grid min-h-[360px] place-items-center rounded-lg border border-white/10 bg-white/[0.04] p-8 text-center">
                 <div>
                   <Loader2 className="mx-auto animate-spin text-signal" size={34} />
                   <p className="mt-4 font-mono text-xs uppercase text-signal">Fetching Radar telemetry</p>
@@ -1177,12 +1154,12 @@ export function GlobalThreatDashboardPage() {
                   </Panel>
                 </div>
 
-                <motion.section initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.55, delay: 0.08 }} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
                   <SummaryCard icon={MapPin} label="Top attack origin" value={attackGeography.origins[0]?.code || "N/A"} body={attackGeography.origins[0] ? `${attackGeography.origins[0].name} leads source locations at ${formatPercent(attackGeography.origins[0].value)}.` : "Origin country data unavailable."} tone="cyan" />
                   <SummaryCard icon={Globe2} label="Top target" value={attackGeography.targets[0]?.code || "N/A"} body={attackGeography.targets[0] ? `${attackGeography.targets[0].name} leads target locations at ${formatPercent(attackGeography.targets[0].value)}.` : "Target country data unavailable."} />
                   <SummaryCard icon={Activity} label="Last updated" value={formatTime(data.summary.last_updated)} body="Timestamp from Cloudflare Radar metadata for the newest dataset used." />
-                </motion.section>
+                </section>
 
                 <section className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
                   <div className={`rounded-lg border p-5 ${severityClass}`}>
