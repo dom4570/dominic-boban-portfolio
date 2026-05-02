@@ -40,10 +40,29 @@ const navItems = [
   { label: "Experience", href: "#experience" },
   { label: "Projects", href: "#projects" },
   { label: "Achievements", href: "#achievements" },
-  { label: "Blog", href: "/blog" },
-  { label: "Global Threat Dashboard", href: "/global-threat-dashboard" },
-  { label: "Identity Exposure Scanner", href: "/identity-exposure-scanner", featured: true },
   { label: "Contact", href: "#contact" },
+];
+
+const appLaunchers = [
+  {
+    label: "Global Threat Dashboard",
+    href: "/global-threat-dashboard",
+    icon: Radar,
+    meta: "Cloudflare Radar telemetry",
+  },
+  {
+    label: "Identity Exposure Scanner",
+    href: "/identity-exposure-scanner",
+    icon: ScanSearch,
+    meta: "Breach and paste intelligence",
+    featured: true,
+  },
+  {
+    label: "Blog",
+    href: "/blog",
+    icon: Terminal,
+    meta: "Security field notes",
+  },
 ];
 
 const securityTools = [
@@ -469,39 +488,11 @@ function Hero() {
             <a
               key={item.href}
               href={item.href}
-              className={cn(
-                "glitch-control rounded-md px-3 py-2 text-sm transition hover:bg-white/5 hover:text-white",
-                item.featured
-                  ? "inline-flex items-center gap-2 border border-signal/35 bg-signal/10 font-semibold text-signal shadow-[0_0_22px_rgba(252,238,10,0.16)] hover:border-signal/70 hover:bg-signal/20"
-                  : "text-haze",
-              )}
+              className="glitch-control rounded-md px-3 py-2 text-sm text-haze transition hover:bg-white/5 hover:text-white"
             >
-              {item.featured && <ScanSearch size={15} strokeWidth={2} />}
               <span>{item.label}</span>
             </a>
           ))}
-        </div>
-        <div className="flex items-center gap-2 lg:hidden">
-          <a
-            href="/blog"
-            className="glitch-control inline-flex h-10 items-center justify-center rounded-lg border border-signal/30 bg-signal/10 px-3 text-sm font-semibold text-signal transition hover:bg-signal hover:text-obsidian"
-          >
-            Blog
-          </a>
-          <a
-            href="/identity-exposure-scanner"
-            className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-signal/45 bg-signal/10 px-3 text-sm font-semibold text-signal shadow-[0_0_20px_rgba(252,238,10,0.14)] transition hover:bg-signal hover:text-obsidian"
-          >
-            <ScanSearch size={15} />
-            ID Scan
-          </a>
-          <a
-            href="/global-threat-dashboard"
-            className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:border-signal/50 hover:bg-signal/10 hover:text-signal"
-          >
-            <Radar size={15} />
-            Threats
-          </a>
         </div>
         <a
           href="mailto:dominicboban@dominic-boban.com"
@@ -511,6 +502,43 @@ function Hero() {
           <span className="hidden sm:inline">Email</span>
         </a>
       </nav>
+
+      <div className="relative z-20 mx-auto mt-4 grid max-w-7xl gap-3 md:grid-cols-3">
+        {appLaunchers.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <a
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "micro-glitch-card glitch-control group flex items-center justify-between gap-4 rounded-lg border bg-obsidian/62 p-4 shadow-glow backdrop-blur-xl transition hover:-translate-y-0.5",
+                item.featured
+                  ? "border-signal/45 bg-signal/[0.09] hover:border-signal/80 hover:bg-signal/[0.14]"
+                  : "border-white/10 hover:border-signal/45 hover:bg-white/[0.055]",
+              )}
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <span
+                  className={cn(
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border transition",
+                    item.featured
+                      ? "border-signal/40 bg-signal/15 text-signal group-hover:bg-signal group-hover:text-obsidian"
+                      : "border-white/15 bg-white/5 text-signal group-hover:border-signal/45",
+                  )}
+                >
+                  <Icon size={20} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold text-white">{item.label}</span>
+                  <span className="mt-1 block truncate font-mono text-[11px] uppercase text-haze">{item.meta}</span>
+                </span>
+              </span>
+              <ChevronRight className="shrink-0 text-signal opacity-70 transition group-hover:translate-x-0.5 group-hover:opacity-100" size={18} />
+            </a>
+          );
+        })}
+      </div>
 
       <div className="relative z-10 mx-auto grid min-h-[84svh] max-w-7xl items-center gap-10 py-16 lg:grid-cols-[1.1fr_0.9fr] lg:py-20">
         <motion.div initial="hidden" animate="visible" variants={containerVariants}>
