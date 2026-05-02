@@ -528,6 +528,7 @@ export function GlobalThreatDashboardPage() {
     setError("");
 
     fetch(`/api/radar-dashboard?${params.toString()}`, {
+      cache: "no-store",
       headers: {
         Accept: "application/json",
       },
