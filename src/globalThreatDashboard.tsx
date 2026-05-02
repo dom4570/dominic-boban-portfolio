@@ -403,9 +403,9 @@ function DonutChart({ data, centerLabel = "Top share" }: { data: SplitPoint[]; c
   const lead = rows[0];
 
   return (
-    <div className="grid gap-5 rounded-lg border border-white/10 bg-black/20 p-5 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-center">
+    <div className="grid gap-5 rounded-lg border border-white/10 bg-black/20 p-4">
       <div
-        className="relative mx-auto h-44 w-44 rounded-full"
+        className="relative mx-auto h-48 w-48 rounded-full"
         style={{
           background: `conic-gradient(${gradient})`,
           boxShadow: "0 0 38px rgba(252,238,10,0.12)",
@@ -418,10 +418,10 @@ function DonutChart({ data, centerLabel = "Top share" }: { data: SplitPoint[]; c
       </div>
       <div className="grid gap-3">
         {rows.map((row, index) => (
-          <div key={row.label} className="flex items-center justify-between gap-4 rounded-md border border-white/10 bg-white/[0.035] px-4 py-3">
-            <span className="flex items-center gap-3 text-sm text-haze">
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: attackPalette[index % attackPalette.length] }} />
-              {row.label}
+          <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-white/[0.035] px-4 py-3">
+            <span className="flex min-w-0 items-center gap-3 text-sm leading-5 text-haze">
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: attackPalette[index % attackPalette.length] }} />
+              <span className="min-w-0 break-words">{row.label}</span>
             </span>
             <span className="font-mono text-sm font-semibold text-white">{formatPercent(row.value)}</span>
           </div>
@@ -526,14 +526,50 @@ function AttackLocationBars({ data, emptyLabel }: { data: AttackLocationPoint[];
   );
 }
 
+function flowEndpointPoints(flows: AttackFlowPoint[]) {
+  const endpoints = new Map<string, AttackLocationPoint>();
+
+  flows.forEach((flow, index) => {
+    [
+      { code: flow.origin_code, name: flow.origin_name, value: flow.value },
+      { code: flow.target_code, name: flow.target_name, value: flow.value },
+    ].forEach((point) => {
+      const key = point.code || point.name || `endpoint-${index}`;
+      const existing = endpoints.get(key);
+      if (!existing || point.value > existing.value) {
+        endpoints.set(key, {
+          code: point.code,
+          name: point.name,
+          value: point.value,
+          rank: existing?.rank || endpoints.size + 1,
+        });
+      }
+    });
+  });
+
+  return Array.from(endpoints.values())
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 12);
+}
+
 function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab; origins: AttackLocationPoint[]; targets: AttackLocationPoint[]; flows: AttackFlowPoint[] }) {
   const points = mode === "targets" ? targets : origins;
-  const maxValue = Math.max(...points.map((point) => point.value), ...flows.map((flow) => flow.value), 1);
+  const mapPoints = mode === "flows" ? flowEndpointPoints(flows) : points;
+  const maxValue = Math.max(...mapPoints.map((point) => point.value), ...flows.map((flow) => flow.value), 1);
   const mapTitle = mode === "targets" ? "Top attacks by target location" : mode === "flows" ? "Top attack country flows" : "Top attacks by source location";
+  const landShapes = [
+    "M89 143 L117 107 L168 86 L219 95 L252 118 L281 120 L260 151 L207 162 L149 154 L106 166 Z",
+    "M275 236 L315 248 L345 290 L338 341 L311 393 L283 356 L265 309 Z",
+    "M397 126 L431 103 L480 107 L523 132 L542 167 L501 191 L443 179 L390 158 Z",
+    "M470 190 L521 206 L548 262 L535 334 L497 369 L463 316 L446 250 Z",
+    "M538 143 L611 106 L704 105 L781 128 L837 177 L811 213 L719 222 L624 202 L557 177 Z",
+    "M655 285 L719 263 L781 290 L823 346 L787 374 L710 358 L657 323 Z",
+    "M384 82 L425 58 L467 75 L476 100 L430 113 L383 101 Z",
+  ];
 
   return (
     <div className="overflow-hidden rounded-lg border border-white/10 bg-[#07090b] p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase text-signal">{mapTitle}</p>
           <p className="mt-1 text-sm text-haze">Aggregated Layer 7 Radar geography</p>
@@ -543,79 +579,104 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
         </span>
       </div>
 
-      <svg viewBox="0 0 900 440" className="h-[360px] w-full rounded-md bg-black/45" role="img" aria-label="World attack geography map">
-        <defs>
-          <filter id="map-glow">
-            <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="rgba(103,232,249,0.35)" />
-          </filter>
-          <linearGradient id="attack-line" x1="0" x2="1">
-            <stop offset="0%" stopColor="#fcee0a" stopOpacity="0.1" />
-            <stop offset="50%" stopColor="#67e8f9" stopOpacity="0.45" />
-            <stop offset="100%" stopColor="#ff2a3d" stopOpacity="0.2" />
-          </linearGradient>
-        </defs>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <svg viewBox="0 0 920 430" className="h-[340px] w-full rounded-md bg-black/45 md:h-[430px]" role="img" aria-label="World attack geography map">
+          <defs>
+            <filter id="map-glow">
+              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="rgba(103,232,249,0.45)" />
+            </filter>
+            <radialGradient id="map-radar-glow" cx="50%" cy="44%" r="70%">
+              <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="#67e8f9" stopOpacity="0" />
+            </radialGradient>
+            <linearGradient id="attack-line" x1="0" x2="1">
+              <stop offset="0%" stopColor="#f97316" stopOpacity="0.18" />
+              <stop offset="50%" stopColor="#67e8f9" stopOpacity="0.58" />
+              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.28" />
+            </linearGradient>
+          </defs>
 
-        {[0, 1, 2, 3, 4, 5].map((line) => (
-          <line key={`v-${line}`} x1={80 + line * 140} x2={80 + line * 140} y1="54" y2="390" stroke="rgba(255,255,255,0.055)" strokeDasharray="4 9" />
-        ))}
-        {[0, 1, 2, 3].map((line) => (
-          <line key={`h-${line}`} x1="35" x2="865" y1={90 + line * 82} y2={90 + line * 82} stroke="rgba(255,255,255,0.055)" strokeDasharray="4 9" />
-        ))}
+          <rect width="920" height="430" fill="url(#map-radar-glow)" />
+          {[0, 1, 2, 3, 4, 5].map((line) => (
+            <line key={`v-${line}`} x1={100 + line * 140} x2={100 + line * 140} y1="46" y2="392" stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
+          ))}
+          {[0, 1, 2, 3, 4].map((line) => (
+            <line key={`h-${line}`} x1="42" x2="880" y1={70 + line * 78} y2={70 + line * 78} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
+          ))}
 
-        <path d="M90 118 C130 72 214 80 254 126 C237 160 176 169 124 154 C92 147 74 139 90 118Z" fill="rgba(176,235,244,0.8)" stroke="rgba(255,255,255,0.18)" />
-        <path d="M265 247 C310 236 355 278 339 331 C323 382 293 407 271 363 C256 331 232 283 265 247Z" fill="rgba(176,235,244,0.72)" stroke="rgba(255,255,255,0.15)" />
-        <path d="M412 120 C464 97 523 116 535 165 C497 189 422 184 385 155 C380 139 391 128 412 120Z" fill="rgba(176,235,244,0.78)" stroke="rgba(255,255,255,0.17)" />
-        <path d="M468 205 C521 193 561 241 542 310 C527 363 485 353 464 303 C448 265 428 222 468 205Z" fill="rgba(176,235,244,0.72)" stroke="rgba(255,255,255,0.15)" />
-        <path d="M545 139 C650 78 782 110 815 183 C740 220 630 211 548 177 C522 166 518 152 545 139Z" fill="rgba(176,235,244,0.8)" stroke="rgba(255,255,255,0.18)" />
-        <path d="M660 274 C710 255 773 276 800 336 C758 374 686 364 654 317 C642 300 644 284 660 274Z" fill="rgba(176,235,244,0.72)" stroke="rgba(255,255,255,0.15)" />
-        <path d="M381 78 C408 53 453 58 466 91 C446 114 397 111 373 94 C367 86 371 81 381 78Z" fill="rgba(176,235,244,0.45)" stroke="rgba(255,255,255,0.12)" />
+          {landShapes.map((shape, index) => (
+            <path key={shape} d={shape} fill="rgba(151,232,241,0.22)" stroke="rgba(187,247,255,0.36)" strokeWidth={index === 6 ? 1 : 1.35} />
+          ))}
 
-        {mode === "flows" &&
-          flows.map((flow, index) => {
-            const start = mapPoint(flow.origin_code, index);
-            const end = mapPoint(flow.target_code, index + 3);
-            const curveY = Math.min(start.y, end.y) - 70 - index * 5;
-            const width = Math.max(1.2, Math.min(8, (flow.value / maxValue) * 8));
+          {mode === "flows" &&
+            flows.slice(0, 8).map((flow, index) => {
+              const start = mapPoint(flow.origin_code, index);
+              const end = mapPoint(flow.target_code, index + 3);
+              const curveY = Math.max(42, Math.min(start.y, end.y) - 68 - (index % 4) * 12);
+              const width = Math.max(1.5, Math.min(9, (flow.value / maxValue) * 9));
+              const samePoint = Math.abs(start.x - end.x) < 3 && Math.abs(start.y - end.y) < 3;
+              const d = samePoint
+                ? `M ${start.x} ${start.y} C ${start.x - 82} ${start.y - 82}, ${start.x + 82} ${start.y - 82}, ${end.x} ${end.y}`
+                : `M ${start.x} ${start.y} C ${start.x + 110} ${curveY}, ${end.x - 110} ${curveY}, ${end.x} ${end.y}`;
+
+              return <path key={`${flow.origin_code}-${flow.target_code}-${index}`} d={d} fill="none" stroke="url(#attack-line)" strokeWidth={width} strokeLinecap="round" />;
+            })}
+
+          {mapPoints.map((point, index) => {
+            const coords = mapPoint(point.code, index);
+            const color = attackPalette[index % attackPalette.length];
+            const radius = Math.max(7, Math.min(22, 7 + (point.value / maxValue) * 18));
 
             return (
-              <path
-                key={`${flow.origin_code}-${flow.target_code}-${index}`}
-                d={`M ${start.x} ${start.y} C ${start.x + 100} ${curveY}, ${end.x - 100} ${curveY}, ${end.x} ${end.y}`}
-                fill="none"
-                stroke="url(#attack-line)"
-                strokeWidth={width}
-                strokeLinecap="round"
-              />
+              <g key={`${point.code}-${point.name}-${index}`} filter="url(#map-glow)">
+                <circle cx={coords.x} cy={coords.y} r={radius + 8} fill={color} opacity="0.12" />
+                <circle cx={coords.x} cy={coords.y} r={radius + 3} fill="#050608" stroke={color} strokeWidth="2.5" />
+                <circle cx={coords.x} cy={coords.y} r={Math.max(3, radius * 0.34)} fill={color} />
+                <text x={coords.x + radius + 9} y={coords.y + 5} fill="#ffffff" fontSize="12" fontWeight="800">
+                  {point.code || point.name}
+                </text>
+              </g>
             );
           })}
+        </svg>
 
-        {(mode === "flows" ? flows.flatMap((flow, index) => [
-          { code: flow.origin_code, name: flow.origin_name, value: flow.value, kind: "source", index },
-          { code: flow.target_code, name: flow.target_name, value: flow.value, kind: "target", index: index + flows.length },
-        ]) : points.map((point, index) => ({ ...point, kind: mode, index }))).map((point, index) => {
-          const coords = mapPoint(point.code, point.index || index);
-          const color = attackPalette[index % attackPalette.length];
-          const radius = Math.max(6, Math.min(18, 6 + (point.value / maxValue) * 18));
-
-          return (
-            <g key={`${point.code}-${point.name}-${index}`} filter="url(#map-glow)">
-              <circle cx={coords.x} cy={coords.y} r={radius + 4} fill="none" stroke={color} strokeOpacity="0.24" strokeWidth="2" />
-              <circle cx={coords.x} cy={coords.y} r={radius} fill="#07090b" stroke={color} strokeWidth="4" />
-              <text x={coords.x + radius + 7} y={coords.y + 4} fill="#ffffff" fontSize="12" fontWeight="700">
-                {point.code || point.name}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+        <div className="rounded-md border border-white/10 bg-black/25 p-3">
+          <p className="mb-3 font-mono text-xs uppercase text-signal">{mode === "flows" ? "Top flows" : mode === "targets" ? "Top targets" : "Top sources"}</p>
+          <div className="grid gap-2">
+            {mode === "flows"
+              ? flows.slice(0, 8).map((flow, index) => (
+                  <div key={`${flow.origin_code}-${flow.target_code}-${index}`} className="rounded-md border border-white/10 bg-white/[0.035] p-3">
+                    <div className="flex items-center justify-between gap-2 font-mono text-xs text-white">
+                      <span className="truncate">{flow.origin_code || flow.origin_name}</span>
+                      <ArrowRight className="shrink-0 text-signal" size={14} />
+                      <span className="truncate text-right">{flow.target_code || flow.target_name}</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full rounded-full" style={{ width: `${Math.max(6, (flow.value / maxValue) * 100)}%`, backgroundColor: attackPalette[index % attackPalette.length] }} />
+                    </div>
+                    <p className="mt-2 text-right font-mono text-[11px] text-haze">{formatPercent(flow.value)}</p>
+                  </div>
+                ))
+              : points.slice(0, 8).map((point, index) => (
+                  <div key={`${point.code}-${point.name}-${index}`} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: attackPalette[index % attackPalette.length] }} />
+                    <span className="truncate text-sm text-white">{point.name}</span>
+                    <span className="font-mono text-xs text-haze">{formatPercent(point.value)}</span>
+                  </div>
+                ))}
+            {(mode === "flows" ? flows : points).length === 0 && <p className="rounded-md border border-white/10 bg-black/20 p-4 text-sm text-haze">Radar did not return geography rows for this view.</p>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 function AttackFlowDiagram({ data }: { data: AttackFlowPoint[] }) {
-  const max = Math.max(...data.map((point) => point.value), 1);
+  const rows = data.slice(0, 8);
+  const max = Math.max(...rows.map((point) => point.value), 1);
 
-  if (!data.length) {
+  if (!rows.length) {
     return (
       <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
         Attack flow data unavailable.
@@ -629,40 +690,46 @@ function AttackFlowDiagram({ data }: { data: AttackFlowPoint[] }) {
         <p className="font-mono text-xs uppercase text-signal">Attacks by flow</p>
         <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-xs uppercase text-haze">Source {"->"} Target</span>
       </div>
-      <svg viewBox="0 0 420 410" className="h-[360px] w-full" role="img" aria-label="Layer 7 attack flow diagram">
-        {data.map((flow, index) => {
-          const y = 40 + index * 42;
-          const thickness = Math.max(3, Math.min(34, (flow.value / max) * 34));
+      <svg viewBox="0 0 560 500" className="min-h-[430px] w-full" role="img" aria-label="Layer 7 attack flow diagram">
+        <defs>
+          <filter id="flow-glow">
+            <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="rgba(103,232,249,0.35)" />
+          </filter>
+        </defs>
+        {rows.map((flow, index) => {
+          const y = 52 + index * 50;
+          const thickness = Math.max(4, Math.min(32, (flow.value / max) * 32));
           const color = attackPalette[index % attackPalette.length];
 
           return (
             <g key={`${flow.origin_code}-${flow.target_code}-${index}`}>
               <path
-                d={`M 74 ${y} C 165 ${y}, 245 ${y + (index % 2 === 0 ? 26 : -22)}, 344 ${y}`}
+                d={`M 128 ${y} C 228 ${y}, 326 ${y + (index % 2 === 0 ? 22 : -18)}, 432 ${y}`}
                 fill="none"
                 stroke={color}
-                strokeOpacity="0.5"
+                strokeOpacity="0.56"
                 strokeWidth={thickness}
                 strokeLinecap="round"
+                filter="url(#flow-glow)"
               />
-              <rect x="12" y={y - 15} width="74" height="30" rx="4" fill="rgba(255,255,255,0.08)" />
-              <rect x="334" y={y - 15} width="74" height="30" rx="4" fill="rgba(255,255,255,0.08)" />
-              <text x="22" y={y + 5} fill="#ffffff" fontSize="13" fontWeight="700">
+              <rect x="22" y={y - 17} width="92" height="34" rx="5" fill="rgba(255,255,255,0.08)" />
+              <rect x="446" y={y - 17} width="92" height="34" rx="5" fill="rgba(255,255,255,0.08)" />
+              <text x="38" y={y + 5} fill="#ffffff" fontSize="14" fontWeight="800">
                 {flow.origin_code || flow.origin_name.slice(0, 3)}
               </text>
-              <text x="374" y={y + 5} fill="#ffffff" fontSize="13" fontWeight="700" textAnchor="middle">
+              <text x="492" y={y + 5} fill="#ffffff" fontSize="14" fontWeight="800" textAnchor="middle">
                 {flow.target_code || flow.target_name.slice(0, 3)}
               </text>
-              <text x="210" y={y - Math.max(12, thickness / 2)} fill="#d7c99e" fontSize="11" textAnchor="middle">
+              <text x="280" y={y - Math.max(14, thickness / 2 + 4)} fill="#d7c99e" fontSize="12" fontWeight="700" textAnchor="middle">
                 {formatPercent(flow.value)}
               </text>
             </g>
           );
         })}
-        <text x="18" y="396" fill="#67e8f9" fontSize="12" fontWeight="700">
+        <text x="32" y="480" fill="#67e8f9" fontSize="12" fontWeight="800">
           Source
         </text>
-        <text x="370" y="396" fill="#67e8f9" fontSize="12" fontWeight="700" textAnchor="middle">
+        <text x="506" y="480" fill="#67e8f9" fontSize="12" fontWeight="800" textAnchor="middle">
           Target
         </text>
       </svg>
@@ -681,7 +748,7 @@ function ApplicationLayerSecurityPanel({
 }) {
   return (
     <Panel eyebrow="Application layer security" title={`Attack geography / ${scopeLabel}`}>
-      <div className="grid gap-5 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+      <div className="grid gap-5">
         <AttackWorldMap mode={mode} origins={geography.origins} targets={geography.targets} flows={geography.flows} />
         <AttackFlowDiagram data={geography.flows} />
       </div>
