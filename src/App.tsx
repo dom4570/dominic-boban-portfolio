@@ -30,6 +30,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { AdminPage, BlogIndexPage, BlogPostPage } from "./blog";
 import { EmailScannerPage } from "./emailScanner";
+import { GlobalThreatDashboardPage } from "./globalThreatDashboard";
 
 type IconType = typeof Shield;
 
@@ -40,6 +41,7 @@ const navItems = [
   { label: "Projects", href: "#projects" },
   { label: "Achievements", href: "#achievements" },
   { label: "Blog", href: "/blog" },
+  { label: "Global Threat Dashboard", href: "/global-threat-dashboard" },
   { label: "Identity Exposure Scanner", href: "/identity-exposure-scanner", featured: true },
   { label: "Contact", href: "#contact" },
 ];
@@ -492,6 +494,13 @@ function Hero() {
           >
             <ScanSearch size={15} />
             ID Scan
+          </a>
+          <a
+            href="/global-threat-dashboard"
+            className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:border-signal/50 hover:bg-signal/10 hover:text-signal"
+          >
+            <Radar size={15} />
+            Threats
           </a>
         </div>
         <a
@@ -1063,6 +1072,10 @@ export default function App() {
 
     if (normalizedPath === "/identity-exposure-scanner" || normalizedPath === "/email-scanner") {
       return <EmailScannerPage />;
+    }
+
+    if (normalizedPath === "/global-threat-dashboard") {
+      return <GlobalThreatDashboardPage />;
     }
 
     return <PortfolioHome />;
