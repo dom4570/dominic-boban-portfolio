@@ -633,231 +633,245 @@ export function GlobalThreatDashboardPage() {
           </div>
         </motion.header>
 
-        <section className="grid gap-4 rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-glow backdrop-blur-xl lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
-          <div>
-            <p className="mb-3 font-mono text-xs uppercase text-signal">Time range</p>
-            <div className="flex flex-wrap gap-2">
-              {rangeOptions.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => {
-                    setRange(option.key);
-                    setSelectedPoint(null);
-                  }}
-                  className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
-                    range === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
+        <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start">
+          <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-glow backdrop-blur-xl lg:sticky lg:top-6">
+            <div className="mb-5 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+              <Radar size={16} />
+              Dashboard controls
             </div>
-          </div>
 
-          <div>
-            <p className="mb-3 font-mono text-xs uppercase text-signal">Graph metric</p>
-            <div className="flex flex-wrap gap-2">
-              {metricOptions.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => {
-                    setMetric(option.key);
-                    setSelectedPoint(null);
-                  }}
-                  className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
-                    metric === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-3 font-mono text-xs uppercase text-signal">Location filter</p>
-            <div className="flex flex-wrap gap-2">
-              {locationTrafficOptions.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => setLocationTraffic(option.key)}
-                  className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
-                    locationTraffic === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={copySummary}
-              disabled={!data}
-              className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Clipboard size={16} />
-              {copyStatus || "Copy summary"}
-            </button>
-            <button
-              type="button"
-              onClick={downloadJson}
-              disabled={!data}
-              className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Download size={16} />
-              JSON
-            </button>
-          </div>
-        </section>
-
-        {loading && (
-          <div className="grid min-h-[360px] place-items-center rounded-lg border border-white/10 bg-white/[0.04] p-8 text-center shadow-glow backdrop-blur-xl">
-            <div>
-              <Loader2 className="mx-auto animate-spin text-signal" size={34} />
-              <p className="mt-4 font-mono text-xs uppercase text-signal">Fetching Radar telemetry</p>
-              <p className="mt-2 text-haze">Building the dashboard from Cloudflare Radar.</p>
-            </div>
-          </div>
-        )}
-
-        {!loading && error && (
-          <div className="rounded-lg border border-trace/40 bg-trace/10 p-6 text-trace shadow-trace">
-            <div className="flex items-center gap-3">
-              <AlertTriangle size={22} />
+            <div className="grid gap-5">
               <div>
-                <p className="font-mono text-xs uppercase">Radar provider unavailable</p>
-                <h2 className="mt-1 text-2xl font-semibold text-white">Threat data temporarily unavailable.</h2>
+                <p className="mb-3 font-mono text-xs uppercase text-haze">Time range</p>
+                <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
+                  {rangeOptions.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => {
+                        setRange(option.key);
+                        setSelectedPoint(null);
+                      }}
+                      className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
+                        range === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 font-mono text-xs uppercase text-haze">Graph metric</p>
+                <div className="grid gap-2">
+                  {metricOptions.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => {
+                        setMetric(option.key);
+                        setSelectedPoint(null);
+                      }}
+                      className={`glitch-control rounded-md border px-4 py-2 text-left text-sm font-semibold transition ${
+                        metric === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 font-mono text-xs uppercase text-haze">Location filter</p>
+                <div className="grid gap-2">
+                  {locationTrafficOptions.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setLocationTraffic(option.key)}
+                      className={`glitch-control rounded-md border px-4 py-2 text-left text-sm font-semibold transition ${
+                        locationTraffic === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 font-mono text-xs uppercase text-haze">Attack geography</p>
+                <div className="grid gap-2">
+                  {attackGeoTabs.map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setAttackGeoTab(tab.key)}
+                      className={`glitch-control rounded-md border px-4 py-2 text-left text-sm font-semibold transition ${
+                        attackGeoTab === tab.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-2 border-t border-white/10 pt-5">
+                <button
+                  type="button"
+                  onClick={copySummary}
+                  disabled={!data}
+                  className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Clipboard size={16} />
+                  {copyStatus || "Copy summary"}
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadJson}
+                  disabled={!data}
+                  className="glitch-control inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download size={16} />
+                  Download JSON
+                </button>
               </div>
             </div>
-          </div>
-        )}
+          </aside>
 
-        {!loading && data && (
-          <>
-            <motion.section initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.55, delay: 0.08 }} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <SummaryCard icon={Bot} label="Bot traffic" value={formatPercent(data.summary.bot_percent)} body="Likely automated HTTP traffic share over the selected global Radar window." />
-              <SummaryCard icon={Users} label="Human traffic" value={formatPercent(data.summary.human_percent)} body="Likely human HTTP traffic share for the same global period." tone="cyan" />
-              <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
-              <SummaryCard icon={Activity} label="Last updated" value={formatTime(data.summary.last_updated)} body="Timestamp from Cloudflare Radar metadata for the newest dataset used." />
-            </motion.section>
-
-            {data.warnings.length > 0 && (
-              <div className="rounded-lg border border-volt/35 bg-volt/10 p-4 text-sm leading-6 text-haze">
-                <div className="mb-2 flex items-center gap-2 font-mono text-xs uppercase text-volt">
-                  <AlertTriangle size={16} />
-                  Partial Radar data
+          <div className="grid gap-6">
+            {loading && (
+              <div className="grid min-h-[360px] place-items-center rounded-lg border border-white/10 bg-white/[0.04] p-8 text-center shadow-glow backdrop-blur-xl">
+                <div>
+                  <Loader2 className="mx-auto animate-spin text-signal" size={34} />
+                  <p className="mt-4 font-mono text-xs uppercase text-signal">Fetching Radar telemetry</p>
+                  <p className="mt-2 text-haze">Building the dashboard from Cloudflare Radar.</p>
                 </div>
-                {data.warnings.join(" ")}
               </div>
             )}
 
-            <section className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-              <div className={`rounded-lg border p-5 ${severityClass}`}>
-                <p className="font-mono text-xs uppercase">Global signal severity</p>
-                <h2 className="mt-2 text-3xl font-semibold text-white">{severity}</h2>
-                <p className="mt-3 text-sm leading-6 text-haze">
-                  This is an analyst-style signal based on aggregated Radar bot share and Layer 7 trend movement. It does not indicate attacks against this portfolio.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-                <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
-                  <BarChart3 size={16} />
-                  Analyst insights
-                </div>
-                <ul className="grid gap-2">
-                  {insights.map((insight) => (
-                    <li key={insight} className="leading-7 text-haze">
-                      {insight}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
-
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(340px,0.7fr)]">
-              <Panel eyebrow="Interactive trend analysis" title={activeMetric.label}>
-                <LineChart data={activeTrend} tone={activeMetric.tone} selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
-                <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
-                  <p className="font-mono text-xs uppercase text-signal">Selected point</p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                    <div>
-                      <p className="font-mono text-[11px] uppercase text-haze">Metric</p>
-                      <p className="mt-1 font-semibold text-white">{activeMetric.label}</p>
-                    </div>
-                    <div>
-                      <p className="font-mono text-[11px] uppercase text-haze">Time</p>
-                      <p className="mt-1 font-semibold text-white">{formatTime(activeTrendPoint?.timestamp)}</p>
-                    </div>
-                    <div>
-                      <p className="font-mono text-[11px] uppercase text-haze">Index</p>
-                      <p className="mt-1 font-semibold text-white">{formatCompact(activeTrendPoint?.value)}</p>
-                    </div>
+            {!loading && error && (
+              <div className="rounded-lg border border-trace/40 bg-trace/10 p-6 text-trace shadow-trace">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle size={22} />
+                  <div>
+                    <p className="font-mono text-xs uppercase">Radar provider unavailable</p>
+                    <h2 className="mt-1 text-2xl font-semibold text-white">Threat data temporarily unavailable.</h2>
                   </div>
                 </div>
-              </Panel>
-
-              <Panel eyebrow="Bot split" title="Bot vs human traffic">
-                <DonutChart data={data.bot_human} />
-              </Panel>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.2fr)]">
-              <Panel eyebrow="Top locations" title={`${locationTrafficOptions.find((option) => option.key === locationTraffic)?.label || "All traffic"} by location`}>
-                <LocationBars data={data.top_locations} />
-              </Panel>
-
-              <Panel eyebrow="Layer 7 activity" title="Application attack trend">
-                <LineChart data={data.layer7_trend} tone="trace" />
-              </Panel>
-            </div>
-
-            <Panel eyebrow="Layer 7 attack geography" title="Country attack map">
-              <div className="mb-5 flex flex-wrap gap-2">
-                {attackGeoTabs.map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setAttackGeoTab(tab.key)}
-                    className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
-                      attackGeoTab === tab.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
               </div>
+            )}
 
-              {attackGeoTab === "origins" && <AttackLocationBars data={attackGeography.origins} emptyLabel="Attack origin country data unavailable." />}
-              {attackGeoTab === "targets" && <AttackLocationBars data={attackGeography.targets} emptyLabel="Target country data unavailable." />}
-              {attackGeoTab === "flows" && <AttackFlowBars data={attackGeography.flows} />}
+            {!loading && data && (
+              <>
+                {data.warnings.length > 0 && (
+                  <div className="rounded-lg border border-volt/35 bg-volt/10 p-4 text-sm leading-6 text-haze">
+                    <div className="mb-2 flex items-center gap-2 font-mono text-xs uppercase text-volt">
+                      <AlertTriangle size={16} />
+                      Partial Radar data
+                    </div>
+                    {data.warnings.join(" ")}
+                  </div>
+                )}
 
-              <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
-                Country attack geography is aggregated Cloudflare Radar Layer 7 data. It is not a live attack map for this portfolio website.
-              </p>
-            </Panel>
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(340px,0.7fr)]">
+                  <Panel eyebrow="Interactive trend analysis" title={activeMetric.label}>
+                    <LineChart data={activeTrend} tone={activeMetric.tone} selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
+                    <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
+                      <p className="font-mono text-xs uppercase text-signal">Selected point</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <p className="font-mono text-[11px] uppercase text-haze">Metric</p>
+                          <p className="mt-1 font-semibold text-white">{activeMetric.label}</p>
+                        </div>
+                        <div>
+                          <p className="font-mono text-[11px] uppercase text-haze">Time</p>
+                          <p className="mt-1 font-semibold text-white">{formatTime(activeTrendPoint?.timestamp)}</p>
+                        </div>
+                        <div>
+                          <p className="font-mono text-[11px] uppercase text-haze">Index</p>
+                          <p className="mt-1 font-semibold text-white">{formatCompact(activeTrendPoint?.value)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </Panel>
 
-            <section className="grid gap-4 md:grid-cols-3">
-              {[
-                [Globe2, "Global scope", "Radar aggregates activity from Cloudflare's global network rather than this individual portfolio site."],
-                [Radar, "Security context", "Useful for showing internet-wide patterns across bots, HTTP traffic, and application attack telemetry."],
-                [Zap, "Cached edge view", "Successful dashboard responses are cached briefly to keep the public page fast and token usage low."],
-              ].map(([Icon, title, body]) => (
-                <div key={String(title)} className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-                  <Icon className="text-signal" size={20} />
-                  <h3 className="mt-4 text-lg font-semibold text-white">{String(title)}</h3>
-                  <p className="mt-2 text-sm leading-6 text-haze">{String(body)}</p>
+                  <Panel eyebrow="Bot split" title="Bot vs human traffic">
+                    <DonutChart data={data.bot_human} />
+                  </Panel>
                 </div>
-              ))}
-            </section>
-          </>
-        )}
+
+                <Panel eyebrow="Layer 7 attack geography" title="Country attack map">
+                  {attackGeoTab === "origins" && <AttackLocationBars data={attackGeography.origins} emptyLabel="Attack origin country data unavailable." />}
+                  {attackGeoTab === "targets" && <AttackLocationBars data={attackGeography.targets} emptyLabel="Target country data unavailable." />}
+                  {attackGeoTab === "flows" && <AttackFlowBars data={attackGeography.flows} />}
+
+                  <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
+                    Country attack geography is aggregated Cloudflare Radar Layer 7 data. It is not a live attack map for this portfolio website.
+                  </p>
+                </Panel>
+
+                <div className="grid gap-6 xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.2fr)]">
+                  <Panel eyebrow="Top locations" title={`${locationTrafficOptions.find((option) => option.key === locationTraffic)?.label || "All traffic"} by location`}>
+                    <LocationBars data={data.top_locations} />
+                  </Panel>
+
+                  <Panel eyebrow="Layer 7 activity" title="Application attack trend">
+                    <LineChart data={data.layer7_trend} tone="trace" />
+                  </Panel>
+                </div>
+
+                <motion.section initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.55, delay: 0.08 }} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <SummaryCard icon={Bot} label="Bot traffic" value={formatPercent(data.summary.bot_percent)} body="Likely automated HTTP traffic share over the selected global Radar window." />
+                  <SummaryCard icon={Users} label="Human traffic" value={formatPercent(data.summary.human_percent)} body="Likely human HTTP traffic share for the same global period." tone="cyan" />
+                  <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
+                  <SummaryCard icon={Activity} label="Last updated" value={formatTime(data.summary.last_updated)} body="Timestamp from Cloudflare Radar metadata for the newest dataset used." />
+                </motion.section>
+
+                <section className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                  <div className={`rounded-lg border p-5 ${severityClass}`}>
+                    <p className="font-mono text-xs uppercase">Global signal severity</p>
+                    <h2 className="mt-2 text-3xl font-semibold text-white">{severity}</h2>
+                    <p className="mt-3 text-sm leading-6 text-haze">
+                      This is an analyst-style signal based on aggregated Radar bot share and Layer 7 trend movement. It does not indicate attacks against this portfolio.
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                    <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                      <BarChart3 size={16} />
+                      Analyst insights
+                    </div>
+                    <ul className="grid gap-2">
+                      {insights.map((insight) => (
+                        <li key={insight} className="leading-7 text-haze">
+                          {insight}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+
+                <section className="grid gap-4 md:grid-cols-3">
+                  {[
+                    [Globe2, "Global scope", "Radar aggregates activity from Cloudflare's global network rather than this individual portfolio site."],
+                    [Radar, "Security context", "Useful for showing internet-wide patterns across bots, HTTP traffic, and application attack telemetry."],
+                    [Zap, "Cached edge view", "Successful dashboard responses are cached briefly to keep the public page fast and token usage low."],
+                  ].map(([Icon, title, body]) => (
+                    <div key={String(title)} className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                      <Icon className="text-signal" size={20} />
+                      <h3 className="mt-4 text-lg font-semibold text-white">{String(title)}</h3>
+                      <p className="mt-2 text-sm leading-6 text-haze">{String(body)}</p>
+                    </div>
+                  ))}
+                </section>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
