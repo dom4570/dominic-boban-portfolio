@@ -1038,8 +1038,14 @@ function SiteFooter() {
 
 export default function App() {
   const path = useCurrentPath();
+  const isGlobalThreatDashboard = path.replace(/\/$/, "") === "/global-threat-dashboard";
 
   useEffect(() => {
+    if (path.replace(/\/$/, "") === "/global-threat-dashboard") {
+      document.body.classList.remove("is-signal-jitter");
+      return;
+    }
+
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     let timeoutId = 0;
@@ -1065,7 +1071,7 @@ export default function App() {
       window.clearTimeout(releaseId);
       document.body.classList.remove("is-signal-jitter");
     };
-  }, []);
+  }, [path]);
 
   useEffect(() => {
     const scrollToHash = () => {
@@ -1112,7 +1118,7 @@ export default function App() {
   return (
     <>
       <main className="min-h-screen overflow-x-hidden bg-obsidian text-white">
-        <AmbientGlitchLayer />
+        {!isGlobalThreatDashboard && <AmbientGlitchLayer />}
         {renderRoute()}
         <SiteFooter />
       </main>
