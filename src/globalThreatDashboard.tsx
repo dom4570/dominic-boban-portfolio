@@ -39,6 +39,7 @@ type AttackLocationPoint = {
   code?: string;
   name: string;
   value: number;
+  focus?: boolean;
 };
 
 type AttackFlowPoint = {
@@ -66,6 +67,17 @@ type RadarDashboard = {
     origins: AttackLocationPoint[];
     targets: AttackLocationPoint[];
     flows: AttackFlowPoint[];
+    flow_mode?: "merged_flows" | "partial_flows" | "rankings_only";
+    flow_scope_note?: string;
+    flow_status?: {
+      origin_limited?: string;
+      target_limited?: string;
+      fallback?: string;
+    };
+    flow_coverage?: {
+      flow_count: number;
+      fallback_used: boolean;
+    };
   };
   warnings: string[];
   filters?: {
@@ -98,9 +110,9 @@ const rangeOptions: Array<{ key: RangeKey; label: string }> = [
 ];
 
 const attackGeoTabs: Array<{ key: AttackGeoTab; label: string }> = [
-  { key: "origins", label: "Attack Origins" },
-  { key: "targets", label: "Targeted Countries" },
-  { key: "flows", label: "Origin -> Target Flows" },
+  { key: "origins", label: "Sources" },
+  { key: "targets", label: "Targets" },
+  { key: "flows", label: "Flows" },
 ];
 
 const radarScopeOptions: RadarScopeOption[] = [
@@ -707,6 +719,7 @@ function mergeGraphNode(nodes: Map<string, AttackGraphNodeInput>, node: AttackGr
     value: existing ? Math.max(existing.value, node.value) : node.value,
     rank: existing?.rank || node.rank || nodes.size + 1,
     connected: Boolean(existing?.connected || node.connected),
+    focus: Boolean(existing?.focus || node.focus),
   });
 }
 
@@ -739,13 +752,21 @@ function buildAttackGraphBaseNodes(flows: AttackFlowPoint[], origins: AttackLoca
   origins.forEach((origin) => mergeGraphNode(sourceMap, origin));
   targets.forEach((target) => mergeGraphNode(targetMap, target));
 
-  const sources = Array.from(sourceMap.values()).sort((a, b) => b.value - a.value);
-  const targetRows = Array.from(targetMap.values()).sort((a, b) => b.value - a.value);
+  const sources = sortGraphNodes(Array.from(sourceMap.values()));
+  const targetRows = sortGraphNodes(Array.from(targetMap.values()));
 
   return {
     sources: (sources.length ? sources : origins).slice(0, 10),
     targets: (targetRows.length ? targetRows : targets).slice(0, 10),
   };
+}
+
+function sortGraphNodes(nodes: AttackGraphNodeInput[]) {
+  return nodes.sort((a, b) => {
+    if (a.focus !== b.focus) return a.focus ? -1 : 1;
+    if (a.connected !== b.connected) return a.connected ? -1 : 1;
+    return b.value - a.value;
+  });
 }
 
 function positionAttackNodes(nodes: AttackGraphNodeInput[], side: "source" | "target", graphHeight: number): PositionedAttackNode[] {
@@ -777,12 +798,22 @@ function AttackFlowGraph({
   origins,
   targets,
   flows,
+  flowMode,
+  flowScopeNote,
+  flowStatus,
   onModeChange,
 }: {
   mode: AttackGeoTab;
   origins: AttackLocationPoint[];
   targets: AttackLocationPoint[];
   flows: AttackFlowPoint[];
+  flowMode?: "merged_flows" | "partial_flows" | "rankings_only";
+  flowScopeNote?: string;
+  flowStatus?: {
+    origin_limited?: string;
+    target_limited?: string;
+    fallback?: string;
+  };
   onModeChange: (mode: AttackGeoTab) => void;
 }) {
   const reducedMotion = useReducedMotionPreference();
@@ -790,7 +821,7 @@ function AttackFlowGraph({
   const graphWidth = 1040;
   const graphHeight = 700;
   const surface = { x: graphWidth / 2, y: graphHeight / 2 };
-  const flowRows = flows.slice(0, 10);
+  const flowRows = flows.slice(0, 16);
   const maxFlow = Math.max(...flowRows.map((flow) => flow.value), 1);
   const baseNodes = buildAttackGraphBaseNodes(flowRows, origins, targets);
   const sourceNodes = positionAttackNodes(baseNodes.sources, "source", graphHeight);
@@ -801,8 +832,15 @@ function AttackFlowGraph({
     mode === "targets"
       ? "Target country pressure"
       : mode === "flows"
-        ? "Origin -> target attack flow"
+        ? "Merged origin-target attack flows"
         : "Source country pressure";
+  const coverageLabel = flows.length ? `${flows.length} flow pairs` : "rankings only";
+  const coverageClass =
+    flowMode === "rankings_only"
+      ? "border-volt/35 bg-volt/10 text-volt"
+      : flowMode === "partial_flows"
+        ? "border-trace/35 bg-trace/10 text-trace"
+        : "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
   const defaultSignal = flowRows[0]
     ? {
         title: `${flowRows[0].origin_code || flowRows[0].origin_name} -> ${flowRows[0].target_code || flowRows[0].target_name}`,
@@ -814,7 +852,7 @@ function AttackFlowGraph({
     : {
         title: "Layer 7 attack surface",
         meta: "Aggregated Radar signal",
-        body: "Flow pairs are unavailable for this filter, so the graph is showing source and target country rankings only.",
+        body: flowScopeNote || "Flow pairs are unavailable for this filter, so the graph is showing source and target country rankings only.",
         color: "#fcee0a",
       };
   const activeSignal = selectedSignal || defaultSignal;
@@ -832,7 +870,7 @@ function AttackFlowGraph({
       if (!source || !target) return null;
 
       const path = `M ${source.x + source.radius + 4} ${source.y} C ${source.x + 210} ${source.y}, ${surface.x - 120} ${surface.y}, ${surface.x - 54} ${surface.y} C ${surface.x + 54} ${surface.y}, ${target.x - 210} ${target.y}, ${target.x - target.radius - 4} ${target.y}`;
-      const width = Math.max(2.5, Math.min(24, 3 + (flow.value / maxFlow) * 21));
+      const width = Math.max(1.8, Math.min(16, 2 + (flow.value / maxFlow) * 14));
 
       return {
         id: `attack-flow-${index}`,
@@ -863,9 +901,10 @@ function AttackFlowGraph({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase text-signal">Attack flow graph</p>
-          <p className="mt-1 text-sm text-haze">{graphTitle} from aggregated Cloudflare Radar Layer 7 data</p>
+          <p className="mt-1 text-sm text-haze">{flowScopeNote || `${graphTitle} from aggregated Cloudflare Radar Layer 7 data`}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded border px-3 py-1.5 font-mono text-[11px] uppercase ${coverageClass}`}>{coverageLabel}</span>
           <span className="font-mono text-xs uppercase text-white">Attacks by</span>
           {attackGeoTabs.map((tab) => (
             <button
@@ -876,11 +915,18 @@ function AttackFlowGraph({
                 mode === tab.key ? "border-white/15 bg-white/15 text-white" : "border-white/10 bg-black/20 text-haze hover:border-white/25 hover:text-white"
               }`}
             >
-              {tab.key === "origins" ? "Source" : tab.key === "targets" ? "Target" : "Flow"}
+              {tab.label}
             </button>
           ))}
         </div>
       </div>
+      {flowStatus && (
+        <div className="mb-4 flex flex-wrap gap-2 font-mono text-[11px] uppercase text-haze">
+          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Origin view: {flowStatus.origin_limited || "unknown"}</span>
+          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Target view: {flowStatus.target_limited || "unknown"}</span>
+          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Fallback: {flowStatus.fallback || "not needed"}</span>
+        </div>
+      )}
 
       <div className="grid gap-4">
         <div className="relative overflow-hidden rounded-md border border-white/10 bg-black/45">
@@ -995,8 +1041,8 @@ function AttackFlowGraph({
 
             {[...sourceNodes, ...targetNodes].map((node) => {
               const baseOpacity = node.side === "source" ? sourceOpacity : targetOpacity;
-              const nodeOpacity = node.connected ? baseOpacity : Math.min(baseOpacity, 0.5);
-              const nodeStroke = node.connected ? node.color : "rgba(215,201,158,0.72)";
+              const nodeOpacity = node.connected || node.focus ? baseOpacity : Math.min(baseOpacity, 0.5);
+              const nodeStroke = node.connected || node.focus ? node.color : "rgba(215,201,158,0.72)";
 
               return (
                 <g
@@ -1007,7 +1053,10 @@ function AttackFlowGraph({
                     setSelectedSignal({
                       title: node.name,
                       meta: node.side === "source" ? "Source country / region" : "Target country / region",
-                      body: `${node.name} is returning ${formatPercent(node.value)} in the ${node.side === "source" ? "attack origin" : "target country"} signal for this Radar filter.`,
+                      body:
+                        node.focus && !node.connected
+                          ? `${node.name} is the selected country focus. Radar did not return origin flow pairs for this filter, so it is shown as ranking context.`
+                          : `${node.name} is returning ${formatPercent(node.value)} in the ${node.side === "source" ? "attack origin" : "target country"} signal for this Radar filter.`,
                       value: node.value,
                       color: node.color,
                     })
@@ -1016,16 +1065,19 @@ function AttackFlowGraph({
                     setSelectedSignal({
                       title: node.name,
                       meta: node.side === "source" ? "Source country / region" : "Target country / region",
-                      body: `${node.name} is returning ${formatPercent(node.value)} in the ${node.side === "source" ? "attack origin" : "target country"} signal for this Radar filter.`,
+                      body:
+                        node.focus && !node.connected
+                          ? `${node.name} is the selected country focus. Radar did not return origin flow pairs for this filter, so it is shown as ranking context.`
+                          : `${node.name} is returning ${formatPercent(node.value)} in the ${node.side === "source" ? "attack origin" : "target country"} signal for this Radar filter.`,
                       value: node.value,
                       color: node.color,
                     })
                   }
                   tabIndex={0}
                 >
-                  <circle cx={node.x} cy={node.y} r={node.radius + 10} fill={node.color} opacity={node.connected ? "0.09" : "0.035"} />
-                  <circle cx={node.x} cy={node.y} r={node.radius} fill="#050608" stroke={nodeStroke} strokeWidth={node.connected ? "3" : "1.8"} filter={node.connected ? "url(#flow-node-glow)" : undefined} />
-                  <circle cx={node.x} cy={node.y} r={Math.max(4, node.radius * 0.24)} fill={node.connected ? node.color : "#d7c99e"} />
+                  <circle cx={node.x} cy={node.y} r={node.radius + 10} fill={node.color} opacity={node.connected || node.focus ? "0.09" : "0.035"} />
+                  <circle cx={node.x} cy={node.y} r={node.radius} fill="#050608" stroke={nodeStroke} strokeWidth={node.connected || node.focus ? "3" : "1.8"} filter={node.connected || node.focus ? "url(#flow-node-glow)" : undefined} />
+                  <circle cx={node.x} cy={node.y} r={Math.max(4, node.radius * 0.24)} fill={node.connected || node.focus ? node.color : "#d7c99e"} />
                   <text x={node.x} y={node.y + 4} fill="#ffffff" fontSize={node.connected ? "15" : "12"} fontWeight="900" textAnchor="middle">
                     {node.shortLabel}
                   </text>
@@ -1040,7 +1092,7 @@ function AttackFlowGraph({
 
           {!edges.length && (
             <div className="absolute inset-x-6 bottom-6 rounded-md border border-volt/30 bg-volt/10 px-4 py-3 text-sm text-haze">
-              Flow pairs unavailable from Radar for this filter. Source and target rankings are still shown when available.
+              {flowScopeNote || "Flow pairs unavailable from Radar for this filter."} Source and target rankings are still shown when available.
             </div>
           )}
         </div>
@@ -1156,14 +1208,23 @@ function ApplicationLayerSecurityPanel({
   scopeLabel,
   onModeChange,
 }: {
-  geography: { origins: AttackLocationPoint[]; targets: AttackLocationPoint[]; flows: AttackFlowPoint[] };
+  geography: NonNullable<RadarDashboard["attack_geography"]>;
   mode: AttackGeoTab;
   scopeLabel: string;
   onModeChange: (mode: AttackGeoTab) => void;
 }) {
   return (
     <Panel eyebrow="Application layer security" title={`Application Layer Security / ${scopeLabel}`}>
-      <AttackFlowGraph mode={mode} origins={geography.origins} targets={geography.targets} flows={geography.flows} onModeChange={onModeChange} />
+      <AttackFlowGraph
+        mode={mode}
+        origins={geography.origins}
+        targets={geography.targets}
+        flows={geography.flows}
+        flowMode={geography.flow_mode}
+        flowScopeNote={geography.flow_scope_note}
+        flowStatus={geography.flow_status}
+        onModeChange={onModeChange}
+      />
       <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
         Attack flow data is aggregated Cloudflare Radar Layer 7 geography. It is not live traffic against this portfolio website.
       </p>
