@@ -2,6 +2,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   BarChart3,
   Bot,
   Clipboard,
@@ -32,6 +33,22 @@ type LocationPoint = {
   value: number;
 };
 
+type AttackLocationPoint = {
+  rank?: number;
+  code?: string;
+  name: string;
+  value: number;
+};
+
+type AttackFlowPoint = {
+  rank?: number;
+  origin_code?: string;
+  origin_name: string;
+  target_code?: string;
+  target_name: string;
+  value: number;
+};
+
 type RadarDashboard = {
   summary: {
     bot_percent: number | null;
@@ -43,6 +60,11 @@ type RadarDashboard = {
   bot_human: SplitPoint[];
   top_locations: LocationPoint[];
   layer7_trend: TrendPoint[];
+  attack_geography?: {
+    origins: AttackLocationPoint[];
+    targets: AttackLocationPoint[];
+    flows: AttackFlowPoint[];
+  };
   warnings: string[];
   filters?: {
     range: string;
@@ -55,6 +77,7 @@ type RadarDashboard = {
 type RangeKey = "24h" | "7d" | "30d";
 type MetricKey = "http" | "layer7";
 type LocationTrafficKey = "all" | "bot" | "human";
+type AttackGeoTab = "origins" | "targets" | "flows";
 
 const rangeOptions: Array<{ key: RangeKey; label: string }> = [
   { key: "24h", label: "24h" },
@@ -71,6 +94,12 @@ const locationTrafficOptions: Array<{ key: LocationTrafficKey; label: string }> 
   { key: "all", label: "All traffic" },
   { key: "bot", label: "Bot traffic" },
   { key: "human", label: "Human traffic" },
+];
+
+const attackGeoTabs: Array<{ key: AttackGeoTab; label: string }> = [
+  { key: "origins", label: "Attack Origins" },
+  { key: "targets", label: "Targeted Countries" },
+  { key: "flows", label: "Origin -> Target Flows" },
 ];
 
 const fadeUp = {
@@ -135,6 +164,9 @@ function buildAnalystInsights(data: RadarDashboard) {
   const layer7Peak = peakPoint(data.layer7_trend);
   const layer7Delta = trendDelta(data.layer7_trend);
   const topLocation = data.top_locations[0];
+  const topOrigin = data.attack_geography?.origins?.[0];
+  const topTarget = data.attack_geography?.targets?.[0];
+  const topFlow = data.attack_geography?.flows?.[0];
 
   if (botPercent >= 35) {
     insights.push(`Bot traffic is elevated at ${formatPercent(botPercent)}, so automated activity is a major part of the global HTTP mix.`);
@@ -159,7 +191,19 @@ function buildAnalystInsights(data: RadarDashboard) {
     insights.push(`${topLocation.name} leads the selected location view with ${formatCompact(topLocation.value)}% share.`);
   }
 
-  return insights.slice(0, 5);
+  if (topOrigin) {
+    insights.push(`Top Layer 7 attack origin: ${topOrigin.name} at ${formatCompact(topOrigin.value)}% of observed attack origin share.`);
+  }
+
+  if (topTarget) {
+    insights.push(`Most targeted country: ${topTarget.name} at ${formatCompact(topTarget.value)}% of observed target share.`);
+  }
+
+  if (topFlow) {
+    insights.push(`Strongest country attack flow: ${topFlow.origin_name} -> ${topFlow.target_name} at ${formatCompact(topFlow.value)}%.`);
+  }
+
+  return insights.slice(0, 7);
 }
 
 function chartPath(points: TrendPoint[], width: number, height: number, padding: number) {
@@ -343,6 +387,83 @@ function LocationBars({ data }: { data: LocationPoint[] }) {
   );
 }
 
+function AttackLocationBars({ data, emptyLabel }: { data: AttackLocationPoint[]; emptyLabel: string }) {
+  const max = Math.max(...data.map((point) => point.value), 1);
+
+  if (!data.length) {
+    return (
+      <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
+        {emptyLabel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-4">
+      {data.map((country, index) => (
+        <div key={`${country.code}-${country.name}-${index}`} className="grid gap-2">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-signal/30 bg-signal/10 font-mono text-[11px] text-signal">
+                {country.rank || index + 1}
+              </span>
+              <span className="truncate text-white">
+                {country.name}
+                {country.code ? <span className="ml-2 font-mono text-xs uppercase text-haze">{country.code}</span> : null}
+              </span>
+            </span>
+            <span className="font-mono text-xs text-haze">{formatCompact(country.value)}%</span>
+          </div>
+          <div className="h-3 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full rounded-full bg-gradient-to-r from-trace via-volt to-signal" style={{ width: `${Math.max(5, (country.value / max) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AttackFlowBars({ data }: { data: AttackFlowPoint[] }) {
+  const max = Math.max(...data.map((point) => point.value), 1);
+
+  if (!data.length) {
+    return (
+      <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
+        Attack flow data unavailable.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-4">
+      {data.map((flow, index) => (
+        <div key={`${flow.origin_code}-${flow.target_code}-${index}`} className="grid gap-2">
+          <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex min-w-0 flex-wrap items-center gap-2 text-white">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-trace/30 bg-trace/10 font-mono text-[11px] text-trace">
+                {flow.rank || index + 1}
+              </span>
+              <span className="truncate">
+                {flow.origin_name}
+                {flow.origin_code ? <span className="ml-2 font-mono text-xs uppercase text-haze">{flow.origin_code}</span> : null}
+              </span>
+              <ArrowRight className="text-signal" size={16} />
+              <span className="truncate">
+                {flow.target_name}
+                {flow.target_code ? <span className="ml-2 font-mono text-xs uppercase text-haze">{flow.target_code}</span> : null}
+              </span>
+            </span>
+            <span className="font-mono text-xs text-haze">{formatCompact(flow.value)}%</span>
+          </div>
+          <div className="h-3 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full rounded-full bg-gradient-to-r from-trace via-signal to-cyan-300" style={{ width: `${Math.max(5, (flow.value / max) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SummaryCard({
   icon: Icon,
   label,
@@ -392,6 +513,7 @@ export function GlobalThreatDashboardPage() {
   const [range, setRange] = useState<RangeKey>("24h");
   const [metric, setMetric] = useState<MetricKey>("http");
   const [locationTraffic, setLocationTraffic] = useState<LocationTrafficKey>("all");
+  const [attackGeoTab, setAttackGeoTab] = useState<AttackGeoTab>("origins");
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState("");
 
@@ -433,6 +555,7 @@ export function GlobalThreatDashboardPage() {
   const activeMetric = metricOptions.find((option) => option.key === metric) || metricOptions[0];
   const activeTrend = metric === "http" ? data?.http_trend || [] : data?.layer7_trend || [];
   const activeTrendPoint = selectedPoint !== null ? activeTrend[selectedPoint] : lastItem(activeTrend);
+  const attackGeography = data?.attack_geography || { origins: [], targets: [], flows: [] };
   const insights = data ? buildAnalystInsights(data) : [];
   const severity =
     (data?.summary.bot_percent || 0) >= 40 || Math.abs(trendDelta(data?.layer7_trend || []) || 0) >= 20
@@ -693,6 +816,31 @@ export function GlobalThreatDashboardPage() {
                 <LineChart data={data.layer7_trend} tone="trace" />
               </Panel>
             </div>
+
+            <Panel eyebrow="Layer 7 attack geography" title="Country attack map">
+              <div className="mb-5 flex flex-wrap gap-2">
+                {attackGeoTabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setAttackGeoTab(tab.key)}
+                    className={`glitch-control rounded-md border px-4 py-2 text-sm font-semibold transition ${
+                      attackGeoTab === tab.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {attackGeoTab === "origins" && <AttackLocationBars data={attackGeography.origins} emptyLabel="Attack origin country data unavailable." />}
+              {attackGeoTab === "targets" && <AttackLocationBars data={attackGeography.targets} emptyLabel="Target country data unavailable." />}
+              {attackGeoTab === "flows" && <AttackFlowBars data={attackGeography.flows} />}
+
+              <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
+                Country attack geography is aggregated Cloudflare Radar Layer 7 data. It is not a live attack map for this portfolio website.
+              </p>
+            </Panel>
 
             <section className="grid gap-4 md:grid-cols-3">
               {[

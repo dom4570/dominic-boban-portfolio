@@ -5,6 +5,7 @@ Cybersecurity portfolio deployed on Cloudflare Pages with React, Vite, TypeScrip
 ## Global Threat Dashboard
 
 The `/global-threat-dashboard` page shows aggregated internet and security trends from Cloudflare Radar.
+It also includes Layer 7 attack geography for origin countries, targeted countries, and origin-to-target country flows.
 
 Architecture:
 
