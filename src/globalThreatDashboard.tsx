@@ -860,9 +860,14 @@ function AttackFlowGraph({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid gap-4">
         <div className="relative overflow-hidden rounded-md border border-white/10 bg-black/45">
-          <svg viewBox={`0 0 ${graphWidth} ${graphHeight}`} className="min-h-[520px] w-full md:min-h-[640px]" role="img" aria-label="Node graph showing source to target Layer 7 attack flows">
+          <svg
+            viewBox={`0 0 ${graphWidth} ${graphHeight}`}
+            className="aspect-[1040/620] w-full"
+            role="img"
+            aria-label="Node graph showing source to target Layer 7 attack flows"
+          >
             <defs>
               <radialGradient id="flow-graph-glow" cx="50%" cy="50%" r="72%">
                 <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.16" />
@@ -1016,7 +1021,7 @@ function AttackFlowGraph({
           )}
         </div>
 
-        <div className="grid gap-4">
+        <div className="grid gap-4 xl:grid-cols-[minmax(260px,0.9fr)_minmax(360px,1.25fr)_minmax(260px,0.9fr)] xl:items-start">
           <div className="rounded-md border border-white/10 bg-black/25 p-4">
             <p className="font-mono text-xs uppercase text-signal">Selected signal</p>
             <div className="mt-4 rounded-md border border-white/10 bg-white/[0.035] p-4">
