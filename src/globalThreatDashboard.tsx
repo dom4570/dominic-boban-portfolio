@@ -644,7 +644,11 @@ type GraphSignal = {
   color: string;
 };
 
-type PositionedAttackNode = AttackLocationPoint & {
+type AttackGraphNodeInput = AttackLocationPoint & {
+  connected?: boolean;
+};
+
+type PositionedAttackNode = AttackGraphNodeInput & {
   id: string;
   shortLabel: string;
   side: "source" | "target";
@@ -693,9 +697,22 @@ function truncateGraphLabel(value: string, maxLength = 18) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}.` : value;
 }
 
+function mergeGraphNode(nodes: Map<string, AttackGraphNodeInput>, node: AttackGraphNodeInput) {
+  const id = graphNodeId(node.code, node.name);
+  const existing = nodes.get(id);
+
+  nodes.set(id, {
+    code: node.code,
+    name: node.name,
+    value: existing ? Math.max(existing.value, node.value) : node.value,
+    rank: existing?.rank || node.rank || nodes.size + 1,
+    connected: Boolean(existing?.connected || node.connected),
+  });
+}
+
 function buildAttackGraphBaseNodes(flows: AttackFlowPoint[], origins: AttackLocationPoint[], targets: AttackLocationPoint[]) {
-  const sourceMap = new Map<string, AttackLocationPoint>();
-  const targetMap = new Map<string, AttackLocationPoint>();
+  const sourceMap = new Map<string, AttackGraphNodeInput>();
+  const targetMap = new Map<string, AttackGraphNodeInput>();
 
   flows.slice(0, 10).forEach((flow) => {
     const sourceId = graphNodeId(flow.origin_code, flow.origin_name);
@@ -708,34 +725,39 @@ function buildAttackGraphBaseNodes(flows: AttackFlowPoint[], origins: AttackLoca
       name: flow.origin_name,
       value: (source?.value || 0) + flow.value,
       rank: source?.rank || sourceMap.size + 1,
+      connected: true,
     });
     targetMap.set(targetId, {
       code: flow.target_code,
       name: flow.target_name,
       value: (target?.value || 0) + flow.value,
       rank: target?.rank || targetMap.size + 1,
+      connected: true,
     });
   });
+
+  origins.forEach((origin) => mergeGraphNode(sourceMap, origin));
+  targets.forEach((target) => mergeGraphNode(targetMap, target));
 
   const sources = Array.from(sourceMap.values()).sort((a, b) => b.value - a.value);
   const targetRows = Array.from(targetMap.values()).sort((a, b) => b.value - a.value);
 
   return {
-    sources: (sources.length ? sources : origins).slice(0, 8),
-    targets: (targetRows.length ? targetRows : targets).slice(0, 8),
+    sources: (sources.length ? sources : origins).slice(0, 10),
+    targets: (targetRows.length ? targetRows : targets).slice(0, 10),
   };
 }
 
-function positionAttackNodes(nodes: AttackLocationPoint[], side: "source" | "target", graphHeight: number): PositionedAttackNode[] {
-  const top = 96;
-  const bottom = graphHeight - 96;
+function positionAttackNodes(nodes: AttackGraphNodeInput[], side: "source" | "target", graphHeight: number): PositionedAttackNode[] {
+  const top = 88;
+  const bottom = graphHeight - 92;
   const max = Math.max(...nodes.map((node) => node.value), 1);
   const x = side === "source" ? 150 : 890;
   const usable = Math.max(bottom - top, 1);
 
   return nodes.map((node, index) => {
     const y = nodes.length === 1 ? graphHeight / 2 : top + (index / Math.max(nodes.length - 1, 1)) * usable;
-    const radius = 19 + Math.sqrt(Math.max(node.value, 0) / max) * 21;
+    const radius = 11 + Math.sqrt(Math.max(node.value, 0) / max) * 18;
 
     return {
       ...node,
@@ -766,7 +788,7 @@ function AttackFlowGraph({
   const reducedMotion = useReducedMotionPreference();
   const [selectedSignal, setSelectedSignal] = useState<GraphSignal | null>(null);
   const graphWidth = 1040;
-  const graphHeight = 620;
+  const graphHeight = 700;
   const surface = { x: graphWidth / 2, y: graphHeight / 2 };
   const flowRows = flows.slice(0, 10);
   const maxFlow = Math.max(...flowRows.map((flow) => flow.value), 1);
@@ -864,7 +886,7 @@ function AttackFlowGraph({
         <div className="relative overflow-hidden rounded-md border border-white/10 bg-black/45">
           <svg
             viewBox={`0 0 ${graphWidth} ${graphHeight}`}
-            className="aspect-[1040/620] w-full"
+            className="aspect-[1040/700] w-full"
             role="img"
             aria-label="Node graph showing source to target Layer 7 attack flows"
           >
@@ -882,7 +904,7 @@ function AttackFlowGraph({
             {[0, 1, 2, 3, 4, 5, 6].map((line) => (
               <line key={`v-${line}`} x1={80 + line * 148} x2={80 + line * 148} y1="58" y2={graphHeight - 58} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 12" />
             ))}
-            {[0, 1, 2, 3, 4, 5].map((line) => (
+            {[0, 1, 2, 3, 4, 5, 6].map((line) => (
               <line key={`h-${line}`} x1="56" x2={graphWidth - 56} y1={74 + line * 92} y2={74 + line * 92} stroke="rgba(255,255,255,0.055)" strokeDasharray="4 12" />
             ))}
             {[92, 154, 216].map((radius) => (
@@ -972,7 +994,9 @@ function AttackFlowGraph({
             </g>
 
             {[...sourceNodes, ...targetNodes].map((node) => {
-              const nodeOpacity = node.side === "source" ? sourceOpacity : targetOpacity;
+              const baseOpacity = node.side === "source" ? sourceOpacity : targetOpacity;
+              const nodeOpacity = node.connected ? baseOpacity : Math.min(baseOpacity, 0.5);
+              const nodeStroke = node.connected ? node.color : "rgba(215,201,158,0.72)";
 
               return (
                 <g
@@ -999,13 +1023,13 @@ function AttackFlowGraph({
                   }
                   tabIndex={0}
                 >
-                  <circle cx={node.x} cy={node.y} r={node.radius + 12} fill={node.color} opacity="0.09" />
-                  <circle cx={node.x} cy={node.y} r={node.radius} fill="#050608" stroke={node.color} strokeWidth="3" filter="url(#flow-node-glow)" />
-                  <circle cx={node.x} cy={node.y} r={Math.max(5, node.radius * 0.24)} fill={node.color} />
-                  <text x={node.x} y={node.y + 5} fill="#ffffff" fontSize="17" fontWeight="900" textAnchor="middle">
+                  <circle cx={node.x} cy={node.y} r={node.radius + 10} fill={node.color} opacity={node.connected ? "0.09" : "0.035"} />
+                  <circle cx={node.x} cy={node.y} r={node.radius} fill="#050608" stroke={nodeStroke} strokeWidth={node.connected ? "3" : "1.8"} filter={node.connected ? "url(#flow-node-glow)" : undefined} />
+                  <circle cx={node.x} cy={node.y} r={Math.max(4, node.radius * 0.24)} fill={node.connected ? node.color : "#d7c99e"} />
+                  <text x={node.x} y={node.y + 4} fill="#ffffff" fontSize={node.connected ? "15" : "12"} fontWeight="900" textAnchor="middle">
                     {node.shortLabel}
                   </text>
-                  <text x={node.x} y={node.y + node.radius + 24} fill="#d7c99e" fontSize="12" fontWeight="700" textAnchor="middle">
+                  <text x={node.x} y={node.y + node.radius + 19} fill="#d7c99e" fontSize="10" fontWeight="700" textAnchor="middle">
                     {truncateGraphLabel(node.name)}
                   </text>
                   <title>{`${node.name}: ${formatPercent(node.value)}`}</title>
