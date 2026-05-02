@@ -5,11 +5,15 @@ import {
   ArrowRight,
   BarChart3,
   Bot,
+  ChevronDown,
   Clipboard,
   Download,
   Globe2,
   Loader2,
+  MapPin,
+  Network,
   Radar,
+  Search,
   ShieldAlert,
   Users,
   Zap,
@@ -70,6 +74,10 @@ type RadarDashboard = {
     range: string;
     range_label: string;
     location_traffic: string;
+    scope?: string;
+    scope_type?: string;
+    scope_value?: string;
+    scope_label?: string;
   };
   note: string;
 };
@@ -78,6 +86,14 @@ type RangeKey = "24h" | "7d" | "30d";
 type MetricKey = "http" | "layer7";
 type LocationTrafficKey = "all" | "bot" | "human";
 type AttackGeoTab = "origins" | "targets" | "flows";
+type RadarScopeKey = "worldwide" | `continent:${string}` | `country:${string}` | `asn:${string}`;
+type RadarScopeOption = {
+  key: RadarScopeKey;
+  label: string;
+  meta: string;
+  group: "Global" | "Continents" | "Countries / Territories" | "Autonomous Systems";
+  icon: typeof Radar;
+};
 
 const rangeOptions: Array<{ key: RangeKey; label: string }> = [
   { key: "24h", label: "24h" },
@@ -100,6 +116,35 @@ const attackGeoTabs: Array<{ key: AttackGeoTab; label: string }> = [
   { key: "origins", label: "Attack Origins" },
   { key: "targets", label: "Targeted Countries" },
   { key: "flows", label: "Origin -> Target Flows" },
+];
+
+const radarScopeOptions: RadarScopeOption[] = [
+  { key: "worldwide", label: "Worldwide", meta: "Global Radar view", group: "Global", icon: Globe2 },
+  { key: "continent:AF", label: "Africa", meta: "Continent", group: "Continents", icon: Globe2 },
+  { key: "continent:AS", label: "Asia", meta: "Continent", group: "Continents", icon: Globe2 },
+  { key: "continent:EU", label: "Europe", meta: "Continent", group: "Continents", icon: Globe2 },
+  { key: "continent:NA", label: "North America", meta: "Continent", group: "Continents", icon: Globe2 },
+  { key: "continent:OC", label: "Oceania", meta: "Continent", group: "Continents", icon: Globe2 },
+  { key: "continent:SA", label: "South America", meta: "Continent", group: "Continents", icon: Globe2 },
+  { key: "country:GB", label: "United Kingdom", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:US", label: "United States", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:IN", label: "India", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:BR", label: "Brazil", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:CN", label: "China", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:DE", label: "Germany", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:FR", label: "France", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:NL", label: "Netherlands", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:JP", label: "Japan", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:SG", label: "Singapore", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:CA", label: "Canada", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:AU", label: "Australia", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "country:ZA", label: "South Africa", meta: "Country / territory", group: "Countries / Territories", icon: MapPin },
+  { key: "asn:13335", label: "AS13335 - Cloudflare", meta: "Autonomous system", group: "Autonomous Systems", icon: Network },
+  { key: "asn:8075", label: "AS8075 - Microsoft", meta: "Autonomous system", group: "Autonomous Systems", icon: Network },
+  { key: "asn:15169", label: "AS15169 - Google", meta: "Autonomous system", group: "Autonomous Systems", icon: Network },
+  { key: "asn:16509", label: "AS16509 - Amazon", meta: "Autonomous system", group: "Autonomous Systems", icon: Network },
+  { key: "asn:32934", label: "AS32934 - Meta", meta: "Autonomous system", group: "Autonomous Systems", icon: Network },
+  { key: "asn:14061", label: "AS14061 - DigitalOcean", meta: "Autonomous system", group: "Autonomous Systems", icon: Network },
 ];
 
 const fadeUp = {
@@ -167,6 +212,11 @@ function buildAnalystInsights(data: RadarDashboard) {
   const topOrigin = data.attack_geography?.origins?.[0];
   const topTarget = data.attack_geography?.targets?.[0];
   const topFlow = data.attack_geography?.flows?.[0];
+  const scopeLabel = data.filters?.scope_label || "Worldwide";
+
+  if (scopeLabel !== "Worldwide") {
+    insights.push(`Scope filter active: ${scopeLabel}. Radar endpoints that support this scope are filtered before results are normalized.`);
+  }
 
   if (botPercent >= 35) {
     insights.push(`Bot traffic is elevated at ${formatPercent(botPercent)}, so automated activity is a major part of the global HTTP mix.`);
@@ -204,6 +254,24 @@ function buildAnalystInsights(data: RadarDashboard) {
   }
 
   return insights.slice(0, 7);
+}
+
+function selectedScope(scopeKey: RadarScopeKey) {
+  return radarScopeOptions.find((option) => option.key === scopeKey) || radarScopeOptions[0];
+}
+
+function groupedScopeOptions(query: string) {
+  const normalized = query.trim().toLowerCase();
+  const options = radarScopeOptions.filter((option) => {
+    if (!normalized) return true;
+    return `${option.label} ${option.meta} ${option.key}`.toLowerCase().includes(normalized);
+  });
+
+  return ["Global", "Continents", "Countries / Territories", "Autonomous Systems"].map((group) => ({
+    group,
+    options: options.filter((option) => option.group === group),
+    total: radarScopeOptions.filter((option) => option.group === group).length,
+  }));
 }
 
 function chartPath(points: TrendPoint[], width: number, height: number, padding: number) {
@@ -254,6 +322,11 @@ function LineChart({
     const y = padding + (1 - (point.value - min) / span) * usableHeight;
     return { x, y };
   };
+  const safeSelectedIndex = typeof selectedIndex === "number" ? Math.min(Math.max(selectedIndex, 0), data.length - 1) : data.length - 1;
+  const selectedDatum = data[safeSelectedIndex];
+  const selectedCoords = selectedDatum ? chartPoint(selectedDatum, safeSelectedIndex) : null;
+  const tooltipX = selectedCoords ? Math.min(Math.max(selectedCoords.x + 14, padding), width - 250) : 0;
+  const tooltipY = selectedCoords ? Math.max(selectedCoords.y - 78, padding) : 0;
 
   if (!data.length) {
     return (
@@ -286,11 +359,21 @@ function LineChart({
             strokeDasharray="5 8"
           />
         ))}
+        {selectedCoords && (
+          <line
+            x1={selectedCoords.x}
+            x2={selectedCoords.x}
+            y1={padding}
+            y2={height - padding}
+            stroke="rgba(255,255,255,0.42)"
+            strokeWidth="1"
+          />
+        )}
         <path d={`${path} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`} fill={`url(#line-fill-${tone})`} />
         <path d={path} fill="none" stroke={stroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" filter={`url(#line-glow-${tone})`} />
         {data.map((point, index) => {
           const { x, y } = chartPoint(point, index);
-          const selected = selectedIndex === index;
+          const selected = safeSelectedIndex === index;
 
           return (
             <circle
@@ -308,6 +391,18 @@ function LineChart({
             />
           );
         })}
+        {selectedDatum && selectedCoords && (
+          <g>
+            <rect x={tooltipX} y={tooltipY} width="236" height="68" rx="8" fill="rgba(16,16,16,0.92)" stroke="rgba(255,255,255,0.16)" />
+            <text x={tooltipX + 14} y={tooltipY + 23} fill="#ffffff" fontSize="13" fontWeight="700">
+              {formatTime(selectedDatum.timestamp)}
+            </text>
+            <circle cx={tooltipX + 18} cy={tooltipY + 45} r="5" fill={stroke} />
+            <text x={tooltipX + 32} y={tooltipY + 49} fill="#d7c99e" fontSize="13">
+              Index: {formatCompact(selectedDatum.value)}
+            </text>
+          </g>
+        )}
       </svg>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-haze">
         <span>{formatTime(data[0]?.timestamp)}</span>
@@ -514,6 +609,9 @@ export function GlobalThreatDashboardPage() {
   const [metric, setMetric] = useState<MetricKey>("http");
   const [locationTraffic, setLocationTraffic] = useState<LocationTrafficKey>("all");
   const [attackGeoTab, setAttackGeoTab] = useState<AttackGeoTab>("origins");
+  const [scopeKey, setScopeKey] = useState<RadarScopeKey>("worldwide");
+  const [scopeQuery, setScopeQuery] = useState("");
+  const [scopeOpen, setScopeOpen] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState("");
 
@@ -522,6 +620,8 @@ export function GlobalThreatDashboardPage() {
     const params = new URLSearchParams({
       range,
       traffic: locationTraffic,
+      scope: scopeKey,
+      scopeLabel: selectedScope(scopeKey).label,
     });
 
     setLoading(true);
@@ -547,7 +647,7 @@ export function GlobalThreatDashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [range, locationTraffic]);
+  }, [range, locationTraffic, scopeKey]);
 
   const latestAttackValue = useMemo(() => {
     const latest = data?.layer7_trend ? lastItem(data.layer7_trend) : undefined;
@@ -557,6 +657,9 @@ export function GlobalThreatDashboardPage() {
   const activeTrend = metric === "http" ? data?.http_trend || [] : data?.layer7_trend || [];
   const activeTrendPoint = selectedPoint !== null ? activeTrend[selectedPoint] : lastItem(activeTrend);
   const attackGeography = data?.attack_geography || { origins: [], targets: [], flows: [] };
+  const scope = selectedScope(scopeKey);
+  const ScopeIcon = scope.icon;
+  const scopeGroups = groupedScopeOptions(scopeQuery);
   const insights = data ? buildAnalystInsights(data) : [];
   const severity =
     (data?.summary.bot_percent || 0) >= 40 || Math.abs(trendDelta(data?.layer7_trend || []) || 0) >= 20
@@ -575,6 +678,7 @@ export function GlobalThreatDashboardPage() {
     ? [
         "Global Threat Dashboard analyst summary",
         `Range: ${data.filters?.range_label || range}`,
+        `Scope: ${data.filters?.scope_label || scope.label}`,
         `Bot traffic: ${formatPercent(data.summary.bot_percent)}`,
         `Human traffic: ${formatPercent(data.summary.human_percent)}`,
         `Application attack insight: ${data.summary.application_attack_insight}`,
@@ -595,7 +699,7 @@ export function GlobalThreatDashboardPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `cloudflare-radar-${range}-${locationTraffic}.json`;
+    link.download = `cloudflare-radar-${range}-${locationTraffic}-${scopeKey.replace(":", "-")}.json`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -641,6 +745,77 @@ export function GlobalThreatDashboardPage() {
             </div>
 
             <div className="grid gap-5">
+              <div className="relative">
+                <p className="mb-3 font-mono text-xs uppercase text-haze">Radar scope</p>
+                <button
+                  type="button"
+                  onClick={() => setScopeOpen((open) => !open)}
+                  className="glitch-control flex w-full items-center justify-between gap-3 rounded-lg border border-signal/35 bg-black/25 px-4 py-3 text-left text-white shadow-[0_0_24px_rgba(252,238,10,0.1)] transition hover:border-signal/70"
+                >
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-signal/30 bg-signal/10 text-signal">
+                      <ScopeIcon size={17} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">{scope.label}</span>
+                      <span className="mt-0.5 block truncate font-mono text-[11px] uppercase text-haze">{scope.meta}</span>
+                    </span>
+                  </span>
+                  <ChevronDown className={`shrink-0 text-signal transition ${scopeOpen ? "rotate-180" : ""}`} size={18} />
+                </button>
+
+                {scopeOpen && (
+                  <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-lg border border-white/15 bg-[#0b0b0b] shadow-[0_18px_60px_rgba(0,0,0,0.7)]">
+                    <label className="relative block border-b border-white/10">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-haze" size={16} />
+                      <input
+                        value={scopeQuery}
+                        onChange={(event) => setScopeQuery(event.target.value)}
+                        className="w-full bg-white/[0.04] py-3 pl-10 pr-3 text-sm text-white outline-none placeholder:text-haze/50 focus:bg-signal/10"
+                        placeholder="Search continents, countries, ASNs"
+                      />
+                    </label>
+                    <div className="max-h-80 overflow-y-auto py-2">
+                      {scopeGroups.map(({ group, options, total }) =>
+                        options.length > 0 ? (
+                          <div key={group}>
+                            <div className="sticky top-0 z-10 flex items-center gap-2 bg-white/[0.08] px-4 py-2 font-mono text-[11px] uppercase text-haze">
+                              {group}
+                              <span className="rounded-full bg-white/15 px-2 py-0.5 text-white">{total}</span>
+                            </div>
+                            {options.map((option) => {
+                              const Icon = option.icon;
+
+                              return (
+                                <button
+                                  key={option.key}
+                                  type="button"
+                                  onClick={() => {
+                                    setScopeKey(option.key);
+                                    setScopeOpen(false);
+                                    setScopeQuery("");
+                                    setSelectedPoint(null);
+                                  }}
+                                  className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-white/10 ${
+                                    option.key === scopeKey ? "bg-signal/15 text-signal" : "text-white"
+                                  }`}
+                                >
+                                  <Icon size={16} className="shrink-0" />
+                                  <span className="min-w-0">
+                                    <span className="block truncate font-semibold">{option.label}</span>
+                                    <span className="mt-0.5 block truncate font-mono text-[11px] uppercase text-haze">{option.meta}</span>
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null,
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <p className="mb-3 font-mono text-xs uppercase text-haze">Time range</p>
                 <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
@@ -778,7 +953,7 @@ export function GlobalThreatDashboardPage() {
                 )}
 
                 <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(340px,0.7fr)]">
-                  <Panel eyebrow="Interactive trend analysis" title={activeMetric.label}>
+                  <Panel eyebrow="Interactive trend analysis" title={`${activeMetric.label} / ${data.filters?.scope_label || scope.label}`}>
                     <LineChart data={activeTrend} tone={activeMetric.tone} selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
                     <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
                       <p className="font-mono text-xs uppercase text-signal">Selected point</p>
@@ -804,7 +979,7 @@ export function GlobalThreatDashboardPage() {
                   </Panel>
                 </div>
 
-                <Panel eyebrow="Layer 7 attack geography" title="Country attack map">
+                <Panel eyebrow="Layer 7 attack geography" title={`Country attack map / ${data.filters?.scope_label || scope.label}`}>
                   {attackGeoTab === "origins" && <AttackLocationBars data={attackGeography.origins} emptyLabel="Attack origin country data unavailable." />}
                   {attackGeoTab === "targets" && <AttackLocationBars data={attackGeography.targets} emptyLabel="Target country data unavailable." />}
                   {attackGeoTab === "flows" && <AttackFlowBars data={attackGeography.flows} />}
