@@ -179,6 +179,66 @@ function normalizeLocations(raw) {
     .slice(0, 8);
 }
 
+function normalizeAttackLocations(raw, kind) {
+  const result = raw?.result || {};
+  const rows = Array.isArray(result.top_0) ? result.top_0 : [];
+  const prefix = kind === "origin" ? "origin" : "target";
+
+  return rows
+    .map((row, index) => {
+      const code =
+        row[`${prefix}CountryAlpha2`] ||
+        row[`${prefix}LocationAlpha2`] ||
+        row[`${prefix}CountryCode`] ||
+        row.countryCode ||
+        row.alpha2 ||
+        "";
+      const name =
+        row[`${prefix}CountryName`] ||
+        row[`${prefix}LocationName`] ||
+        row.countryName ||
+        row.locationName ||
+        row.name ||
+        code ||
+        "Unknown";
+      const value = numberOrNull(row.value ?? row.requests ?? row.count);
+
+      return {
+        rank: numberOrNull(row.rank) || index + 1,
+        code: cleanString(code, ""),
+        name: cleanString(name, code || "Unknown"),
+        value,
+      };
+    })
+    .filter((row) => row.name && row.value !== null)
+    .slice(0, 8);
+}
+
+function normalizeAttackFlows(raw) {
+  const result = raw?.result || {};
+  const rows = Array.isArray(result.top_0) ? result.top_0 : [];
+
+  return rows
+    .map((row, index) => {
+      const originCode = row.originCountryAlpha2 || row.originLocationAlpha2 || row.originCountryCode || "";
+      const targetCode = row.targetCountryAlpha2 || row.targetLocationAlpha2 || row.targetCountryCode || "";
+      const originName = row.originCountryName || row.originLocationName || originCode || "Unknown origin";
+      const targetName = row.targetCountryName || row.targetLocationName || targetCode || "Unknown target";
+      const value = numberOrNull(row.value ?? row.requests ?? row.count);
+
+      return {
+        rank: numberOrNull(row.rank) || index + 1,
+        origin_code: cleanString(originCode, ""),
+        origin_name: cleanString(originName, originCode || "Unknown origin"),
+        target_code: cleanString(targetCode, ""),
+        target_name: cleanString(targetName, targetCode || "Unknown target"),
+        value,
+      };
+    })
+    .filter((row) => row.origin_name && row.target_name && row.value !== null)
+    .slice(0, 8);
+}
+
 function latestUpdated(...responses) {
   const updated = responses
     .map((response) => response?.result?.meta?.lastUpdated)
@@ -244,8 +304,11 @@ async function buildDashboard(request, token) {
   let layer7Trend = [];
   let applicationAttackInsight = "";
   let topLocations = [];
+  let attackOrigins = [];
+  let attackTargets = [];
+  let attackFlows = [];
 
-  const [layer7TimeResult, layer7SummaryResult, topLocationsResult] = await Promise.allSettled([
+  const [layer7TimeResult, layer7SummaryResult, topLocationsResult, attackOriginResult, attackTargetResult, attackFlowResult] = await Promise.allSettled([
     fetchRadar("/attacks/layer7/timeseries", token, commonParams),
     fetchFirstRadar(["/attacks/layer7/summary/MITIGATION_PRODUCT", "/attacks/layer7/summary/mitigation_product"], token, {
       dateRange: options.range.radar,
@@ -256,6 +319,23 @@ async function buildDashboard(request, token) {
       format: "json",
       limit: 8,
       ...options.locationTraffic,
+    }),
+    fetchRadar("/attacks/layer7/top/locations/origin", token, {
+      dateRange: options.range.radar,
+      format: "json",
+      limit: 8,
+    }),
+    fetchRadar("/attacks/layer7/top/locations/target", token, {
+      dateRange: options.range.radar,
+      format: "json",
+      limit: 8,
+    }),
+    fetchRadar("/attacks/layer7/top/attacks", token, {
+      dateRange: options.range.radar,
+      format: "json",
+      limit: 8,
+      limitDirection: "ORIGIN",
+      limitPerLocation: 3,
     }),
   ]);
 
@@ -277,6 +357,24 @@ async function buildDashboard(request, token) {
     warnings.push("Top locations are temporarily unavailable.");
   }
 
+  if (attackOriginResult.status === "fulfilled") {
+    attackOrigins = normalizeAttackLocations(attackOriginResult.value, "origin");
+  } else {
+    warnings.push("Layer 7 attack origin countries are temporarily unavailable.");
+  }
+
+  if (attackTargetResult.status === "fulfilled") {
+    attackTargets = normalizeAttackLocations(attackTargetResult.value, "target");
+  } else {
+    warnings.push("Layer 7 attack target countries are temporarily unavailable.");
+  }
+
+  if (attackFlowResult.status === "fulfilled") {
+    attackFlows = normalizeAttackFlows(attackFlowResult.value);
+  } else {
+    warnings.push("Layer 7 attack flow pairs are temporarily unavailable.");
+  }
+
   const botPercent = botHuman.find((row) => row.label === "Bot")?.value ?? null;
   const humanPercent = botHuman.find((row) => row.label === "Human")?.value ?? null;
   const lastUpdated = latestUpdated(
@@ -285,6 +383,9 @@ async function buildDashboard(request, token) {
     layer7TimeResult.status === "fulfilled" ? layer7TimeResult.value : null,
     layer7SummaryResult.status === "fulfilled" ? layer7SummaryResult.value : null,
     topLocationsResult.status === "fulfilled" ? topLocationsResult.value : null,
+    attackOriginResult.status === "fulfilled" ? attackOriginResult.value : null,
+    attackTargetResult.status === "fulfilled" ? attackTargetResult.value : null,
+    attackFlowResult.status === "fulfilled" ? attackFlowResult.value : null,
   );
 
   return {
@@ -298,6 +399,11 @@ async function buildDashboard(request, token) {
     bot_human: botHuman,
     top_locations: topLocations,
     layer7_trend: layer7Trend,
+    attack_geography: {
+      origins: attackOrigins,
+      targets: attackTargets,
+      flows: attackFlows,
+    },
     warnings,
     filters: {
       range: options.rangeKey,
