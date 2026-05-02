@@ -1,6 +1,6 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
-const CACHE_VERSION = "attack-flow-v2";
+const CACHE_VERSION = "attack-flow-v3";
 const FLOW_LIMIT = 25;
 const FLOW_FALLBACK_LIMIT = 40;
 const FLOW_LIMIT_PER_LOCATION = 10;
@@ -19,6 +19,257 @@ const DEFAULT_SCOPE = {
   type: "worldwide",
   value: "",
   label: "Worldwide",
+};
+const COUNTRY_CONTINENTS = {
+  AD: "EU",
+  AE: "AS",
+  AF: "AS",
+  AG: "NA",
+  AI: "NA",
+  AL: "EU",
+  AM: "AS",
+  AO: "AF",
+  AQ: "AN",
+  AR: "SA",
+  AS: "OC",
+  AT: "EU",
+  AU: "OC",
+  AW: "NA",
+  AX: "EU",
+  AZ: "AS",
+  BA: "EU",
+  BB: "NA",
+  BD: "AS",
+  BE: "EU",
+  BF: "AF",
+  BG: "EU",
+  BH: "AS",
+  BI: "AF",
+  BJ: "AF",
+  BL: "NA",
+  BM: "NA",
+  BN: "AS",
+  BO: "SA",
+  BQ: "NA",
+  BR: "SA",
+  BS: "NA",
+  BT: "AS",
+  BV: "AN",
+  BW: "AF",
+  BY: "EU",
+  BZ: "NA",
+  CA: "NA",
+  CC: "AS",
+  CD: "AF",
+  CF: "AF",
+  CG: "AF",
+  CH: "EU",
+  CI: "AF",
+  CK: "OC",
+  CL: "SA",
+  CM: "AF",
+  CN: "AS",
+  CO: "SA",
+  CR: "NA",
+  CU: "NA",
+  CV: "AF",
+  CW: "NA",
+  CX: "AS",
+  CY: "EU",
+  CZ: "EU",
+  DE: "EU",
+  DJ: "AF",
+  DK: "EU",
+  DM: "NA",
+  DO: "NA",
+  DZ: "AF",
+  EC: "SA",
+  EE: "EU",
+  EG: "AF",
+  EH: "AF",
+  ER: "AF",
+  ES: "EU",
+  ET: "AF",
+  FI: "EU",
+  FJ: "OC",
+  FK: "SA",
+  FM: "OC",
+  FO: "EU",
+  FR: "EU",
+  GA: "AF",
+  GB: "EU",
+  GD: "NA",
+  GE: "AS",
+  GF: "SA",
+  GG: "EU",
+  GH: "AF",
+  GI: "EU",
+  GL: "NA",
+  GM: "AF",
+  GN: "AF",
+  GP: "NA",
+  GQ: "AF",
+  GR: "EU",
+  GS: "AN",
+  GT: "NA",
+  GU: "OC",
+  GW: "AF",
+  GY: "SA",
+  HK: "AS",
+  HM: "AN",
+  HN: "NA",
+  HR: "EU",
+  HT: "NA",
+  HU: "EU",
+  ID: "AS",
+  IE: "EU",
+  IL: "AS",
+  IM: "EU",
+  IN: "AS",
+  IO: "AS",
+  IQ: "AS",
+  IR: "AS",
+  IS: "EU",
+  IT: "EU",
+  JE: "EU",
+  JM: "NA",
+  JO: "AS",
+  JP: "AS",
+  KE: "AF",
+  KG: "AS",
+  KH: "AS",
+  KI: "OC",
+  KM: "AF",
+  KN: "NA",
+  KP: "AS",
+  KR: "AS",
+  KW: "AS",
+  KY: "NA",
+  KZ: "AS",
+  LA: "AS",
+  LB: "AS",
+  LC: "NA",
+  LI: "EU",
+  LK: "AS",
+  LR: "AF",
+  LS: "AF",
+  LT: "EU",
+  LU: "EU",
+  LV: "EU",
+  LY: "AF",
+  MA: "AF",
+  MC: "EU",
+  MD: "EU",
+  ME: "EU",
+  MF: "NA",
+  MG: "AF",
+  MH: "OC",
+  MK: "EU",
+  ML: "AF",
+  MM: "AS",
+  MN: "AS",
+  MO: "AS",
+  MP: "OC",
+  MQ: "NA",
+  MR: "AF",
+  MS: "NA",
+  MT: "EU",
+  MU: "AF",
+  MV: "AS",
+  MW: "AF",
+  MX: "NA",
+  MY: "AS",
+  MZ: "AF",
+  NA: "AF",
+  NC: "OC",
+  NE: "AF",
+  NF: "OC",
+  NG: "AF",
+  NI: "NA",
+  NL: "EU",
+  NO: "EU",
+  NP: "AS",
+  NR: "OC",
+  NU: "OC",
+  NZ: "OC",
+  OM: "AS",
+  PA: "NA",
+  PE: "SA",
+  PF: "OC",
+  PG: "OC",
+  PH: "AS",
+  PK: "AS",
+  PL: "EU",
+  PM: "NA",
+  PN: "OC",
+  PR: "NA",
+  PS: "AS",
+  PT: "EU",
+  PW: "OC",
+  PY: "SA",
+  QA: "AS",
+  RE: "AF",
+  RO: "EU",
+  RS: "EU",
+  RU: "EU",
+  RW: "AF",
+  SA: "AS",
+  SB: "OC",
+  SC: "AF",
+  SD: "AF",
+  SE: "EU",
+  SG: "AS",
+  SH: "AF",
+  SI: "EU",
+  SJ: "EU",
+  SK: "EU",
+  SL: "AF",
+  SM: "EU",
+  SN: "AF",
+  SO: "AF",
+  SR: "SA",
+  SS: "AF",
+  ST: "AF",
+  SV: "NA",
+  SX: "NA",
+  SY: "AS",
+  SZ: "AF",
+  TC: "NA",
+  TD: "AF",
+  TF: "AN",
+  TG: "AF",
+  TH: "AS",
+  TJ: "AS",
+  TK: "OC",
+  TL: "AS",
+  TM: "AS",
+  TN: "AF",
+  TO: "OC",
+  TR: "EU",
+  TT: "NA",
+  TV: "OC",
+  TW: "AS",
+  TZ: "AF",
+  UA: "EU",
+  UG: "AF",
+  UM: "OC",
+  US: "NA",
+  UY: "SA",
+  UZ: "AS",
+  VA: "EU",
+  VC: "NA",
+  VE: "SA",
+  VG: "NA",
+  VI: "NA",
+  VN: "AS",
+  VU: "OC",
+  WF: "OC",
+  WS: "OC",
+  YE: "AS",
+  YT: "AF",
+  ZA: "AF",
+  ZM: "AF",
+  ZW: "AF",
 };
 
 function json(data, status = 200, headers = {}) {
@@ -275,39 +526,103 @@ function mergeAttackFlows(...flowSets) {
     .slice(0, FLOW_LIMIT);
 }
 
-function prioritizeCountryFlows(flows, scope) {
-  if (scope?.type !== "country") return flows;
-
-  const selected = scope.value.toUpperCase();
-  const originMatches = flows.filter((flow) => String(flow.origin_code).toUpperCase() === selected);
-  const targetMatches = flows.filter((flow) => String(flow.target_code).toUpperCase() === selected && String(flow.origin_code).toUpperCase() !== selected);
-  const otherMatches = flows.filter((flow) => String(flow.origin_code).toUpperCase() !== selected && String(flow.target_code).toUpperCase() !== selected);
-  const ordered = originMatches.length ? [...originMatches, ...targetMatches, ...otherMatches] : flows;
-
-  return ordered.map((flow, index) => ({ ...flow, rank: index + 1 })).slice(0, FLOW_LIMIT);
+function countryContinent(code) {
+  return COUNTRY_CONTINENTS[String(code || "").toUpperCase()] || "";
 }
 
-function ensureCountryFocusOrigin(origins, flows, scope) {
+function flowMatchesScopeOrigin(flow, scope) {
+  if (!scope || scope.type === "worldwide" || scope.type === "asn") return true;
+
+  const origin = String(flow.origin_code || "").toUpperCase();
+  if (scope.type === "country") return origin === scope.value.toUpperCase();
+  if (scope.type === "continent") return countryContinent(origin) === scope.value.toUpperCase();
+
+  return true;
+}
+
+function filterFlowsForScopeOrigin(flows, scope) {
+  if (!scope || scope.type === "worldwide" || scope.type === "asn") return flows;
+
+  return flows
+    .filter((flow) => flowMatchesScopeOrigin(flow, scope))
+    .map((flow, index) => ({ ...flow, rank: index + 1 }))
+    .slice(0, FLOW_LIMIT);
+}
+
+function aggregateFlowLocations(flows, side) {
+  const rows = new Map();
+
+  flows.forEach((flow) => {
+    const code = side === "origin" ? flow.origin_code : flow.target_code;
+    const name = side === "origin" ? flow.origin_name : flow.target_name;
+    const key = `${code || name}`.toUpperCase();
+    const existing = rows.get(key);
+
+    rows.set(key, {
+      rank: existing?.rank || rows.size + 1,
+      code,
+      name,
+      value: (existing?.value || 0) + flow.value,
+      focus: Boolean(existing?.focus),
+    });
+  });
+
+  return Array.from(rows.values())
+    .sort((a, b) => b.value - a.value)
+    .map((row, index) => ({
+      ...row,
+      rank: index + 1,
+      value: Number(row.value.toFixed(2)),
+    }))
+    .slice(0, 10);
+}
+
+function countryFocusOrigin(scope, flows, origins) {
   if (scope?.type !== "country") return origins;
 
   const selected = scope.value.toUpperCase();
-  if (origins.some((origin) => String(origin.code).toUpperCase() === selected)) return origins;
-
-  const focusValue = Math.max(
-    ...flows.filter((flow) => String(flow.origin_code).toUpperCase() === selected).map((flow) => flow.value),
-    0,
-  );
+  const originRanking = origins.find((origin) => String(origin.code).toUpperCase() === selected);
+  const flowValue = flows
+    .filter((flow) => String(flow.origin_code).toUpperCase() === selected)
+    .reduce((sum, flow) => sum + flow.value, 0);
 
   return [
     {
-      rank: 0,
+      rank: 1,
       code: selected,
-      name: scope.label || selected,
-      value: Number(focusValue.toFixed(2)),
+      name: scope.label || originRanking?.name || selected,
+      value: Number((flowValue || originRanking?.value || 0).toFixed(2)),
       focus: true,
     },
-    ...origins,
-  ].slice(0, 10);
+  ];
+}
+
+function filterLocationsByContinent(rows, scope) {
+  if (scope?.type !== "continent") return rows;
+  const selected = scope.value.toUpperCase();
+
+  return rows.filter((row) => countryContinent(row.code) === selected);
+}
+
+function shapeAttackGeography(origins, targets, flows, scope) {
+  if (scope?.type === "country") {
+    return {
+      origins: countryFocusOrigin(scope, flows, origins),
+      targets: aggregateFlowLocations(flows, "target"),
+    };
+  }
+
+  if (scope?.type === "continent") {
+    return {
+      origins: filterLocationsByContinent(origins, scope),
+      targets: flows.length ? aggregateFlowLocations(flows, "target") : filterLocationsByContinent(targets, scope),
+    };
+  }
+
+  return {
+    origins,
+    targets,
+  };
 }
 
 function attackFlowStatus(result, rows) {
@@ -315,28 +630,45 @@ function attackFlowStatus(result, rows) {
   return rows.length ? "checked" : "empty";
 }
 
-function flowScopeNote(options, flows) {
+function flowScopeNote(options, flows, filterStrategy) {
   const label = options.scope.label;
 
   if (!flows.length) {
+    if (options.scope.type === "continent") {
+      return `${label} rankings only / Radar returned no origin-target pairs for this continent`;
+    }
+
     return `${label} rankings only / flow pairs unavailable`;
   }
 
   if (options.scope.type === "country") {
-    const selected = options.scope.value.toUpperCase();
-    const hasOriginFlows = flows.some((flow) => String(flow.origin_code).toUpperCase() === selected);
-    const hasTargetFlows = flows.some((flow) => String(flow.target_code).toUpperCase() === selected);
-
-    if (hasOriginFlows) return `${label} as origin focus / ${options.range.label}`;
-    if (hasTargetFlows) return `${label} appears as target / ${options.range.label}`;
-    return `${label} scoped flow context / ${options.range.label}`;
+    return `${label} as origin focus / ${options.range.label}`;
   }
 
   if (options.scope.type === "continent") {
-    return `${label} merged origin-target flows / ${options.range.label}`;
+    const source = filterStrategy === "global_filtered" ? "global Radar flow fallback" : "native Radar continent flow";
+    return `${label} origin flows from ${source} / ${options.range.label}`;
   }
 
   return `Worldwide merged origin-target flows / ${options.range.label}`;
+}
+
+function scopeStrategy(scope) {
+  if (scope.type === "country") return "country_origin_focus";
+  if (scope.type === "continent") return "continent_origin_focus";
+  if (scope.type === "asn") return "asn_scoped";
+  return "worldwide";
+}
+
+async function fetchGlobalFlowFallback(token, options) {
+  return fetchRadar("/attacks/layer7/top/attacks", token, {
+    dateRange: options.range.radar,
+    format: "json",
+    limit: FLOW_FALLBACK_LIMIT,
+    limitPerLocation: FLOW_LIMIT_PER_LOCATION,
+  })
+    .then((value) => ({ status: "fulfilled", value }))
+    .catch(() => ({ status: "rejected" }));
 }
 
 async function fetchAttackFlowBundle(token, options) {
@@ -359,9 +691,11 @@ async function fetchAttackFlowBundle(token, options) {
   ]);
   const originLimitedFlows = originLimitedResult.status === "fulfilled" ? normalizeAttackFlows(originLimitedResult.value, FLOW_LIMIT) : [];
   const targetLimitedFlows = targetLimitedResult.status === "fulfilled" ? normalizeAttackFlows(targetLimitedResult.value, FLOW_LIMIT) : [];
-  let flows = mergeAttackFlows(originLimitedFlows, targetLimitedFlows);
+  const nativeFlows = mergeAttackFlows(originLimitedFlows, targetLimitedFlows);
+  let flows = filterFlowsForScopeOrigin(nativeFlows, options.scope);
   let fallbackResult = null;
   let fallbackFlows = [];
+  let filterStrategy = flows.length || nativeFlows.length ? "native_scope" : "rankings_only";
 
   if (!flows.length) {
     fallbackResult = await fetchRadar("/attacks/layer7/top/attacks", token, {
@@ -373,10 +707,22 @@ async function fetchAttackFlowBundle(token, options) {
       .then((value) => ({ status: "fulfilled", value }))
       .catch(() => ({ status: "rejected" }));
     fallbackFlows = fallbackResult.status === "fulfilled" ? normalizeAttackFlows(fallbackResult.value, FLOW_FALLBACK_LIMIT) : [];
-    flows = mergeAttackFlows(fallbackFlows);
+    flows = filterFlowsForScopeOrigin(mergeAttackFlows(fallbackFlows), options.scope);
+    filterStrategy = flows.length ? "native_fallback" : "rankings_only";
   }
 
-  flows = prioritizeCountryFlows(flows, options.scope);
+  if (!flows.length && (options.scope.type === "country" || options.scope.type === "continent")) {
+    const globalFallbackResult = await fetchGlobalFlowFallback(token, options);
+    const globalFallbackFlows = globalFallbackResult.status === "fulfilled" ? normalizeAttackFlows(globalFallbackResult.value, FLOW_FALLBACK_LIMIT) : [];
+    const scopedGlobalFlows = filterFlowsForScopeOrigin(mergeAttackFlows(globalFallbackFlows), options.scope);
+
+    if (scopedGlobalFlows.length) {
+      fallbackResult = globalFallbackResult;
+      fallbackFlows = globalFallbackFlows;
+      flows = scopedGlobalFlows;
+      filterStrategy = "global_filtered";
+    }
+  }
 
   return {
     flows,
@@ -390,7 +736,8 @@ async function fetchAttackFlowBundle(token, options) {
       target_limited: attackFlowStatus(targetLimitedResult, targetLimitedFlows),
       fallback: fallbackResult ? attackFlowStatus(fallbackResult, fallbackFlows) : "not_needed",
     },
-    fallback_used: Boolean(fallbackResult && fallbackFlows.length),
+    fallback_used: filterStrategy !== "native_scope" && Boolean(fallbackResult && fallbackFlows.length),
+    filter_strategy: filterStrategy,
   };
 }
 
@@ -565,7 +912,9 @@ async function buildDashboard(request, token) {
     warnings.push("Layer 7 attack flow pairs are temporarily unavailable.");
   }
 
-  attackOrigins = ensureCountryFocusOrigin(attackOrigins, attackFlows, options.scope);
+  const shapedGeography = shapeAttackGeography(attackOrigins, attackTargets, attackFlows, options.scope);
+  attackOrigins = shapedGeography.origins;
+  attackTargets = shapedGeography.targets;
 
   const botPercent = botHuman.find((row) => row.label === "Bot")?.value ?? null;
   const humanPercent = botHuman.find((row) => row.label === "Human")?.value ?? null;
@@ -587,7 +936,8 @@ async function buildDashboard(request, token) {
           target_limited: "unavailable",
           fallback: "unavailable",
         };
-  const flowMode = attackFlows.length ? (flowStatus.origin_limited === "unavailable" || flowStatus.target_limited === "unavailable" ? "partial_flows" : "merged_flows") : "rankings_only";
+  const flowFilterStrategy = attackFlowResult.status === "fulfilled" ? attackFlowResult.value.filter_strategy : "unavailable";
+  const flowMode = attackFlows.length ? (flowFilterStrategy === "global_filtered" || flowStatus.origin_limited === "unavailable" || flowStatus.target_limited === "unavailable" ? "partial_flows" : "merged_flows") : "rankings_only";
 
   return {
     summary: {
@@ -606,12 +956,15 @@ async function buildDashboard(request, token) {
       targets: attackTargets,
       flows: attackFlows,
       flow_mode: flowMode,
-      flow_scope_note: flowScopeNote(options, attackFlows),
+      flow_scope_note: flowScopeNote(options, attackFlows, flowFilterStrategy),
       flow_status: flowStatus,
       flow_coverage: {
         flow_count: attackFlows.length,
         fallback_used: attackFlowResult.status === "fulfilled" ? attackFlowResult.value.fallback_used : false,
       },
+      scope_strategy: scopeStrategy(options.scope),
+      scope_direction: options.scope.type === "country" || options.scope.type === "continent" ? "origin" : "bidirectional",
+      flow_filter_strategy: flowFilterStrategy,
     },
     warnings,
     filters: {

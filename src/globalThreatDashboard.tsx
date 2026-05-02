@@ -78,6 +78,9 @@ type RadarDashboard = {
       flow_count: number;
       fallback_used: boolean;
     };
+    scope_strategy?: string;
+    scope_direction?: string;
+    flow_filter_strategy?: string;
   };
   warnings: string[];
   filters?: {
@@ -723,11 +726,43 @@ function mergeGraphNode(nodes: Map<string, AttackGraphNodeInput>, node: AttackGr
   });
 }
 
-function buildAttackGraphBaseNodes(flows: AttackFlowPoint[], origins: AttackLocationPoint[], targets: AttackLocationPoint[]) {
+function selectedScopeOrigin(scopeType: string | undefined, scopeValue: string | undefined, scopeLabel: string | undefined, flows: AttackFlowPoint[], origins: AttackLocationPoint[]) {
+  if (scopeType !== "country" || !scopeValue) return origins;
+
+  const selected = scopeValue.toUpperCase();
+  const existing = origins.find((origin) => origin.code?.toUpperCase() === selected);
+  const flowValue = flows
+    .filter((flow) => flow.origin_code?.toUpperCase() === selected)
+    .reduce((sum, flow) => sum + flow.value, 0);
+
+  return [
+    {
+      rank: 1,
+      code: selected,
+      name: scopeLabel || existing?.name || selected,
+      value: flowValue || existing?.value || 0,
+      focus: true,
+    },
+  ];
+}
+
+function buildAttackGraphBaseNodes(
+  flows: AttackFlowPoint[],
+  origins: AttackLocationPoint[],
+  targets: AttackLocationPoint[],
+  scopeType?: string,
+  scopeValue?: string,
+  scopeLabel?: string,
+) {
   const sourceMap = new Map<string, AttackGraphNodeInput>();
   const targetMap = new Map<string, AttackGraphNodeInput>();
+  const visibleOrigins = selectedScopeOrigin(scopeType, scopeValue, scopeLabel, flows, origins);
 
   flows.slice(0, 10).forEach((flow) => {
+    if (scopeType === "country" && scopeValue && flow.origin_code?.toUpperCase() !== scopeValue.toUpperCase()) {
+      return;
+    }
+
     const sourceId = graphNodeId(flow.origin_code, flow.origin_name);
     const targetId = graphNodeId(flow.target_code, flow.target_name);
     const source = sourceMap.get(sourceId);
@@ -749,14 +784,14 @@ function buildAttackGraphBaseNodes(flows: AttackFlowPoint[], origins: AttackLoca
     });
   });
 
-  origins.forEach((origin) => mergeGraphNode(sourceMap, origin));
+  visibleOrigins.forEach((origin) => mergeGraphNode(sourceMap, origin));
   targets.forEach((target) => mergeGraphNode(targetMap, target));
 
   const sources = sortGraphNodes(Array.from(sourceMap.values()));
   const targetRows = sortGraphNodes(Array.from(targetMap.values()));
 
   return {
-    sources: (sources.length ? sources : origins).slice(0, 10),
+    sources: (sources.length ? sources : visibleOrigins).slice(0, scopeType === "country" ? 1 : 10),
     targets: (targetRows.length ? targetRows : targets).slice(0, 10),
   };
 }
@@ -801,6 +836,10 @@ function AttackFlowGraph({
   flowMode,
   flowScopeNote,
   flowStatus,
+  flowFilterStrategy,
+  scopeType,
+  scopeValue,
+  scopeLabel,
   onModeChange,
 }: {
   mode: AttackGeoTab;
@@ -814,6 +853,10 @@ function AttackFlowGraph({
     target_limited?: string;
     fallback?: string;
   };
+  flowFilterStrategy?: string;
+  scopeType?: string;
+  scopeValue?: string;
+  scopeLabel?: string;
   onModeChange: (mode: AttackGeoTab) => void;
 }) {
   const reducedMotion = useReducedMotionPreference();
@@ -823,7 +866,7 @@ function AttackFlowGraph({
   const surface = { x: graphWidth / 2, y: graphHeight / 2 };
   const flowRows = flows.slice(0, 16);
   const maxFlow = Math.max(...flowRows.map((flow) => flow.value), 1);
-  const baseNodes = buildAttackGraphBaseNodes(flowRows, origins, targets);
+  const baseNodes = buildAttackGraphBaseNodes(flowRows, origins, targets, scopeType, scopeValue, scopeLabel);
   const sourceNodes = positionAttackNodes(baseNodes.sources, "source", graphHeight);
   const targetNodes = positionAttackNodes(baseNodes.targets, "target", graphHeight);
   const sourceById = new Map(sourceNodes.map((node) => [node.id, node]));
@@ -841,6 +884,16 @@ function AttackFlowGraph({
       : flowMode === "partial_flows"
         ? "border-trace/35 bg-trace/10 text-trace"
         : "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
+  const strategyLabel =
+    flowFilterStrategy === "global_filtered"
+      ? "filtered global fallback"
+      : flowFilterStrategy === "native_fallback"
+        ? "native fallback"
+        : flowFilterStrategy === "native_scope"
+          ? "native Radar scope"
+          : flowFilterStrategy === "rankings_only"
+            ? "rankings only"
+            : flowFilterStrategy || "";
   const defaultSignal = flowRows[0]
     ? {
         title: `${flowRows[0].origin_code || flowRows[0].origin_name} -> ${flowRows[0].target_code || flowRows[0].target_name}`,
@@ -905,6 +958,7 @@ function AttackFlowGraph({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded border px-3 py-1.5 font-mono text-[11px] uppercase ${coverageClass}`}>{coverageLabel}</span>
+          {strategyLabel ? <span className="rounded border border-white/10 bg-black/25 px-3 py-1.5 font-mono text-[11px] uppercase text-haze">{strategyLabel}</span> : null}
           <span className="font-mono text-xs uppercase text-white">Attacks by</span>
           {attackGeoTabs.map((tab) => (
             <button
@@ -1206,11 +1260,15 @@ function ApplicationLayerSecurityPanel({
   geography,
   mode,
   scopeLabel,
+  scopeType,
+  scopeValue,
   onModeChange,
 }: {
   geography: NonNullable<RadarDashboard["attack_geography"]>;
   mode: AttackGeoTab;
   scopeLabel: string;
+  scopeType?: string;
+  scopeValue?: string;
   onModeChange: (mode: AttackGeoTab) => void;
 }) {
   return (
@@ -1223,6 +1281,10 @@ function ApplicationLayerSecurityPanel({
         flowMode={geography.flow_mode}
         flowScopeNote={geography.flow_scope_note}
         flowStatus={geography.flow_status}
+        flowFilterStrategy={geography.flow_filter_strategy}
+        scopeType={scopeType}
+        scopeValue={scopeValue}
+        scopeLabel={scopeLabel}
         onModeChange={onModeChange}
       />
       <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
@@ -1621,7 +1683,14 @@ export function GlobalThreatDashboardPage() {
                   </div>
                 )}
 
-                <ApplicationLayerSecurityPanel geography={attackGeography} mode={attackGeoTab} scopeLabel={data.filters?.scope_label || scope.label} onModeChange={setAttackGeoTab} />
+                <ApplicationLayerSecurityPanel
+                  geography={attackGeography}
+                  mode={attackGeoTab}
+                  scopeLabel={data.filters?.scope_label || scope.label}
+                  scopeType={data.filters?.scope_type}
+                  scopeValue={data.filters?.scope_value}
+                  onModeChange={setAttackGeoTab}
+                />
 
                 <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
                   <Panel eyebrow="Layer 7 attack volume" title={`Application attack trend / ${data.filters?.scope_label || scope.label}`}>
