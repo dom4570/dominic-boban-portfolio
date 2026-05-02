@@ -1,6 +1,6 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
-const CACHE_VERSION = "scope-v1";
+const CACHE_VERSION = "attack-map-v1";
 const DATE_RANGES = {
   "24h": { radar: "1d", aggInterval: "1h", label: "24 hours" },
   "7d": { radar: "7d", aggInterval: "1d", label: "7 days" },
@@ -151,18 +151,24 @@ function normalizeBotHuman(raw) {
 }
 
 function normalizeLayer7Insight(raw) {
+  const rows = normalizeLayer7Mix(raw);
+
+  if (!rows.length) return "";
+
+  return `${rows[0].label} leads the current Layer 7 mitigation mix (${rows[0].value.toFixed(1)}%).`;
+}
+
+function normalizeLayer7Mix(raw) {
   const summary = summaryObject(raw);
-  const rows = Object.entries(summary)
+
+  return Object.entries(summary)
     .map(([key, value]) => ({
       label: cleanString(key.replace(/_/g, " "), "Unknown"),
       value: numberOrNull(value),
     }))
     .filter((row) => row.value !== null)
-    .sort((a, b) => b.value - a.value);
-
-  if (!rows.length) return "";
-
-  return `${rows[0].label} leads the current Layer 7 mitigation mix (${rows[0].value.toFixed(1)}%).`;
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
 }
 
 function normalizeLocations(raw) {
@@ -345,6 +351,7 @@ async function buildDashboard(request, token) {
 
   let layer7Trend = [];
   let applicationAttackInsight = "";
+  let layer7MitigationMix = [];
   let topLocations = [];
   let attackOrigins = [];
   let attackTargets = [];
@@ -394,6 +401,7 @@ async function buildDashboard(request, token) {
 
   if (layer7SummaryResult.status === "fulfilled") {
     applicationAttackInsight = normalizeLayer7Insight(layer7SummaryResult.value);
+    layer7MitigationMix = normalizeLayer7Mix(layer7SummaryResult.value);
   } else {
     warnings.push("Layer 7 attack summary is temporarily unavailable.");
   }
@@ -446,6 +454,7 @@ async function buildDashboard(request, token) {
     bot_human: botHuman,
     top_locations: topLocations,
     layer7_trend: layer7Trend,
+    layer7_mitigation_mix: layer7MitigationMix,
     attack_geography: {
       origins: attackOrigins,
       targets: attackTargets,
