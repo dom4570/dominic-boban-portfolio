@@ -456,32 +456,72 @@ function LocationBars({ data }: { data: LocationPoint[] }) {
   );
 }
 
-const countryCoordinates: Record<string, { x: number; y: number }> = {
-  US: { x: 190, y: 178 },
-  CA: { x: 182, y: 108 },
-  BR: { x: 300, y: 306 },
-  GB: { x: 431, y: 145 },
-  FR: { x: 443, y: 171 },
-  DE: { x: 465, y: 158 },
-  NL: { x: 455, y: 151 },
-  BE: { x: 452, y: 162 },
-  ES: { x: 424, y: 194 },
-  IT: { x: 475, y: 197 },
-  NG: { x: 468, y: 260 },
-  ZA: { x: 506, y: 360 },
-  CN: { x: 680, y: 195 },
-  IN: { x: 623, y: 243 },
-  ID: { x: 706, y: 305 },
-  JP: { x: 760, y: 191 },
-  SG: { x: 688, y: 288 },
-  MY: { x: 678, y: 280 },
-  HK: { x: 697, y: 221 },
-  VN: { x: 681, y: 248 },
-  AU: { x: 744, y: 354 },
+const mapSize = { width: 920, height: 430 };
+
+const countryGeo: Record<string, { lat: number; lon: number }> = {
+  AR: { lat: -34.6, lon: -58.4 },
+  AU: { lat: -35.3, lon: 149.1 },
+  BE: { lat: 50.9, lon: 4.4 },
+  BR: { lat: -15.8, lon: -47.9 },
+  CA: { lat: 45.4, lon: -75.7 },
+  CL: { lat: -33.4, lon: -70.7 },
+  CN: { lat: 39.9, lon: 116.4 },
+  CO: { lat: 4.7, lon: -74.1 },
+  DE: { lat: 52.5, lon: 13.4 },
+  EG: { lat: 30.0, lon: 31.2 },
+  ES: { lat: 40.4, lon: -3.7 },
+  FR: { lat: 48.9, lon: 2.4 },
+  GB: { lat: 51.5, lon: -0.1 },
+  HK: { lat: 22.3, lon: 114.2 },
+  ID: { lat: -6.2, lon: 106.8 },
+  IN: { lat: 28.6, lon: 77.2 },
+  IR: { lat: 35.7, lon: 51.4 },
+  IT: { lat: 41.9, lon: 12.5 },
+  JP: { lat: 35.7, lon: 139.7 },
+  KE: { lat: -1.3, lon: 36.8 },
+  KR: { lat: 37.6, lon: 126.9 },
+  MX: { lat: 19.4, lon: -99.1 },
+  MY: { lat: 3.1, lon: 101.7 },
+  NG: { lat: 9.1, lon: 7.5 },
+  NL: { lat: 52.4, lon: 4.9 },
+  NZ: { lat: -41.3, lon: 174.8 },
+  PE: { lat: -12.0, lon: -77.0 },
+  PH: { lat: 14.6, lon: 121.0 },
+  PK: { lat: 33.7, lon: 73.1 },
+  RU: { lat: 55.8, lon: 37.6 },
+  SA: { lat: 24.7, lon: 46.7 },
+  SG: { lat: 1.35, lon: 103.8 },
+  TH: { lat: 13.8, lon: 100.5 },
+  TR: { lat: 39.9, lon: 32.9 },
+  US: { lat: 38.9, lon: -77.0 },
+  VN: { lat: 21.0, lon: 105.8 },
+  ZA: { lat: -25.7, lon: 28.2 },
 };
 
+const worldLandPaths = [
+  "M72 142 C112 92 187 76 260 104 C285 116 310 137 339 133 C320 156 298 178 260 181 C228 184 218 204 203 224 C172 220 160 197 130 190 C104 183 84 165 72 142Z",
+  "M302 220 C338 227 367 263 352 305 C337 350 319 393 287 397 C263 361 244 320 253 281 C260 250 275 227 302 220Z",
+  "M421 127 C453 103 500 110 524 134 C506 151 470 160 433 151 C404 145 397 135 421 127Z",
+  "M466 177 C516 184 552 232 544 294 C538 355 497 373 460 318 C434 278 430 224 466 177Z",
+  "M516 127 C592 82 705 83 791 125 C838 148 869 190 846 226 C771 227 692 214 630 238 C585 226 552 203 513 196 C499 166 491 146 516 127Z",
+  "M650 238 C696 237 749 266 768 304 C731 322 690 309 651 281Z",
+  "M705 307 C758 290 820 316 845 355 C801 384 739 378 699 342Z",
+  "M333 64 C374 43 421 53 433 87 C402 114 352 104 325 85Z",
+];
+
+function projectGeo(lat: number, lon: number) {
+  return {
+    x: ((lon + 180) / 360) * mapSize.width,
+    y: ((85 - lat) / 170) * mapSize.height,
+  };
+}
+
 function mapPoint(code?: string, index = 0) {
-  return code && countryCoordinates[code] ? countryCoordinates[code] : { x: 90 + (index % 6) * 118, y: 110 + Math.floor(index / 6) * 60 };
+  if (code && countryGeo[code]) {
+    return projectGeo(countryGeo[code].lat, countryGeo[code].lon);
+  }
+
+  return { x: 115 + (index % 6) * 130, y: 120 + Math.floor(index / 6) * 70 };
 }
 
 function AttackLocationBars({ data, emptyLabel }: { data: AttackLocationPoint[]; emptyLabel: string }) {
@@ -551,7 +591,7 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
   const mapPoints = mode === "flows" ? flowEndpointPoints(flows) : points;
   const maxValue = Math.max(...mapPoints.map((point) => point.value), ...flows.map((flow) => flow.value), 1);
   const mapTitle = mode === "targets" ? "Top attacks by target location" : mode === "flows" ? "Top attack country flows" : "Top attacks by source location";
-  const centralPoint = mode === "targets" ? mapPoint(points[0]?.code, 0) : { x: 700, y: 170 };
+  const activeRows = mode === "flows" ? flows : points;
 
   return (
     <div className="overflow-hidden rounded-lg border border-white/10 bg-[#07090b] p-4">
@@ -566,7 +606,7 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <svg viewBox="0 0 920 390" className="h-[300px] w-full rounded-md bg-black/45 md:h-[340px]" role="img" aria-label="Radar attack geography board">
+        <svg viewBox={`0 0 ${mapSize.width} ${mapSize.height}`} className="h-[320px] w-full rounded-md bg-black/45 md:h-[420px]" role="img" aria-label="Projected world map showing Radar attack geography">
           <defs>
             <radialGradient id="map-radar-glow" cx="50%" cy="44%" r="70%">
               <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.16" />
@@ -579,67 +619,69 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
             </linearGradient>
           </defs>
 
-          <rect width="920" height="390" fill="url(#map-radar-glow)" />
+          <rect width={mapSize.width} height={mapSize.height} fill="url(#map-radar-glow)" />
           {[0, 1, 2, 3, 4, 5].map((line) => (
-            <line key={`v-${line}`} x1={100 + line * 140} x2={100 + line * 140} y1="38" y2="320" stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
+            <line key={`v-${line}`} x1={100 + line * 140} x2={100 + line * 140} y1="44" y2="386" stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
           ))}
           {[0, 1, 2, 3, 4].map((line) => (
-            <line key={`h-${line}`} x1="42" x2="880" y1={50 + line * 62} y2={50 + line * 62} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
+            <line key={`h-${line}`} x1="42" x2="880" y1={64 + line * 72} y2={64 + line * 72} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 10" />
           ))}
-          <circle cx="460" cy="180" r="126" fill="none" stroke="rgba(103,232,249,0.1)" strokeWidth="1" />
-          <circle cx="460" cy="180" r="205" fill="none" stroke="rgba(252,238,10,0.08)" strokeWidth="1" />
-          <line x1="460" x2="460" y1="30" y2="330" stroke="rgba(255,255,255,0.045)" />
-          <line x1="60" x2="860" y1="180" y2="180" stroke="rgba(255,255,255,0.045)" />
+          {[180, 260, 340].map((radius) => (
+            <circle key={radius} cx="460" cy="210" r={radius} fill="none" stroke="rgba(103,232,249,0.05)" strokeWidth="1" />
+          ))}
+
+          <g>
+            {worldLandPaths.map((shape) => (
+              <path key={shape} d={shape} fill="rgba(151,232,241,0.26)" stroke="rgba(187,247,255,0.35)" strokeWidth="1.2" />
+            ))}
+          </g>
 
           {mode === "flows" &&
-            flows.slice(0, 6).map((flow, index) => {
+            flows.slice(0, 8).map((flow, index) => {
               const start = mapPoint(flow.origin_code, index);
               const end = mapPoint(flow.target_code, index + 3);
-              const curveY = Math.max(42, Math.min(start.y, end.y) - 68 - (index % 4) * 12);
-              const width = Math.max(1.4, Math.min(6, (flow.value / maxValue) * 6));
+              const curveY = Math.max(32, Math.min(start.y, end.y) - 54 - (index % 4) * 10);
+              const width = Math.max(1.3, Math.min(6.5, (flow.value / maxValue) * 6.5));
               const samePoint = Math.abs(start.x - end.x) < 3 && Math.abs(start.y - end.y) < 3;
               const d = samePoint
-                ? `M ${start.x} ${start.y} C ${start.x - 82} ${start.y - 82}, ${start.x + 82} ${start.y - 82}, ${end.x} ${end.y}`
-                : `M ${start.x} ${start.y} C ${start.x + 110} ${curveY}, ${end.x - 110} ${curveY}, ${end.x} ${end.y}`;
+                ? `M ${start.x} ${start.y} C ${start.x - 64} ${start.y - 58}, ${start.x + 64} ${start.y - 58}, ${end.x} ${end.y}`
+                : `M ${start.x} ${start.y} C ${(start.x + end.x) / 2} ${curveY}, ${(start.x + end.x) / 2} ${curveY}, ${end.x} ${end.y}`;
 
-              return <path key={`${flow.origin_code}-${flow.target_code}-${index}`} d={d} fill="none" stroke="url(#attack-line)" strokeWidth={width} strokeLinecap="round" opacity="0.82" />;
+              return (
+                <path
+                  key={`${flow.origin_code}-${flow.target_code}-${index}`}
+                  d={d}
+                  fill="none"
+                  stroke={attackPalette[index % attackPalette.length]}
+                  strokeWidth={width}
+                  strokeLinecap="round"
+                  strokeOpacity="0.55"
+                  strokeDasharray="8 10"
+                >
+                  <animate attributeName="stroke-dashoffset" values="36;0" dur={`${5 + index * 0.4}s`} repeatCount="indefinite" />
+                </path>
+              );
             })}
 
           {mapPoints.map((point, index) => {
             const coords = mapPoint(point.code, index);
             const color = attackPalette[index % attackPalette.length];
-            const radius = Math.max(6, Math.min(17, 6 + (point.value / maxValue) * 14));
+            const radius = Math.max(5.5, Math.min(16, 5.5 + (point.value / maxValue) * 13));
 
             return (
               <g key={`${point.code}-${point.name}-${index}`}>
-                {mode !== "flows" && (
-                  <path
-                    d={`M ${coords.x} ${coords.y} C ${(coords.x + centralPoint.x) / 2} ${Math.min(coords.y, centralPoint.y) - 64}, ${(coords.x + centralPoint.x) / 2} ${Math.max(coords.y, centralPoint.y) + 36}, ${centralPoint.x} ${centralPoint.y}`}
-                    fill="none"
-                    stroke={color}
-                    strokeOpacity="0.32"
-                    strokeWidth="1.5"
-                  />
-                )}
-                <circle cx={coords.x} cy={coords.y} r={radius + 7} fill={color} opacity="0.1" />
+                <circle cx={coords.x} cy={coords.y} r={radius + 7} fill={color} opacity="0.08">
+                  <animate attributeName="opacity" values="0.08;0.2;0.08" dur="3.2s" repeatCount="indefinite" />
+                </circle>
                 <circle cx={coords.x} cy={coords.y} r={radius + 3} fill="#050608" stroke={color} strokeWidth="2.5" />
                 <circle cx={coords.x} cy={coords.y} r={Math.max(3, radius * 0.34)} fill={color} />
-                <text x={coords.x + radius + 9} y={coords.y + 5} fill="#ffffff" fontSize="12" fontWeight="800">
+                <text x={coords.x + radius + 8} y={coords.y + 5} fill="#ffffff" fontSize="12" fontWeight="800">
                   {point.code || point.name}
                 </text>
+                <title>{`${point.name}: ${formatPercent(point.value)}`}</title>
               </g>
             );
           })}
-
-          {mode !== "flows" && points.length > 0 && (
-            <g>
-              <circle cx={centralPoint.x} cy={centralPoint.y} r="15" fill="#050608" stroke="#fcee0a" strokeWidth="2.5" />
-              <circle cx={centralPoint.x} cy={centralPoint.y} r="5" fill="#fcee0a" />
-              <text x={centralPoint.x + 21} y={centralPoint.y + 5} fill="#fcee0a" fontSize="12" fontWeight="800">
-                {mode === "targets" ? "TARGET" : "ATTACK"}
-              </text>
-            </g>
-          )}
         </svg>
 
         <div className="rounded-md border border-white/10 bg-black/25 p-3">
@@ -668,6 +710,11 @@ function AttackWorldMap({ mode, origins, targets, flows }: { mode: AttackGeoTab;
                 ))}
             {(mode === "flows" ? flows : points).length === 0 && <p className="rounded-md border border-white/10 bg-black/20 p-4 text-sm text-haze">Radar did not return geography rows for this view.</p>}
           </div>
+          {activeRows.length > 0 && (
+            <p className="mt-3 border-t border-white/10 pt-3 text-xs leading-5 text-haze">
+              Dots are positioned by country coordinates. Flows are aggregated Radar origin-to-target pairs.
+            </p>
+          )}
         </div>
       </div>
     </div>
