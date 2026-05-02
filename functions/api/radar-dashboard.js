@@ -1,6 +1,6 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
-const CACHE_VERSION = "geo-v2";
+const CACHE_VERSION = "scope-v1";
 const DATE_RANGES = {
   "24h": { radar: "1d", aggInterval: "1h", label: "24 hours" },
   "7d": { radar: "7d", aggInterval: "1d", label: "7 days" },
@@ -10,6 +10,12 @@ const LOCATION_TRAFFIC = {
   all: {},
   bot: { botClass: "LIKELY_AUTOMATED" },
   human: { botClass: "LIKELY_HUMAN" },
+};
+const DEFAULT_SCOPE = {
+  key: "worldwide",
+  type: "worldwide",
+  value: "",
+  label: "Worldwide",
 };
 
 function json(data, status = 200, headers = {}) {
@@ -253,20 +259,42 @@ function requestOptions(request) {
   const url = new URL(request.url);
   const rangeKey = DATE_RANGES[url.searchParams.get("range")] ? url.searchParams.get("range") : "24h";
   const trafficKey = LOCATION_TRAFFIC[url.searchParams.get("traffic")] ? url.searchParams.get("traffic") : "all";
+  const [scopeType, ...scopeValueParts] = String(url.searchParams.get("scope") || DEFAULT_SCOPE.key).split(":");
+  const scopeValue = scopeValueParts.join(":");
+  const scopeLabel = cleanString(url.searchParams.get("scopeLabel"), "");
+  const scope =
+    scopeType === "continent" && /^[A-Z]{2}$/.test(scopeValue)
+      ? { key: `continent:${scopeValue}`, type: "continent", value: scopeValue, label: scopeLabel || scopeValue }
+      : scopeType === "country" && /^[A-Z]{2}$/.test(scopeValue)
+        ? { key: `country:${scopeValue}`, type: "country", value: scopeValue, label: scopeLabel || scopeValue }
+        : scopeType === "asn" && /^\d{1,10}$/.test(scopeValue)
+          ? { key: `asn:${scopeValue}`, type: "asn", value: scopeValue, label: scopeLabel || `AS${scopeValue}` }
+          : DEFAULT_SCOPE;
 
   return {
     rangeKey,
     trafficKey,
     range: DATE_RANGES[rangeKey],
     locationTraffic: LOCATION_TRAFFIC[trafficKey],
+    scope,
   };
+}
+
+function scopeParams(scope, capabilities = ["continent", "location", "asn"]) {
+  if (!scope || scope.type === "worldwide") return {};
+  if (scope.type === "continent" && capabilities.includes("continent")) return { continent: scope.value };
+  if (scope.type === "country" && capabilities.includes("location")) return { location: scope.value };
+  if (scope.type === "asn" && capabilities.includes("asn")) return { asn: scope.value };
+  return {};
 }
 
 async function readCached(request) {
   if (typeof caches === "undefined") return null;
 
   const url = new URL(request.url);
-  const cacheKey = new Request(`${url.origin}/api/radar-dashboard?version=${CACHE_VERSION}&range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}`);
+  const cacheKey = new Request(
+    `${url.origin}/api/radar-dashboard?version=${CACHE_VERSION}&range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}&scope=${url.searchParams.get("scope") || DEFAULT_SCOPE.key}`,
+  );
   const cached = await caches.default.match(cacheKey);
   if (!cached) return null;
 
@@ -283,7 +311,9 @@ async function writeCached(request, response) {
   if (typeof caches === "undefined") return;
 
   const url = new URL(request.url);
-  const cacheKey = new Request(`${url.origin}/api/radar-dashboard?version=${CACHE_VERSION}&range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}`);
+  const cacheKey = new Request(
+    `${url.origin}/api/radar-dashboard?version=${CACHE_VERSION}&range=${url.searchParams.get("range") || "24h"}&traffic=${url.searchParams.get("traffic") || "all"}&scope=${url.searchParams.get("scope") || DEFAULT_SCOPE.key}`,
+  );
   await caches.default.put(cacheKey, response.clone());
 }
 
@@ -293,6 +323,7 @@ async function buildDashboard(request, token) {
     dateRange: options.range.radar,
     aggInterval: options.range.aggInterval,
     format: "json",
+    ...scopeParams(options.scope),
   };
 
   const [httpResponse, botResponse] = await Promise.all([
@@ -300,6 +331,7 @@ async function buildDashboard(request, token) {
     fetchFirstRadar(["/http/summary/BOT_CLASS", "/http/summary/bot_class"], token, {
       dateRange: options.range.radar,
       format: "json",
+      ...scopeParams(options.scope),
     }),
   ]);
 
@@ -323,22 +355,26 @@ async function buildDashboard(request, token) {
     fetchFirstRadar(["/attacks/layer7/summary/MITIGATION_PRODUCT", "/attacks/layer7/summary/mitigation_product"], token, {
       dateRange: options.range.radar,
       format: "json",
+      ...scopeParams(options.scope, ["continent", "location", "asn"]),
     }),
     fetchRadar("/http/top/locations", token, {
       dateRange: options.range.radar,
       format: "json",
       limit: 8,
       ...options.locationTraffic,
+      ...scopeParams(options.scope),
     }),
     fetchRadar("/attacks/layer7/top/locations/origin", token, {
       dateRange: options.range.radar,
       format: "json",
       limit: 8,
+      ...scopeParams(options.scope, ["continent", "asn"]),
     }),
     fetchRadar("/attacks/layer7/top/locations/target", token, {
       dateRange: options.range.radar,
       format: "json",
       limit: 8,
+      ...scopeParams(options.scope, ["continent"]),
     }),
     fetchRadar("/attacks/layer7/top/attacks", token, {
       dateRange: options.range.radar,
@@ -346,6 +382,7 @@ async function buildDashboard(request, token) {
       limit: 8,
       limitDirection: "ORIGIN",
       limitPerLocation: 3,
+      ...scopeParams(options.scope, ["continent", "location", "asn"]),
     }),
   ]);
 
@@ -419,6 +456,10 @@ async function buildDashboard(request, token) {
       range: options.rangeKey,
       range_label: options.range.label,
       location_traffic: options.trafficKey,
+      scope: options.scope.key,
+      scope_type: options.scope.type,
+      scope_value: options.scope.value,
+      scope_label: options.scope.label,
     },
     note: "This dashboard uses aggregated Cloudflare Radar data, not individual live attack events.",
   };
