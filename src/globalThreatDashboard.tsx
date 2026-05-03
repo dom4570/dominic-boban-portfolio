@@ -1054,6 +1054,38 @@ function AttackFlowGraph({
               />
             ))}
 
+            {edges.length === 0 &&
+              sourceNodes.map((node) => (
+                <path
+                  key={`ghost-source-${node.id}`}
+                  d={`M ${node.x + node.radius + 4} ${node.y} C ${node.x + 220} ${node.y}, ${surface.x - 138} ${surface.y}, ${surface.x - 86} ${surface.y}`}
+                  fill="none"
+                  stroke={node.color}
+                  strokeDasharray="8 10"
+                  strokeLinecap="round"
+                  strokeOpacity="0.2"
+                  strokeWidth="1.6"
+                />
+              ))}
+            {edges.length === 0 &&
+              targetNodes.map((node) => (
+                <path
+                  key={`ghost-target-${node.id}`}
+                  d={`M ${surface.x + 86} ${surface.y} C ${surface.x + 138} ${surface.y}, ${node.x - 220} ${node.y}, ${node.x - node.radius - 4} ${node.y}`}
+                  fill="none"
+                  stroke={node.color}
+                  strokeDasharray="8 10"
+                  strokeLinecap="round"
+                  strokeOpacity="0.16"
+                  strokeWidth="1.6"
+                />
+              ))}
+            {edges.length === 0 && (
+              <text x={surface.x} y={surface.y + 102} fill="#d7c99e" fontSize="11" fontWeight="700" opacity="0.72" textAnchor="middle">
+                Rankings only - Radar returned no origin-target pairs for this scope
+              </text>
+            )}
+
             {!reducedMotion &&
               edges.map((edge, index) => (
                 <circle key={`${edge.id}-packet`} r={Math.max(3.5, Math.min(7, edge.width / 2.8))} fill={edge.color} opacity={mode === "flows" ? "0.95" : "0.38"}>
@@ -1387,6 +1419,7 @@ export function GlobalThreatDashboardPage() {
   const [scopeQuery, setScopeQuery] = useState("");
   const [scopeOpen, setScopeOpen] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
+  const [selectedHttpPoint, setSelectedHttpPoint] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
@@ -1565,6 +1598,7 @@ export function GlobalThreatDashboardPage() {
                                     setScopeOpen(false);
                                     setScopeQuery("");
                                     setSelectedPoint(null);
+                                    setSelectedHttpPoint(null);
                                   }}
                                   className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-white/10 ${
                                     option.key === scopeKey ? "bg-signal/15 text-signal" : "text-white"
@@ -1596,6 +1630,7 @@ export function GlobalThreatDashboardPage() {
                       onClick={() => {
                         setRange(option.key);
                         setSelectedPoint(null);
+                        setSelectedHttpPoint(null);
                       }}
                       className={`rounded-md border px-4 py-2 text-sm font-semibold transition ${
                         range === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
@@ -1719,6 +1754,15 @@ export function GlobalThreatDashboardPage() {
                   </Panel>
                 </div>
 
+                <section className="grid gap-6 md:grid-cols-2">
+                  <Panel eyebrow="Attack origin rankings" title={`Layer 7 sources / ${data.filters?.scope_label || scope.label}`}>
+                    <AttackLocationBars data={attackGeography.origins} emptyLabel="Radar returned no origin ranking rows for this scope." />
+                  </Panel>
+                  <Panel eyebrow="Target rankings" title={`Layer 7 targets / ${data.filters?.scope_label || scope.label}`}>
+                    <AttackLocationBars data={attackGeography.targets} emptyLabel="Radar returned no target ranking rows for this scope." />
+                  </Panel>
+                </section>
+
                 <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
                   <SummaryCard icon={MapPin} label="Top attack origin" value={attackGeography.origins[0]?.code || "N/A"} body={attackGeography.origins[0] ? `${attackGeography.origins[0].name} leads source locations at ${formatPercent(attackGeography.origins[0].value)}.` : "Origin country data unavailable."} tone="cyan" />
@@ -1749,6 +1793,30 @@ export function GlobalThreatDashboardPage() {
                     </ul>
                   </div>
                 </section>
+
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
+                  <Panel eyebrow="HTTP request baseline" title={`All HTTP trend / ${data.filters?.scope_label || scope.label}`}>
+                    <LineChart
+                      data={data.http_trend}
+                      tone="signal"
+                      selectedIndex={selectedHttpPoint ?? Math.max((data.http_trend || []).length - 1, 0)}
+                      onSelect={setSelectedHttpPoint}
+                    />
+                    <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
+                      <p className="font-mono text-xs uppercase text-signal">Baseline context</p>
+                      <p className="mt-2 text-sm leading-6 text-haze">
+                        Total HTTP activity gives background scale for the selected Radar scope. The attack graph above remains the primary Layer 7 security signal.
+                      </p>
+                    </div>
+                  </Panel>
+                  <Panel eyebrow="Traffic classification" title="Bot vs human split">
+                    <DonutChart data={data.bot_human} centerLabel="Bot share" />
+                  </Panel>
+                </div>
+
+                <Panel eyebrow="Top traffic locations" title={`HTTP traffic by country / ${data.filters?.scope_label || scope.label}`}>
+                  <LocationBars data={data.top_locations} />
+                </Panel>
 
                 <section className="grid gap-4 md:grid-cols-3">
                   {[

@@ -1,8 +1,9 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
-const CACHE_VERSION = "attack-flow-v3";
-const FLOW_LIMIT = 25;
-const FLOW_FALLBACK_LIMIT = 40;
+const CACHE_VERSION = "attack-flow-v4";
+const FLOW_LIMIT = 50;
+const FLOW_FALLBACK_LIMIT = 100;
+const FLOW_GLOBAL_FALLBACK_LIMIT = 150;
 const FLOW_LIMIT_PER_LOCATION = 10;
 const DATE_RANGES = {
   "24h": { radar: "1d", aggInterval: "1h", label: "24 hours" },
@@ -446,7 +447,7 @@ function normalizeLocations(raw) {
     .slice(0, 8);
 }
 
-function normalizeAttackLocations(raw, kind) {
+function normalizeAttackLocations(raw, kind, limit = 10) {
   const result = raw?.result || {};
   const rows = Array.isArray(result.top_0) ? result.top_0 : [];
   const prefix = kind === "origin" ? "origin" : "target";
@@ -478,7 +479,7 @@ function normalizeAttackLocations(raw, kind) {
       };
     })
     .filter((row) => row.name && row.value !== null)
-    .slice(0, 10);
+    .slice(0, limit);
 }
 
 function normalizeAttackFlows(raw, limit = FLOW_LIMIT) {
@@ -664,7 +665,7 @@ async function fetchGlobalFlowFallback(token, options) {
   return fetchRadar("/attacks/layer7/top/attacks", token, {
     dateRange: options.range.radar,
     format: "json",
-    limit: FLOW_FALLBACK_LIMIT,
+    limit: FLOW_GLOBAL_FALLBACK_LIMIT,
     limitPerLocation: FLOW_LIMIT_PER_LOCATION,
   })
     .then((value) => ({ status: "fulfilled", value }))
@@ -863,14 +864,14 @@ async function buildDashboard(request, token) {
     fetchRadar("/attacks/layer7/top/locations/origin", token, {
       dateRange: options.range.radar,
       format: "json",
-      limit: 10,
-      ...scopeParams(options.scope, ["continent", "asn"]),
+      limit: options.scope.type === "continent" ? 50 : 10,
+      ...(options.scope.type === "continent" ? {} : scopeParams(options.scope, ["continent", "asn"])),
     }),
     fetchRadar("/attacks/layer7/top/locations/target", token, {
       dateRange: options.range.radar,
       format: "json",
-      limit: 10,
-      ...scopeParams(options.scope, ["continent"]),
+      limit: options.scope.type === "continent" ? 50 : 10,
+      ...(options.scope.type === "continent" ? {} : scopeParams(options.scope, ["continent"])),
     }),
     fetchAttackFlowBundle(token, options),
   ]);
@@ -895,13 +896,13 @@ async function buildDashboard(request, token) {
   }
 
   if (attackOriginResult.status === "fulfilled") {
-    attackOrigins = normalizeAttackLocations(attackOriginResult.value, "origin");
+    attackOrigins = normalizeAttackLocations(attackOriginResult.value, "origin", options.scope.type === "continent" ? 50 : 10);
   } else {
     warnings.push("Layer 7 attack origin countries are temporarily unavailable.");
   }
 
   if (attackTargetResult.status === "fulfilled") {
-    attackTargets = normalizeAttackLocations(attackTargetResult.value, "target");
+    attackTargets = normalizeAttackLocations(attackTargetResult.value, "target", options.scope.type === "continent" ? 50 : 10);
   } else {
     warnings.push("Layer 7 attack target countries are temporarily unavailable.");
   }
