@@ -1,6 +1,6 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
-const CACHE_VERSION = "attack-flow-v4";
+const CACHE_VERSION = "attack-map-v1";
 const FLOW_LIMIT = 50;
 const FLOW_FALLBACK_LIMIT = 100;
 const FLOW_GLOBAL_FALLBACK_LIMIT = 150;
@@ -20,6 +20,15 @@ const DEFAULT_SCOPE = {
   type: "worldwide",
   value: "",
   label: "Worldwide",
+};
+const CONTINENT_NAMES = {
+  AF: "Africa",
+  AS: "Asia",
+  EU: "Europe",
+  NA: "North America",
+  OC: "Oceania",
+  SA: "South America",
+  AN: "Antarctica",
 };
 const COUNTRY_CONTINENTS = {
   AD: "EU",
@@ -306,6 +315,34 @@ function cleanString(value, fallback = "") {
     .slice(0, 120);
 }
 
+function normalizeLookup(value) {
+  return cleanString(value, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function locationType(code, name) {
+  const normalizedCode = cleanString(code, "").toUpperCase();
+  const normalizedName = normalizeLookup(name);
+
+  if (CONTINENT_NAMES[normalizedCode] && (!normalizedName || normalizedName === normalizeLookup(CONTINENT_NAMES[normalizedCode]))) {
+    return "continent";
+  }
+
+  if (/^[A-Z]{2}$/.test(normalizedCode)) {
+    return "country";
+  }
+
+  return "unknown";
+}
+
+function locationLabel(name, code) {
+  const cleanCode = cleanString(code, "").toUpperCase();
+  const cleanName = cleanString(name, cleanCode || "Unknown");
+
+  return cleanCode ? `${cleanName} (${cleanCode})` : cleanName;
+}
+
 function radarUrl(path, params = {}) {
   const url = new URL(`${RADAR_BASE_URL}${path}`);
 
@@ -440,6 +477,9 @@ function normalizeLocations(raw) {
       return {
         code: cleanString(code, ""),
         name: cleanString(name, code || "Unknown"),
+        label: locationLabel(name, code),
+        full_name: cleanString(name, code || "Unknown"),
+        type: locationType(code, name),
         value,
       };
     })
@@ -475,6 +515,9 @@ function normalizeAttackLocations(raw, kind, limit = 10) {
         rank: numberOrNull(row.rank) || index + 1,
         code: cleanString(code, ""),
         name: cleanString(name, code || "Unknown"),
+        label: locationLabel(name, code),
+        full_name: cleanString(name, code || "Unknown"),
+        type: locationType(code, name),
         value,
       };
     })
@@ -498,8 +541,14 @@ function normalizeAttackFlows(raw, limit = FLOW_LIMIT) {
         rank: numberOrNull(row.rank) || index + 1,
         origin_code: cleanString(originCode, ""),
         origin_name: cleanString(originName, originCode || "Unknown origin"),
+        origin_label: locationLabel(originName, originCode),
+        origin_full_name: cleanString(originName, originCode || "Unknown origin"),
+        origin_type: locationType(originCode, originName),
         target_code: cleanString(targetCode, ""),
         target_name: cleanString(targetName, targetCode || "Unknown target"),
+        target_label: locationLabel(targetName, targetCode),
+        target_full_name: cleanString(targetName, targetCode || "Unknown target"),
+        target_type: locationType(targetCode, targetName),
         value,
       };
     })
@@ -531,12 +580,26 @@ function countryContinent(code) {
   return COUNTRY_CONTINENTS[String(code || "").toUpperCase()] || "";
 }
 
+function locationMatchesContinent(code, name, continent) {
+  const normalizedCode = String(code || "").toUpperCase();
+  const normalizedContinent = String(continent || "").toUpperCase();
+
+  if (!normalizedCode || !normalizedContinent) return false;
+  if (countryContinent(normalizedCode) === normalizedContinent) return true;
+
+  return (
+    normalizedCode === normalizedContinent &&
+    CONTINENT_NAMES[normalizedContinent] &&
+    normalizeLookup(name) === normalizeLookup(CONTINENT_NAMES[normalizedContinent])
+  );
+}
+
 function flowMatchesScopeOrigin(flow, scope) {
   if (!scope || scope.type === "worldwide" || scope.type === "asn") return true;
 
   const origin = String(flow.origin_code || "").toUpperCase();
   if (scope.type === "country") return origin === scope.value.toUpperCase();
-  if (scope.type === "continent") return countryContinent(origin) === scope.value.toUpperCase();
+  if (scope.type === "continent") return locationMatchesContinent(origin, flow.origin_name, scope.value);
 
   return true;
 }
@@ -563,6 +626,9 @@ function aggregateFlowLocations(flows, side) {
       rank: existing?.rank || rows.size + 1,
       code,
       name,
+      label: locationLabel(name, code),
+      full_name: cleanString(name, code || "Unknown"),
+      type: locationType(code, name),
       value: (existing?.value || 0) + flow.value,
       focus: Boolean(existing?.focus),
     });
@@ -592,6 +658,9 @@ function countryFocusOrigin(scope, flows, origins) {
       rank: 1,
       code: selected,
       name: scope.label || originRanking?.name || selected,
+      label: locationLabel(scope.label || originRanking?.name || selected, selected),
+      full_name: cleanString(scope.label || originRanking?.name || selected, selected),
+      type: "country",
       value: Number((flowValue || originRanking?.value || 0).toFixed(2)),
       focus: true,
     },
@@ -602,7 +671,7 @@ function filterLocationsByContinent(rows, scope) {
   if (scope?.type !== "continent") return rows;
   const selected = scope.value.toUpperCase();
 
-  return rows.filter((row) => countryContinent(row.code) === selected);
+  return rows.filter((row) => locationMatchesContinent(row.code, row.name, selected));
 }
 
 function shapeAttackGeography(origins, targets, flows, scope) {
