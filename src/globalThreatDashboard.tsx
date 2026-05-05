@@ -798,39 +798,6 @@ function LocationBars({ data }: { data: LocationPoint[] }) {
   );
 }
 
-function AttackLocationBars({ data, emptyLabel }: { data: AttackLocationPoint[]; emptyLabel: string }) {
-  const max = Math.max(...data.map((point) => point.value), 1);
-
-  if (!data.length) {
-    return (
-      <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
-        {emptyLabel}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-4">
-      {data.map((country, index) => (
-        <div key={`${country.code}-${country.name}-${index}`} className="grid gap-2">
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="flex min-w-0 items-center gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-signal/30 bg-signal/10 font-mono text-[11px] text-signal">
-                {country.rank || index + 1}
-              </span>
-              <span className="truncate text-white">{locationDisplayLabel(country)}</span>
-            </span>
-            <span className="font-mono text-xs text-haze">{formatCompact(country.value)}%</span>
-          </div>
-          <div className="h-3 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full rounded-full bg-gradient-to-r from-trace via-volt to-signal" style={{ width: `${Math.max(5, (country.value / max) * 100)}%` }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function flowEndpointPoints(flows: AttackFlowPoint[]) {
   const endpoints = new Map<string, AttackLocationPoint>();
 
@@ -2584,15 +2551,6 @@ export function GlobalThreatDashboardPage() {
                     <DonutChart data={data.layer7_mitigation_mix || []} centerLabel="Lead attack" />
                   </Panel>
                 </div>
-
-                <section className="grid gap-6 md:grid-cols-2">
-                  <Panel eyebrow="Attack origin rankings" title={`Layer 7 sources / ${data.filters?.scope_label || scope.label}`}>
-                    <AttackLocationBars data={attackGeography.origins} emptyLabel="Radar returned no origin ranking rows for this scope." />
-                  </Panel>
-                  <Panel eyebrow="Target rankings" title={`Layer 7 targets / ${data.filters?.scope_label || scope.label}`}>
-                    <AttackLocationBars data={attackGeography.targets} emptyLabel="Radar returned no target ranking rows for this scope." />
-                  </Panel>
-                </section>
 
                 <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
