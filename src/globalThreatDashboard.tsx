@@ -1085,7 +1085,7 @@ function WorldMapFlowPanel({
   const maxRanking = Math.max(...rankings.map((row) => row.value), 1);
 
   return (
-    <aside className="grid gap-4">
+    <aside className="grid gap-4 xl:grid-cols-[minmax(260px,0.9fr)_minmax(360px,1.2fr)_minmax(260px,0.9fr)] xl:items-start">
       <div className="rounded-md border border-white/10 bg-black/35 p-4">
         <p className="font-mono text-xs uppercase text-signal">Selected signal</p>
         <div className="mt-4 rounded-md border border-white/10 bg-white/[0.035] p-4">
@@ -1309,7 +1309,7 @@ function WorldAttackMap({
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+      <div className="grid gap-4">
         <div className="relative overflow-hidden rounded-md border border-white/10 bg-black/45">
           <svg viewBox={`0 0 ${mapWidth} ${mapHeight}`} className="aspect-[960/520] w-full" role="img" aria-label="World map showing Layer 7 attack source and target flows">
             <defs>
@@ -2353,12 +2353,12 @@ export function GlobalThreatDashboardPage() {
         <header className="rounded-lg border border-white/10 bg-obsidian/80 p-6 md:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="font-mono text-xs uppercase text-signal">Cloudflare Radar / application-layer attack telemetry</p>
+              <p className="font-mono text-xs uppercase text-signal">Application-layer attack telemetry</p>
               <h1 className="mt-3 max-w-4xl text-4xl font-semibold leading-tight text-white md:text-6xl">
                 Global Threat Dashboard.
               </h1>
               <p className="mt-5 max-w-3xl text-base leading-7 text-haze md:text-lg">
-                A SOC-style view of Layer 7 attack volume, mitigation mix, source countries, target countries, and attack flows from Cloudflare Radar.
+                A view of Layer 7 attack volume, mitigation mix, source countries, target countries, and attack flows.
               </p>
             </div>
             <div className="rounded-lg border border-signal/25 bg-signal/10 p-4 text-sm leading-6 text-haze lg:max-w-sm">
