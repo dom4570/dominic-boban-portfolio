@@ -18,7 +18,10 @@ import {
   Loader2,
   MapPin,
   Network,
+  Minus,
+  Plus,
   Radar,
+  RotateCcw,
   Search,
   ShieldAlert,
   Zap,
@@ -192,6 +195,9 @@ type MapFlowEdge = {
 
 const mapWidth = 960;
 const mapHeight = 520;
+const minMapZoom = 1;
+const maxMapZoom = 3.5;
+const mapZoomStep = 0.5;
 const continentNames: Record<string, string> = {
   AF: "Africa",
   AS: "Asia",
@@ -1157,6 +1163,7 @@ function WorldAttackMap({
   const features = useWorldFeatures();
   const reducedMotion = useReducedMotionPreference();
   const [selectedSignal, setSelectedSignal] = useState<GraphSignal | null>(null);
+  const [mapZoom, setMapZoom] = useState(minMapZoom);
   const featureCollection = useMemo<WorldFeatureCollection>(
     () => ({ type: "FeatureCollection", features }) as WorldFeatureCollection,
     [features],
@@ -1236,11 +1243,30 @@ function WorldAttackMap({
   const activeSignal = selectedSignal || defaultSignal;
   const sourceOpacity = mode === "targets" ? 0.36 : 1;
   const targetOpacity = mode === "origins" ? 0.36 : 1;
-  const edgeOpacity = mode === "flows" ? 0.72 : 0.28;
+  const edgeOpacity = mode === "flows" ? 0.55 : 0.18;
+  const zoomOffsetX = (mapWidth - mapWidth * mapZoom) / 2;
+  const zoomOffsetY = (mapHeight - mapHeight * mapZoom) / 2;
+  const mapTransform = `translate(${zoomOffsetX} ${zoomOffsetY}) scale(${mapZoom})`;
+  const showCompactCodes = mapZoom >= 1.65;
+  const zoomedMarkerOuterRadius = 4.8 / mapZoom;
+  const zoomedMarkerInnerRadius = 2.2 / mapZoom;
+  const zoomedUnconnectedOuterRadius = 3.6 / mapZoom;
+  const zoomedUnconnectedInnerRadius = 1.7 / mapZoom;
+  const zoomedMarkerStroke = 1.6 / mapZoom;
+  const zoomedPacketRadius = (width: number) => Math.max(1.5, Math.min(3.2, width / 3.7)) / mapZoom;
+  const zoomedEdgeWidth = (width: number) => Math.max(0.85, width * 0.72) / mapZoom;
+  const zoomLabel = `${mapZoom.toFixed(mapZoom % 1 === 0 ? 0 : 1)}x`;
+  const zoomIn = () => setMapZoom((current) => Math.min(maxMapZoom, Number((current + mapZoomStep).toFixed(2))));
+  const zoomOut = () => setMapZoom((current) => Math.max(minMapZoom, Number((current - mapZoomStep).toFixed(2))));
+  const resetZoom = () => setMapZoom(minMapZoom);
 
   useEffect(() => {
     setSelectedSignal(null);
   }, [mode, origins, targets, flows]);
+
+  useEffect(() => {
+    setMapZoom(minMapZoom);
+  }, [origins, targets, flows]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-white/10 bg-[#07090b] p-4">
@@ -1278,6 +1304,36 @@ function WorldAttackMap({
 
       <div className="grid gap-4">
         <div className="relative overflow-hidden rounded-md border border-white/10 bg-black/45">
+          <div className="absolute right-3 top-3 z-10 flex items-center overflow-hidden rounded-md border border-white/10 bg-[#050608]/90 shadow-[0_12px_36px_rgba(0,0,0,0.45)] backdrop-blur">
+            <button
+              type="button"
+              onClick={zoomOut}
+              disabled={mapZoom <= minMapZoom}
+              className="grid h-9 w-9 place-items-center border-r border-white/10 text-haze transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+              aria-label="Zoom map out"
+            >
+              <Minus size={15} />
+            </button>
+            <span className="min-w-12 px-3 text-center font-mono text-[11px] uppercase text-signal">{zoomLabel}</span>
+            <button
+              type="button"
+              onClick={zoomIn}
+              disabled={mapZoom >= maxMapZoom}
+              className="grid h-9 w-9 place-items-center border-l border-r border-white/10 text-haze transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+              aria-label="Zoom map in"
+            >
+              <Plus size={15} />
+            </button>
+            <button
+              type="button"
+              onClick={resetZoom}
+              disabled={mapZoom === minMapZoom}
+              className="grid h-9 w-9 place-items-center text-haze transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+              aria-label="Reset map zoom"
+            >
+              <RotateCcw size={14} />
+            </button>
+          </div>
           <svg viewBox={`0 0 ${mapWidth} ${mapHeight}`} className="aspect-[960/520] w-full" role="img" aria-label="World map showing Layer 7 attack source and target flows">
             <defs>
               <radialGradient id="world-map-glow" cx="50%" cy="50%" r="70%">
@@ -1297,139 +1353,161 @@ function WorldAttackMap({
               <line key={`map-v-${line}`} x1={70 + line * 118} x2={70 + line * 118} y1="36" y2={mapHeight - 36} stroke="rgba(255,255,255,0.04)" strokeDasharray="4 10" />
             ))}
 
-            {features.length ? (
-              features.map((feature, index) => {
-                const path = pathGenerator(feature as never);
-                if (!path) return null;
+            <g transform={mapTransform}>
+              {features.length ? (
+                features.map((feature, index) => {
+                  const path = pathGenerator(feature as never);
+                  if (!path) return null;
 
-                return (
-                  <path
-                    key={`${feature.id || feature.properties?.name || index}`}
-                    d={path}
-                    fill="#9bd7e1"
-                    fillOpacity="0.82"
-                    stroke="rgba(5,6,8,0.68)"
-                    strokeWidth="0.55"
-                  >
-                    <title>{feature.properties?.name}</title>
-                  </path>
-                );
-              })
-            ) : (
-              <text x={mapWidth / 2} y={mapHeight / 2} fill="#d7c99e" fontSize="14" textAnchor="middle">
-                Loading world map...
-              </text>
-            )}
+                  return (
+                    <path
+                      key={`${feature.id || feature.properties?.name || index}`}
+                      d={path}
+                      fill="#9bd7e1"
+                      fillOpacity="0.82"
+                      stroke="rgba(5,6,8,0.68)"
+                      strokeWidth={0.55 / mapZoom}
+                    >
+                      <title>{feature.properties?.name}</title>
+                    </path>
+                  );
+                })
+              ) : (
+                <text x={mapWidth / 2} y={mapHeight / 2} fill="#d7c99e" fontSize="14" textAnchor="middle">
+                  Loading world map...
+                </text>
+              )}
 
-            {edges.map((edge) => (
-              <path
-                key={edge.id}
-                id={edge.id}
-                d={edge.path}
-                fill="none"
-                stroke={edge.color}
-                strokeLinecap="round"
-                strokeOpacity={edgeOpacity}
-                strokeWidth={edge.width}
-                className="cursor-pointer transition-opacity"
-                onMouseEnter={() =>
-                  setSelectedSignal({
-                    title: flowDisplayLabel(edge.flow),
-                    meta: "Origin to target flow",
-                    body: `${edge.source.label} to ${edge.target.label} represents ${formatPercent(edge.flow.value)} of the returned Layer 7 attack flow share.`,
-                    value: edge.flow.value,
-                    color: edge.color,
-                  })
-                }
-                onFocus={() =>
-                  setSelectedSignal({
-                    title: flowDisplayLabel(edge.flow),
-                    meta: "Origin to target flow",
-                    body: `${edge.source.label} to ${edge.target.label} represents ${formatPercent(edge.flow.value)} of the returned Layer 7 attack flow share.`,
-                    value: edge.flow.value,
-                    color: edge.color,
-                  })
-                }
-                tabIndex={0}
-              />
-            ))}
-
-            {!reducedMotion &&
-              edges.map((edge, index) => (
-                <circle key={`${edge.id}-packet`} r={Math.max(3, Math.min(6, edge.width / 2.3))} fill={edge.color} opacity={mode === "flows" ? "0.96" : "0.48"}>
-                  <animateMotion dur={`${5 + index * 0.32}s`} repeatCount="indefinite">
-                    <mpath href={`#${edge.id}`} />
-                  </animateMotion>
-                </circle>
+              {edges.map((edge) => (
+                <path
+                  key={edge.id}
+                  id={edge.id}
+                  d={edge.path}
+                  fill="none"
+                  stroke={edge.color}
+                  strokeLinecap="round"
+                  strokeOpacity={edgeOpacity}
+                  strokeWidth={zoomedEdgeWidth(edge.width)}
+                  className="cursor-pointer transition-opacity hover:opacity-100"
+                  onMouseEnter={() =>
+                    setSelectedSignal({
+                      title: flowDisplayLabel(edge.flow),
+                      meta: "Origin to target flow",
+                      body: `${edge.source.label} to ${edge.target.label} represents ${formatPercent(edge.flow.value)} of the returned Layer 7 attack flow share.`,
+                      value: edge.flow.value,
+                      color: edge.color,
+                    })
+                  }
+                  onFocus={() =>
+                    setSelectedSignal({
+                      title: flowDisplayLabel(edge.flow),
+                      meta: "Origin to target flow",
+                      body: `${edge.source.label} to ${edge.target.label} represents ${formatPercent(edge.flow.value)} of the returned Layer 7 attack flow share.`,
+                      value: edge.flow.value,
+                      color: edge.color,
+                    })
+                  }
+                  tabIndex={0}
+                />
               ))}
 
-            {sourcePoints.slice(0, 14).map((point, index) => (
-              <g
-                key={`source-${point.code}-${point.name}-${index}`}
-                opacity={point.connected ? sourceOpacity : Math.min(sourceOpacity, 0.62)}
-                className="cursor-pointer"
-                onMouseEnter={() =>
-                  setSelectedSignal({
-                    title: point.label,
-                    meta: "Source location",
-                    body: `${point.label} is present in the attack origin signal for this Radar scope at ${formatPercent(point.value)}.`,
-                    value: point.value,
-                    color: point.color,
-                  })
-                }
-                onFocus={() =>
-                  setSelectedSignal({
-                    title: point.label,
-                    meta: "Source location",
-                    body: `${point.label} is present in the attack origin signal for this Radar scope at ${formatPercent(point.value)}.`,
-                    value: point.value,
-                    color: point.color,
-                  })
-                }
-                tabIndex={0}
-              >
-                <circle cx={point.x} cy={point.y} r={point.connected ? 13 : 9} fill="#050608" stroke={point.color} strokeWidth="3" filter={point.connected ? "url(#world-marker-glow)" : undefined} />
-                <circle cx={point.x} cy={point.y} r="4" fill={point.color} />
-                <text x={point.x + 14} y={point.y + 5} fill="#ffffff" fontSize="11" fontWeight="800">
-                  {point.label}
-                </text>
-                <title>{`${point.label}: ${formatPercent(point.value)}`}</title>
-              </g>
-            ))}
+              {!reducedMotion &&
+                edges.map((edge, index) => (
+                  <circle key={`${edge.id}-packet`} r={zoomedPacketRadius(edge.width)} fill={edge.color} opacity={mode === "flows" ? "0.82" : "0.34"}>
+                    <animateMotion dur={`${5.6 + index * 0.32}s`} repeatCount="indefinite">
+                      <mpath href={`#${edge.id}`} />
+                    </animateMotion>
+                  </circle>
+                ))}
 
-            {targetPoints.slice(0, 14).map((point, index) => (
-              <g
-                key={`target-${point.code}-${point.name}-${index}`}
-                opacity={point.connected ? targetOpacity : Math.min(targetOpacity, 0.62)}
-                className="cursor-pointer"
-                onMouseEnter={() =>
-                  setSelectedSignal({
-                    title: point.label,
-                    meta: "Target location",
-                    body: `${point.label} is present in the attack target signal for this Radar scope at ${formatPercent(point.value)}.`,
-                    value: point.value,
-                    color: point.color,
-                  })
-                }
-                onFocus={() =>
-                  setSelectedSignal({
-                    title: point.label,
-                    meta: "Target location",
-                    body: `${point.label} is present in the attack target signal for this Radar scope at ${formatPercent(point.value)}.`,
-                    value: point.value,
-                    color: point.color,
-                  })
-                }
-                tabIndex={0}
-              >
-                <circle cx={point.x} cy={point.y} r={point.connected ? 13 : 9} fill="#050608" stroke={point.color} strokeWidth="3" filter={point.connected ? "url(#world-marker-glow)" : undefined} />
-                <circle cx={point.x} cy={point.y} r="4" fill={point.color} />
-                <text x={point.x + 14} y={point.y + 5} fill="#ffffff" fontSize="11" fontWeight="800">
-                  {point.label}
-                </text>
-                <title>{`${point.label}: ${formatPercent(point.value)}`}</title>
-              </g>
-            ))}
+              {sourcePoints.slice(0, 14).map((point, index) => (
+                <g
+                  key={`source-${point.code}-${point.name}-${index}`}
+                  opacity={point.connected ? sourceOpacity : Math.min(sourceOpacity, 0.5)}
+                  className="cursor-pointer"
+                  onMouseEnter={() =>
+                    setSelectedSignal({
+                      title: point.label,
+                      meta: "Source location",
+                      body: `${point.label} is present in the attack origin signal for this Radar scope at ${formatPercent(point.value)}.`,
+                      value: point.value,
+                      color: point.color,
+                    })
+                  }
+                  onFocus={() =>
+                    setSelectedSignal({
+                      title: point.label,
+                      meta: "Source location",
+                      body: `${point.label} is present in the attack origin signal for this Radar scope at ${formatPercent(point.value)}.`,
+                      value: point.value,
+                      color: point.color,
+                    })
+                  }
+                  tabIndex={0}
+                >
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r={point.connected ? zoomedMarkerOuterRadius : zoomedUnconnectedOuterRadius}
+                    fill="#050608"
+                    stroke={point.color}
+                    strokeWidth={zoomedMarkerStroke}
+                    filter={point.connected ? "url(#world-marker-glow)" : undefined}
+                  />
+                  <circle cx={point.x} cy={point.y} r={point.connected ? zoomedMarkerInnerRadius : zoomedUnconnectedInnerRadius} fill={point.color} />
+                  {showCompactCodes && point.connected && point.code ? (
+                    <text x={point.x + 7 / mapZoom} y={point.y - 7 / mapZoom} fill="#ffffff" fontSize={9 / mapZoom} fontWeight="800">
+                      {point.code}
+                    </text>
+                  ) : null}
+                  <title>{`${point.label}: ${formatPercent(point.value)}`}</title>
+                </g>
+              ))}
+
+              {targetPoints.slice(0, 14).map((point, index) => (
+                <g
+                  key={`target-${point.code}-${point.name}-${index}`}
+                  opacity={point.connected ? targetOpacity : Math.min(targetOpacity, 0.5)}
+                  className="cursor-pointer"
+                  onMouseEnter={() =>
+                    setSelectedSignal({
+                      title: point.label,
+                      meta: "Target location",
+                      body: `${point.label} is present in the attack target signal for this Radar scope at ${formatPercent(point.value)}.`,
+                      value: point.value,
+                      color: point.color,
+                    })
+                  }
+                  onFocus={() =>
+                    setSelectedSignal({
+                      title: point.label,
+                      meta: "Target location",
+                      body: `${point.label} is present in the attack target signal for this Radar scope at ${formatPercent(point.value)}.`,
+                      value: point.value,
+                      color: point.color,
+                    })
+                  }
+                  tabIndex={0}
+                >
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r={point.connected ? zoomedMarkerOuterRadius : zoomedUnconnectedOuterRadius}
+                    fill="#050608"
+                    stroke={point.color}
+                    strokeWidth={zoomedMarkerStroke}
+                    filter={point.connected ? "url(#world-marker-glow)" : undefined}
+                  />
+                  <circle cx={point.x} cy={point.y} r={point.connected ? zoomedMarkerInnerRadius : zoomedUnconnectedInnerRadius} fill={point.color} />
+                  {showCompactCodes && point.connected && point.code ? (
+                    <text x={point.x + 7 / mapZoom} y={point.y - 7 / mapZoom} fill="#ffffff" fontSize={9 / mapZoom} fontWeight="800">
+                      {point.code}
+                    </text>
+                  ) : null}
+                  <title>{`${point.label}: ${formatPercent(point.value)}`}</title>
+                </g>
+              ))}
+            </g>
           </svg>
 
           {!edges.length && (
