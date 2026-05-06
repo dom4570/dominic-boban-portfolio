@@ -12,8 +12,6 @@ import {
   ArrowRight,
   BarChart3,
   ChevronDown,
-  Clipboard,
-  Download,
   Globe2,
   Loader2,
   MapPin,
@@ -1142,8 +1140,7 @@ function WorldAttackMap({
   flows,
   flowMode,
   flowScopeNote,
-  flowStatus,
-  flowFilterStrategy,
+  controls,
   onModeChange,
 }: {
   mode: AttackGeoTab;
@@ -1152,12 +1149,7 @@ function WorldAttackMap({
   flows: AttackFlowPoint[];
   flowMode?: "merged_flows" | "partial_flows" | "rankings_only";
   flowScopeNote?: string;
-  flowStatus?: {
-    origin_limited?: string;
-    target_limited?: string;
-    fallback?: string;
-  };
-  flowFilterStrategy?: string;
+  controls?: ReactNode;
   onModeChange: (mode: AttackGeoTab) => void;
 }) {
   const features = useWorldFeatures();
@@ -1216,16 +1208,6 @@ function WorldAttackMap({
       : flowMode === "partial_flows"
         ? "border-trace/35 bg-trace/10 text-trace"
         : "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
-  const strategyLabel =
-    flowFilterStrategy === "global_filtered"
-      ? "filtered global fallback"
-      : flowFilterStrategy === "native_fallback"
-        ? "native fallback"
-        : flowFilterStrategy === "native_scope"
-          ? "native Radar scope"
-          : flowFilterStrategy === "rankings_only"
-            ? "rankings only"
-            : flowFilterStrategy || "";
   const defaultSignal = flowRows[0]
     ? {
         title: flowDisplayLabel(flowRows[0]),
@@ -1269,7 +1251,7 @@ function WorldAttackMap({
   }, [origins, targets, flows]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-white/10 bg-[#07090b] p-4">
+    <div className="rounded-lg border border-white/10 bg-[#07090b] p-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-mono text-xs uppercase text-signal">Application layer attack activity</p>
@@ -1277,7 +1259,6 @@ function WorldAttackMap({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded border px-3 py-1.5 font-mono text-[11px] uppercase ${coverageClass}`}>{coverageLabel}</span>
-          {strategyLabel ? <span className="rounded border border-white/10 bg-black/25 px-3 py-1.5 font-mono text-[11px] uppercase text-haze">{strategyLabel}</span> : null}
           <span className="font-mono text-xs uppercase text-white">Attacks by</span>
           {attackGeoTabs.map((tab) => (
             <button
@@ -1294,13 +1275,7 @@ function WorldAttackMap({
         </div>
       </div>
 
-      {flowStatus && (
-        <div className="mb-4 flex flex-wrap gap-2 font-mono text-[11px] uppercase text-haze">
-          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Origin view: {flowStatus.origin_limited || "unknown"}</span>
-          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Target view: {flowStatus.target_limited || "unknown"}</span>
-          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Fallback: {flowStatus.fallback || "not needed"}</span>
-        </div>
-      )}
+      {controls ? <div className="mb-4">{controls}</div> : null}
 
       <div className="grid gap-4">
         <div className="relative overflow-hidden rounded-md border border-white/10 bg-black/45">
@@ -2171,15 +2146,13 @@ function ApplicationLayerSecurityPanel({
   geography,
   mode,
   scopeLabel,
-  scopeType,
-  scopeValue,
+  controls,
   onModeChange,
 }: {
   geography: NonNullable<RadarDashboard["attack_geography"]>;
   mode: AttackGeoTab;
   scopeLabel: string;
-  scopeType?: string;
-  scopeValue?: string;
+  controls?: ReactNode;
   onModeChange: (mode: AttackGeoTab) => void;
 }) {
   return (
@@ -2191,8 +2164,7 @@ function ApplicationLayerSecurityPanel({
         flows={geography.flows}
         flowMode={geography.flow_mode}
         flowScopeNote={geography.flow_scope_note}
-        flowStatus={geography.flow_status}
-        flowFilterStrategy={geography.flow_filter_strategy}
+        controls={controls}
         onModeChange={onModeChange}
       />
       <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
@@ -2296,7 +2268,6 @@ export function GlobalThreatDashboardPage() {
   const [scopeOpen, setScopeOpen] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
   const [selectedHttpPoint, setSelectedHttpPoint] = useState<number | null>(null);
-  const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -2354,34 +2325,103 @@ export function GlobalThreatDashboardPage() {
       : severity === "Watch"
         ? "border-volt/40 bg-volt/10 text-volt"
         : "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
+  const dashboardControls = (
+    <div className="grid gap-3 rounded-md border border-white/10 bg-black/25 p-3 xl:grid-cols-[minmax(260px,1fr)_auto] xl:items-end">
+      <div className="relative">
+        <p className="mb-2 font-mono text-[11px] uppercase text-haze">Radar scope</p>
+        <button
+          type="button"
+          onClick={() => setScopeOpen((open) => !open)}
+          className="flex w-full items-center justify-between gap-3 rounded-md border border-signal/35 bg-black/35 px-3 py-2.5 text-left text-white transition hover:border-signal/70"
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-signal/30 bg-signal/10 text-signal">
+              <ScopeIcon size={17} />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold">{scope.label}</span>
+              <span className="mt-0.5 block truncate font-mono text-[11px] uppercase text-haze">{scope.meta}</span>
+            </span>
+          </span>
+          <ChevronDown className={`shrink-0 text-signal transition ${scopeOpen ? "rotate-180" : ""}`} size={18} />
+        </button>
 
-  const analystSummary = data
-    ? [
-        "Global Threat Dashboard analyst summary",
-        `Range: ${data.filters?.range_label || range}`,
-        `Scope: ${data.filters?.scope_label || scope.label}`,
-        `Application attack insight: ${data.summary.application_attack_insight}`,
-        ...insights.map((insight) => `- ${insight}`),
-      ].join("\n")
-    : "";
+        {scopeOpen && (
+          <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-lg border border-white/15 bg-[#0b0b0b] shadow-[0_18px_60px_rgba(0,0,0,0.7)]">
+            <label className="relative block border-b border-white/10">
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-haze" size={16} />
+              <input
+                value={scopeQuery}
+                onChange={(event) => setScopeQuery(event.target.value)}
+                className="w-full bg-white/[0.04] py-3 pl-10 pr-3 text-sm text-white outline-none placeholder:text-haze/50 focus:bg-signal/10"
+                placeholder="Search continents, countries, ASNs"
+              />
+            </label>
+            <div className="max-h-80 overflow-y-auto py-2">
+              {scopeGroups.map(({ group, options, total }) =>
+                options.length > 0 ? (
+                  <div key={group}>
+                    <div className="sticky top-0 z-10 flex items-center gap-2 bg-white/[0.08] px-4 py-2 font-mono text-[11px] uppercase text-haze">
+                      {group}
+                      <span className="rounded-full bg-white/15 px-2 py-0.5 text-white">{total}</span>
+                    </div>
+                    {options.map((option) => {
+                      const Icon = option.icon;
 
-  const copySummary = async () => {
-    if (!analystSummary) return;
-    await navigator.clipboard.writeText(analystSummary);
-    setCopyStatus("Copied");
-    window.setTimeout(() => setCopyStatus(""), 1800);
-  };
+                      return (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => {
+                            setScopeKey(option.key);
+                            setScopeOpen(false);
+                            setScopeQuery("");
+                            setSelectedPoint(null);
+                            setSelectedHttpPoint(null);
+                          }}
+                          className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-white/10 ${
+                            option.key === scopeKey ? "bg-signal/15 text-signal" : "text-white"
+                          }`}
+                        >
+                          <Icon size={16} className="shrink-0" />
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold">{option.label}</span>
+                            <span className="mt-0.5 block truncate font-mono text-[11px] uppercase text-haze">{option.meta}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null,
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
-  const downloadJson = () => {
-    if (!data) return;
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `cloudflare-radar-attacks-${range}-${scopeKey.replace(":", "-")}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+      <div>
+        <p className="mb-2 font-mono text-[11px] uppercase text-haze">Time range</p>
+        <div className="grid grid-cols-3 gap-2 sm:min-w-64">
+          {rangeOptions.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => {
+                setRange(option.key);
+                setSelectedPoint(null);
+                setSelectedHttpPoint(null);
+              }}
+              className={`rounded-md border px-4 py-2 text-sm font-semibold transition ${
+                range === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="radar-dashboard relative min-h-screen px-5 py-6">
@@ -2420,143 +2460,32 @@ export function GlobalThreatDashboardPage() {
           <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-5 lg:sticky lg:top-6">
             <div className="mb-5 flex items-center gap-2 font-mono text-xs uppercase text-signal">
               <Radar size={16} />
-              Dashboard controls
+              Signal overview
             </div>
 
-            <div className="grid gap-5">
-              <div className="relative">
-                <p className="mb-3 font-mono text-xs uppercase text-haze">Radar scope</p>
-                <button
-                  type="button"
-                  onClick={() => setScopeOpen((open) => !open)}
-                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-signal/35 bg-black/25 px-4 py-3 text-left text-white transition hover:border-signal/70"
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-signal/30 bg-signal/10 text-signal">
-                      <ScopeIcon size={17} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold">{scope.label}</span>
-                      <span className="mt-0.5 block truncate font-mono text-[11px] uppercase text-haze">{scope.meta}</span>
-                    </span>
-                  </span>
-                  <ChevronDown className={`shrink-0 text-signal transition ${scopeOpen ? "rotate-180" : ""}`} size={18} />
-                </button>
-
-                {scopeOpen && (
-                  <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-lg border border-white/15 bg-[#0b0b0b] shadow-[0_18px_60px_rgba(0,0,0,0.7)]">
-                    <label className="relative block border-b border-white/10">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-haze" size={16} />
-                      <input
-                        value={scopeQuery}
-                        onChange={(event) => setScopeQuery(event.target.value)}
-                        className="w-full bg-white/[0.04] py-3 pl-10 pr-3 text-sm text-white outline-none placeholder:text-haze/50 focus:bg-signal/10"
-                        placeholder="Search continents, countries, ASNs"
-                      />
-                    </label>
-                    <div className="max-h-80 overflow-y-auto py-2">
-                      {scopeGroups.map(({ group, options, total }) =>
-                        options.length > 0 ? (
-                          <div key={group}>
-                            <div className="sticky top-0 z-10 flex items-center gap-2 bg-white/[0.08] px-4 py-2 font-mono text-[11px] uppercase text-haze">
-                              {group}
-                              <span className="rounded-full bg-white/15 px-2 py-0.5 text-white">{total}</span>
-                            </div>
-                            {options.map((option) => {
-                              const Icon = option.icon;
-
-                              return (
-                                <button
-                                  key={option.key}
-                                  type="button"
-                                  onClick={() => {
-                                    setScopeKey(option.key);
-                                    setScopeOpen(false);
-                                    setScopeQuery("");
-                                    setSelectedPoint(null);
-                                    setSelectedHttpPoint(null);
-                                  }}
-                                  className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-white/10 ${
-                                    option.key === scopeKey ? "bg-signal/15 text-signal" : "text-white"
-                                  }`}
-                                >
-                                  <Icon size={16} className="shrink-0" />
-                                  <span className="min-w-0">
-                                    <span className="block truncate font-semibold">{option.label}</span>
-                                    <span className="mt-0.5 block truncate font-mono text-[11px] uppercase text-haze">{option.meta}</span>
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : null,
-                      )}
-                    </div>
+            {data ? (
+              <div className="grid gap-4">
+                <section className="rounded-lg border border-white/10 bg-black/20 p-4">
+                  <p className="font-mono text-xs uppercase text-signal">Mitigation mix</p>
+                  <h2 className="mt-2 text-lg font-semibold text-white">Application attack type split</h2>
+                  <div className="mt-4">
+                    <DonutChart data={data.layer7_mitigation_mix || []} centerLabel="Lead attack" />
                   </div>
-                )}
-              </div>
+                </section>
 
-              <div>
-                <p className="mb-3 font-mono text-xs uppercase text-haze">Time range</p>
-                <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
-                  {rangeOptions.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => {
-                        setRange(option.key);
-                        setSelectedPoint(null);
-                        setSelectedHttpPoint(null);
-                      }}
-                      className={`rounded-md border px-4 py-2 text-sm font-semibold transition ${
-                        range === option.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
+                <section className="rounded-lg border border-white/10 bg-black/20 p-4">
+                  <p className="font-mono text-xs uppercase text-signal">Traffic classification</p>
+                  <h2 className="mt-2 text-lg font-semibold text-white">Bot vs human split</h2>
+                  <div className="mt-4">
+                    <DonutChart data={data.bot_human} centerLabel="Bot share" />
+                  </div>
+                </section>
               </div>
-
-              <div>
-                <p className="mb-3 font-mono text-xs uppercase text-haze">Attack geography</p>
-                <div className="grid gap-2">
-                  {attackGeoTabs.map((tab) => (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => setAttackGeoTab(tab.key)}
-                      className={`rounded-md border px-4 py-2 text-left text-sm font-semibold transition ${
-                        attackGeoTab === tab.key ? "border-signal/70 bg-signal text-obsidian" : "border-white/10 bg-black/20 text-haze hover:border-signal/40 hover:text-white"
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
+            ) : (
+              <div className="rounded-lg border border-white/10 bg-black/20 p-4 text-sm leading-6 text-haze">
+                Signal charts will appear once Radar telemetry loads.
               </div>
-
-              <div className="grid gap-2 border-t border-white/10 pt-5">
-                <button
-                  type="button"
-                  onClick={copySummary}
-                  disabled={!data}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Clipboard size={16} />
-                  {copyStatus || "Copy summary"}
-                </button>
-                <button
-                  type="button"
-                  onClick={downloadJson}
-                  disabled={!data}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/20 px-4 text-sm font-semibold text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Download size={16} />
-                  Download JSON
-                </button>
-              </div>
-            </div>
+            )}
           </aside>
 
           <div className="grid gap-6">
@@ -2598,37 +2527,30 @@ export function GlobalThreatDashboardPage() {
                   geography={attackGeography}
                   mode={attackGeoTab}
                   scopeLabel={data.filters?.scope_label || scope.label}
-                  scopeType={data.filters?.scope_type}
-                  scopeValue={data.filters?.scope_value}
+                  controls={dashboardControls}
                   onModeChange={setAttackGeoTab}
                 />
 
-                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
-                  <Panel eyebrow="Layer 7 attack volume" title={`Application attack trend / ${data.filters?.scope_label || scope.label}`}>
-                    <LineChart data={activeTrend} tone="trace" selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
-                    <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
-                      <p className="font-mono text-xs uppercase text-signal">Selected point</p>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                        <div>
-                          <p className="font-mono text-[11px] uppercase text-haze">Metric</p>
-                          <p className="mt-1 font-semibold text-white">Layer 7 attacks</p>
-                        </div>
-                        <div>
-                          <p className="font-mono text-[11px] uppercase text-haze">Time</p>
-                          <p className="mt-1 font-semibold text-white">{formatTime(activeTrendPoint?.timestamp)}</p>
-                        </div>
-                        <div>
-                          <p className="font-mono text-[11px] uppercase text-haze">Index</p>
-                          <p className="mt-1 font-semibold text-white">{formatCompact(activeTrendPoint?.value)}</p>
-                        </div>
+                <Panel eyebrow="Layer 7 attack volume" title={`Application attack trend / ${data.filters?.scope_label || scope.label}`}>
+                  <LineChart data={activeTrend} tone="trace" selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
+                  <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
+                    <p className="font-mono text-xs uppercase text-signal">Selected point</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="font-mono text-[11px] uppercase text-haze">Metric</p>
+                        <p className="mt-1 font-semibold text-white">Layer 7 attacks</p>
+                      </div>
+                      <div>
+                        <p className="font-mono text-[11px] uppercase text-haze">Time</p>
+                        <p className="mt-1 font-semibold text-white">{formatTime(activeTrendPoint?.timestamp)}</p>
+                      </div>
+                      <div>
+                        <p className="font-mono text-[11px] uppercase text-haze">Index</p>
+                        <p className="mt-1 font-semibold text-white">{formatCompact(activeTrendPoint?.value)}</p>
                       </div>
                     </div>
-                  </Panel>
-
-                  <Panel eyebrow="Mitigation mix" title="Application attack type split">
-                    <DonutChart data={data.layer7_mitigation_mix || []} centerLabel="Lead attack" />
-                  </Panel>
-                </div>
+                  </div>
+                </Panel>
 
                 <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
@@ -2661,25 +2583,20 @@ export function GlobalThreatDashboardPage() {
                   </div>
                 </section>
 
-                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
-                  <Panel eyebrow="HTTP request baseline" title={`All HTTP trend / ${data.filters?.scope_label || scope.label}`}>
-                    <LineChart
-                      data={data.http_trend}
-                      tone="signal"
-                      selectedIndex={selectedHttpPoint ?? Math.max((data.http_trend || []).length - 1, 0)}
-                      onSelect={setSelectedHttpPoint}
-                    />
-                    <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
-                      <p className="font-mono text-xs uppercase text-signal">Baseline context</p>
-                      <p className="mt-2 text-sm leading-6 text-haze">
-                        Total HTTP activity gives background scale for the selected Radar scope. The attack graph above remains the primary Layer 7 security signal.
-                      </p>
-                    </div>
-                  </Panel>
-                  <Panel eyebrow="Traffic classification" title="Bot vs human split">
-                    <DonutChart data={data.bot_human} centerLabel="Bot share" />
-                  </Panel>
-                </div>
+                <Panel eyebrow="HTTP request baseline" title={`All HTTP trend / ${data.filters?.scope_label || scope.label}`}>
+                  <LineChart
+                    data={data.http_trend}
+                    tone="signal"
+                    selectedIndex={selectedHttpPoint ?? Math.max((data.http_trend || []).length - 1, 0)}
+                    onSelect={setSelectedHttpPoint}
+                  />
+                  <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
+                    <p className="font-mono text-xs uppercase text-signal">Baseline context</p>
+                    <p className="mt-2 text-sm leading-6 text-haze">
+                      Total HTTP activity gives background scale for the selected Radar scope. The attack graph above remains the primary Layer 7 security signal.
+                    </p>
+                  </div>
+                </Panel>
 
                 <Panel eyebrow="Top traffic locations" title={`HTTP traffic by country / ${data.filters?.scope_label || scope.label}`}>
                   <LocationBars data={data.top_locations} />
