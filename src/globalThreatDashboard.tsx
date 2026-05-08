@@ -1,7 +1,6 @@
 import {
   geoCentroid,
   geoEquirectangular,
-  geoPath,
   type GeoProjection,
 } from "d3-geo";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
@@ -190,7 +189,7 @@ type MapFlowEdge = {
 };
 
 const mapWidth = 1100;
-const mapHeight = 560;
+const mapHeight = 620;
 const minMapZoom = 1;
 const maxMapZoom = 3.5;
 const mapZoomStep = 0.5;
@@ -1158,16 +1157,13 @@ function WorldAttackMap({
   const reducedMotion = useReducedMotionPreference();
   const [selectedSignal, setSelectedSignal] = useState<GraphSignal | null>(null);
   const [mapZoom, setMapZoom] = useState(minMapZoom);
-  const featureCollection = useMemo<WorldFeatureCollection>(
-    () => ({ type: "FeatureCollection", features }) as WorldFeatureCollection,
-    [features],
-  );
   const projection = useMemo(() => {
-    const base = geoEquirectangular().precision(0.1);
-    if (!features.length) return base.scale(170).translate([mapWidth / 2, mapHeight / 2]);
-    return base.fitExtent([[24, 26], [mapWidth - 24, mapHeight - 26]], featureCollection as never);
-  }, [featureCollection, features.length]);
-  const pathGenerator = useMemo(() => geoPath(projection), [projection]);
+    const scale = (mapWidth - 58) / (2 * Math.PI);
+    return geoEquirectangular()
+      .precision(0.1)
+      .scale(scale)
+      .translate([mapWidth / 2, mapHeight * 0.595]);
+  }, []);
   const featureLookup = useMemo(() => buildFeatureLookup(features), [features]);
   const flowRows = flows.slice(0, 20);
   const maxFlow = Math.max(...flowRows.map((flow) => flow.value), 1);
@@ -1319,22 +1315,26 @@ function WorldAttackMap({
             aria-label="World map showing Layer 7 attack source and target flows"
           >
             <defs>
-              <linearGradient id="world-map-ocean" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stopColor="#020304" />
-                <stop offset="45%" stopColor="#071113" />
-                <stop offset="100%" stopColor="#010203" />
-              </linearGradient>
               <radialGradient id="world-map-glow" cx="50%" cy="50%" r="72%">
                 <stop offset="0%" stopColor="#fcee0a" stopOpacity="0.06" />
                 <stop offset="45%" stopColor="#67e8f9" stopOpacity="0.07" />
                 <stop offset="100%" stopColor="#050608" stopOpacity="0" />
               </radialGradient>
+              <filter id="world-map-soften">
+                <feColorMatrix
+                  type="matrix"
+                  values="0.52 0 0 0 0
+                          0 0.58 0 0 0
+                          0 0 0.6 0 0
+                          0 0 0 1 0"
+                />
+              </filter>
               <filter id="world-marker-glow">
                 <feDropShadow dx="0" dy="0" stdDeviation="4.2" floodColor="rgba(252,238,10,0.38)" />
                 <feDropShadow dx="0" dy="0" stdDeviation="5.5" floodColor="rgba(103,232,249,0.38)" />
               </filter>
             </defs>
-            <rect width={mapWidth} height={mapHeight} fill="url(#world-map-ocean)" />
+            <rect width={mapWidth} height={mapHeight} fill="#020304" />
             <rect width={mapWidth} height={mapHeight} fill="url(#world-map-glow)" />
             {[0, 1, 2, 3, 4, 5].map((line) => (
               <line key={`map-h-${line}`} x1="28" x2={mapWidth - 28} y1={64 + line * 78} y2={64 + line * 78} stroke="rgba(252,238,10,0.045)" strokeDasharray="3 12" />
@@ -1344,29 +1344,17 @@ function WorldAttackMap({
             ))}
 
             <g transform={mapTransform}>
-              {features.length ? (
-                features.map((feature, index) => {
-                  const path = pathGenerator(feature as never);
-                  if (!path) return null;
-
-                  return (
-                    <path
-                      key={`${feature.id || feature.properties?.name || index}`}
-                      d={path}
-                      fill="#161b1f"
-                      fillOpacity="0.98"
-                      stroke="rgba(218,228,224,0.28)"
-                      strokeWidth={0.62 / mapZoom}
-                    >
-                      <title>{feature.properties?.name}</title>
-                    </path>
-                  );
-                })
-              ) : (
-                <text x={mapWidth / 2} y={mapHeight / 2} fill="#d7c99e" fontSize="14" textAnchor="middle">
-                  Loading world map...
-                </text>
-              )}
+              <image
+                href="/radar-world-map.webp"
+                x="0"
+                y="0"
+                width={mapWidth}
+                height={mapHeight}
+                preserveAspectRatio="xMidYMid slice"
+                opacity="0.72"
+                filter="url(#world-map-soften)"
+              />
+              <rect width={mapWidth} height={mapHeight} fill="#020304" opacity="0.18" />
 
               {edges.map((edge) => (
                 <path
