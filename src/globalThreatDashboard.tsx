@@ -1,6 +1,6 @@
 import {
   geoCentroid,
-  geoEqualEarth,
+  geoEquirectangular,
   geoPath,
   type GeoProjection,
 } from "d3-geo";
@@ -189,8 +189,8 @@ type MapFlowEdge = {
   width: number;
 };
 
-const mapWidth = 960;
-const mapHeight = 520;
+const mapWidth = 1100;
+const mapHeight = 560;
 const minMapZoom = 1;
 const maxMapZoom = 3.5;
 const mapZoomStep = 0.5;
@@ -1163,9 +1163,9 @@ function WorldAttackMap({
     [features],
   );
   const projection = useMemo(() => {
-    const base = geoEqualEarth();
-    if (!features.length) return base.scale(150).translate([mapWidth / 2, mapHeight / 2]);
-    return base.fitExtent([[18, 22], [mapWidth - 18, mapHeight - 22]], featureCollection as never);
+    const base = geoEquirectangular().precision(0.1);
+    if (!features.length) return base.scale(170).translate([mapWidth / 2, mapHeight / 2]);
+    return base.fitExtent([[24, 26], [mapWidth - 24, mapHeight - 26]], featureCollection as never);
   }, [featureCollection, features.length]);
   const pathGenerator = useMemo(() => geoPath(projection), [projection]);
   const featureLookup = useMemo(() => buildFeatureLookup(features), [features]);
@@ -1227,18 +1227,18 @@ function WorldAttackMap({
   const activeSignal = selectedSignal || defaultSignal;
   const sourceOpacity = mode === "targets" ? 0.36 : 1;
   const targetOpacity = mode === "origins" ? 0.36 : 1;
-  const edgeOpacity = mode === "flows" ? 0.55 : 0.18;
+  const edgeOpacity = mode === "flows" ? 0.78 : 0.28;
   const zoomOffsetX = (mapWidth - mapWidth * mapZoom) / 2;
   const zoomOffsetY = (mapHeight - mapHeight * mapZoom) / 2;
   const mapTransform = `translate(${zoomOffsetX} ${zoomOffsetY}) scale(${mapZoom})`;
   const showCompactCodes = mapZoom >= 1.65;
-  const zoomedMarkerOuterRadius = 4.8 / mapZoom;
-  const zoomedMarkerInnerRadius = 2.2 / mapZoom;
-  const zoomedUnconnectedOuterRadius = 3.6 / mapZoom;
-  const zoomedUnconnectedInnerRadius = 1.7 / mapZoom;
-  const zoomedMarkerStroke = 1.6 / mapZoom;
-  const zoomedPacketRadius = (width: number) => Math.max(1.5, Math.min(3.2, width / 3.7)) / mapZoom;
-  const zoomedEdgeWidth = (width: number) => Math.max(0.85, width * 0.72) / mapZoom;
+  const zoomedMarkerOuterRadius = 5.5 / mapZoom;
+  const zoomedMarkerInnerRadius = 2.55 / mapZoom;
+  const zoomedUnconnectedOuterRadius = 4 / mapZoom;
+  const zoomedUnconnectedInnerRadius = 1.9 / mapZoom;
+  const zoomedMarkerStroke = 1.8 / mapZoom;
+  const zoomedPacketRadius = (width: number) => Math.max(1.7, Math.min(3.6, width / 3.6)) / mapZoom;
+  const zoomedEdgeWidth = (width: number) => Math.max(0.95, width * 0.78) / mapZoom;
   const zoomLabel = `${mapZoom.toFixed(mapZoom % 1 === 0 ? 0 : 1)}x`;
   const zoomIn = () => setMapZoom((current) => Math.min(maxMapZoom, Number((current + mapZoomStep).toFixed(2))));
   const zoomOut = () => setMapZoom((current) => Math.max(minMapZoom, Number((current - mapZoomStep).toFixed(2))));
@@ -1280,7 +1280,7 @@ function WorldAttackMap({
       {controls ? <div className="mb-4">{controls}</div> : null}
 
       <div className="grid gap-4">
-        <div className="relative overflow-hidden rounded-md border border-white/10 bg-black/45">
+        <div className="relative overflow-hidden rounded-md border border-white/10 bg-[#020304] shadow-[inset_0_0_0_1px_rgba(252,238,10,0.03),0_18px_70px_rgba(0,0,0,0.35)]">
           <div className="absolute right-3 top-3 z-10 flex items-center overflow-hidden rounded-md border border-white/10 bg-[#050608]/90 shadow-[0_12px_36px_rgba(0,0,0,0.45)] backdrop-blur">
             <button
               type="button"
@@ -1313,27 +1313,34 @@ function WorldAttackMap({
           </div>
           <svg
             viewBox={`0 0 ${mapWidth} ${mapHeight}`}
-            className="h-[280px] w-full sm:h-[320px] lg:h-[360px] 2xl:h-auto 2xl:aspect-[960/520]"
+            className="h-[310px] w-full sm:h-[360px] lg:h-[420px] 2xl:h-[480px]"
             preserveAspectRatio="xMidYMid meet"
             role="img"
             aria-label="World map showing Layer 7 attack source and target flows"
           >
             <defs>
-              <radialGradient id="world-map-glow" cx="50%" cy="50%" r="70%">
-                <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.16" />
+              <linearGradient id="world-map-ocean" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stopColor="#020304" />
+                <stop offset="45%" stopColor="#071113" />
+                <stop offset="100%" stopColor="#010203" />
+              </linearGradient>
+              <radialGradient id="world-map-glow" cx="50%" cy="50%" r="72%">
+                <stop offset="0%" stopColor="#fcee0a" stopOpacity="0.06" />
+                <stop offset="45%" stopColor="#67e8f9" stopOpacity="0.07" />
                 <stop offset="100%" stopColor="#050608" stopOpacity="0" />
               </radialGradient>
               <filter id="world-marker-glow">
-                <feDropShadow dx="0" dy="0" stdDeviation="5" floodColor="rgba(103,232,249,0.55)" />
+                <feDropShadow dx="0" dy="0" stdDeviation="4.2" floodColor="rgba(252,238,10,0.38)" />
+                <feDropShadow dx="0" dy="0" stdDeviation="5.5" floodColor="rgba(103,232,249,0.38)" />
               </filter>
             </defs>
-            <rect width={mapWidth} height={mapHeight} fill="#050608" />
+            <rect width={mapWidth} height={mapHeight} fill="url(#world-map-ocean)" />
             <rect width={mapWidth} height={mapHeight} fill="url(#world-map-glow)" />
             {[0, 1, 2, 3, 4, 5].map((line) => (
-              <line key={`map-h-${line}`} x1="28" x2={mapWidth - 28} y1={72 + line * 66} y2={72 + line * 66} stroke="rgba(255,255,255,0.045)" strokeDasharray="4 10" />
+              <line key={`map-h-${line}`} x1="28" x2={mapWidth - 28} y1={64 + line * 78} y2={64 + line * 78} stroke="rgba(252,238,10,0.045)" strokeDasharray="3 12" />
             ))}
             {[0, 1, 2, 3, 4, 5, 6, 7].map((line) => (
-              <line key={`map-v-${line}`} x1={70 + line * 118} x2={70 + line * 118} y1="36" y2={mapHeight - 36} stroke="rgba(255,255,255,0.04)" strokeDasharray="4 10" />
+              <line key={`map-v-${line}`} x1={80 + line * 135} x2={80 + line * 135} y1="34" y2={mapHeight - 34} stroke="rgba(103,232,249,0.04)" strokeDasharray="3 12" />
             ))}
 
             <g transform={mapTransform}>
@@ -1346,10 +1353,10 @@ function WorldAttackMap({
                     <path
                       key={`${feature.id || feature.properties?.name || index}`}
                       d={path}
-                      fill="#9bd7e1"
-                      fillOpacity="0.82"
-                      stroke="rgba(5,6,8,0.68)"
-                      strokeWidth={0.55 / mapZoom}
+                      fill="#161b1f"
+                      fillOpacity="0.98"
+                      stroke="rgba(218,228,224,0.28)"
+                      strokeWidth={0.62 / mapZoom}
                     >
                       <title>{feature.properties?.name}</title>
                     </path>
@@ -1371,6 +1378,7 @@ function WorldAttackMap({
                   strokeLinecap="round"
                   strokeOpacity={edgeOpacity}
                   strokeWidth={zoomedEdgeWidth(edge.width)}
+                  filter={mode === "flows" ? "url(#world-marker-glow)" : undefined}
                   className="cursor-pointer transition-opacity hover:opacity-100"
                   onMouseEnter={() =>
                     setSelectedSignal({
@@ -1396,7 +1404,7 @@ function WorldAttackMap({
 
               {!reducedMotion &&
                 edges.map((edge, index) => (
-                  <circle key={`${edge.id}-packet`} r={zoomedPacketRadius(edge.width)} fill={edge.color} opacity={mode === "flows" ? "0.82" : "0.34"}>
+                  <circle key={`${edge.id}-packet`} r={zoomedPacketRadius(edge.width)} fill={edge.color} opacity={mode === "flows" ? "0.95" : "0.45"} filter="url(#world-marker-glow)">
                     <animateMotion dur={`${5.6 + index * 0.32}s`} repeatCount="indefinite">
                       <mpath href={`#${edge.id}`} />
                     </animateMotion>
