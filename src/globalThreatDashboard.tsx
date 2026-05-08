@@ -6,7 +6,6 @@ import {
 } from "d3-geo";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import {
-  Activity,
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
@@ -22,7 +21,6 @@ import {
   RotateCcw,
   Search,
   ShieldAlert,
-  Zap,
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 
@@ -613,11 +611,13 @@ function chartPath(points: TrendPoint[], width: number, height: number, padding:
 function LineChart({
   data,
   tone = "signal",
+  compact = false,
   selectedIndex,
   onSelect,
 }: {
   data: TrendPoint[];
   tone?: "signal" | "trace";
+  compact?: boolean;
   selectedIndex?: number;
   onSelect?: (index: number) => void;
 }) {
@@ -655,7 +655,7 @@ function LineChart({
 
   return (
     <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-60 w-full overflow-visible" role="img" aria-label="Radar time series chart">
+      <svg viewBox={`0 0 ${width} ${height}`} className={`${compact ? "h-44 md:h-48" : "h-60"} w-full overflow-visible`} role="img" aria-label="Radar time series chart">
         <defs>
           <linearGradient id={`line-fill-${tone}`} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={stroke} stopOpacity="0.25" />
@@ -733,7 +733,7 @@ function LineChart({
 const attackPalette = ["#67e8f9", "#f97316", "#3b82f6", "#fcee0a", "#22c55e", "#d946ef", "#ef4444", "#a855f7"];
 
 function DonutChart({ data, centerLabel = "Top share", compact = false }: { data: SplitPoint[]; centerLabel?: string; compact?: boolean }) {
-  const rows = data.length ? data.slice(0, 4) : [{ label: "Unavailable", value: 100 }];
+  const rows = data.length ? data.slice(0, compact ? 3 : 4) : [{ label: "Unavailable", value: 100 }];
   const total = rows.reduce((sum, row) => sum + row.value, 0) || 1;
   let cursor = 0;
   const gradient = rows
@@ -746,9 +746,9 @@ function DonutChart({ data, centerLabel = "Top share", compact = false }: { data
   const lead = rows[0];
 
   return (
-    <div className={`grid rounded-lg border border-white/10 bg-black/20 p-4 ${compact ? "gap-4" : "gap-5"}`}>
+    <div className={`grid rounded-lg border border-white/10 bg-black/20 ${compact ? "gap-3 p-3" : "gap-5 p-4"}`}>
       <div
-        className={`relative mx-auto rounded-full ${compact ? "h-36 w-36 2xl:h-40 2xl:w-40" : "h-48 w-48"}`}
+        className={`relative mx-auto rounded-full ${compact ? "h-32 w-32 2xl:h-36 2xl:w-36" : "h-48 w-48"}`}
         style={{
           background: `conic-gradient(${gradient})`,
           boxShadow: "0 0 38px rgba(252,238,10,0.12)",
@@ -1054,29 +1054,31 @@ function WorldMapFlowPanel({
   setSelectedSignal: (signal: GraphSignal) => void;
 }) {
   const maxRanking = Math.max(...rankings.map((row) => row.value), 1);
+  const visibleFlows = flows.slice(0, 4);
+  const visibleRankings = rankings.slice(0, 4);
 
   return (
-    <aside className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-[minmax(240px,0.9fr)_minmax(340px,1.2fr)_minmax(240px,0.9fr)] 2xl:items-start">
-      <div className="rounded-md border border-white/10 bg-black/35 p-4">
+    <aside className="grid gap-3 xl:grid-cols-[minmax(210px,0.9fr)_minmax(260px,1.1fr)_minmax(210px,0.9fr)] xl:items-start">
+      <div className="rounded-md border border-white/10 bg-black/35 p-3">
         <p className="font-mono text-xs uppercase text-signal">Selected signal</p>
-        <div className="mt-4 rounded-md border border-white/10 bg-white/[0.035] p-4">
-          <div className="mb-4 flex items-center gap-3">
+        <div className="mt-3 rounded-md border border-white/10 bg-white/[0.035] p-3">
+          <div className="mb-3 flex items-center gap-3">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: activeSignal.color }} />
             <div className="min-w-0">
-              <h3 className="break-words text-lg font-semibold text-white">{activeSignal.title}</h3>
+              <h3 className="break-words text-base font-semibold text-white">{activeSignal.title}</h3>
               <p className="mt-1 font-mono text-[11px] uppercase text-haze">{activeSignal.meta}</p>
             </div>
           </div>
-          {typeof activeSignal.value === "number" && <p className="mb-3 text-3xl font-semibold text-white">{formatPercent(activeSignal.value)}</p>}
-          <p className="text-sm leading-6 text-haze">{activeSignal.body}</p>
+          {typeof activeSignal.value === "number" && <p className="mb-2 text-2xl font-semibold text-white">{formatPercent(activeSignal.value)}</p>}
+          <p className="text-xs leading-5 text-haze">{activeSignal.body}</p>
         </div>
       </div>
 
-      <div className="rounded-md border border-white/10 bg-black/35 p-4 xl:row-span-2 2xl:row-span-1">
+      <div className="rounded-md border border-white/10 bg-black/35 p-3">
         <p className="font-mono text-xs uppercase text-signal">Top flows</p>
-        <div className="mt-4 grid gap-3">
-          {flows.length ? (
-            flows.slice(0, 8).map((flow, index) => (
+        <div className="mt-3 grid gap-2">
+          {visibleFlows.length ? (
+            visibleFlows.map((flow, index) => (
               <button
                 key={`${flow.origin_code}-${flow.target_code}-${index}`}
                 type="button"
@@ -1091,7 +1093,7 @@ function WorldMapFlowPanel({
                 }
                 className="grid gap-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2 text-left transition hover:border-signal/35 hover:bg-white/[0.06]"
               >
-                <span className="text-sm font-semibold leading-5 text-white">{flowDisplayLabel(flow)}</span>
+                <span className="text-xs font-semibold leading-5 text-white sm:text-sm">{flowDisplayLabel(flow)}</span>
                 <span className="flex items-center gap-3">
                   <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
                     <span
@@ -1107,15 +1109,15 @@ function WorldMapFlowPanel({
               </button>
             ))
           ) : (
-            <p className="rounded-md border border-white/10 bg-black/20 p-4 text-sm text-haze">Radar returned rankings, but no real origin-target flow pairs for this scope.</p>
+            <p className="rounded-md border border-white/10 bg-black/20 p-3 text-sm text-haze">Radar returned rankings, but no real origin-target flow pairs for this scope.</p>
           )}
         </div>
       </div>
 
-      <div className="rounded-md border border-white/10 bg-black/35 p-4">
+      <div className="rounded-md border border-white/10 bg-black/35 p-3">
         <p className="font-mono text-xs uppercase text-signal">{rankingTitle}</p>
-        <div className="mt-4 grid gap-3">
-          {rankings.slice(0, 8).map((point, index) => (
+        <div className="mt-3 grid gap-2">
+          {visibleRankings.map((point, index) => (
             <div key={`${point.code}-${point.name}-${index}`} className="grid gap-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2">
               <span className="flex items-center justify-between gap-3 text-sm">
                 <span className="min-w-0 truncate font-semibold text-white">{locationDisplayLabel(point)}</span>
@@ -1126,7 +1128,7 @@ function WorldMapFlowPanel({
               </span>
             </div>
           ))}
-          {!rankings.length && <p className="rounded-md border border-white/10 bg-black/20 p-4 text-sm text-haze">Ranking rows unavailable for this scope.</p>}
+          {!visibleRankings.length && <p className="rounded-md border border-white/10 bg-black/20 p-3 text-sm text-haze">Ranking rows unavailable for this scope.</p>}
         </div>
       </div>
     </aside>
@@ -1309,7 +1311,13 @@ function WorldAttackMap({
               <RotateCcw size={14} />
             </button>
           </div>
-          <svg viewBox={`0 0 ${mapWidth} ${mapHeight}`} className="aspect-[960/520] w-full" role="img" aria-label="World map showing Layer 7 attack source and target flows">
+          <svg
+            viewBox={`0 0 ${mapWidth} ${mapHeight}`}
+            className="h-[280px] w-full sm:h-[320px] lg:h-[360px] 2xl:h-auto 2xl:aspect-[960/520]"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="World map showing Layer 7 attack source and target flows"
+          >
             <defs>
               <radialGradient id="world-map-glow" cx="50%" cy="50%" r="70%">
                 <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.16" />
@@ -2147,26 +2155,33 @@ function ApplicationLayerSecurityPanel({
   mode,
   scopeLabel,
   controls,
+  overview,
   onModeChange,
 }: {
   geography: NonNullable<RadarDashboard["attack_geography"]>;
   mode: AttackGeoTab;
   scopeLabel: string;
   controls?: ReactNode;
+  overview?: ReactNode;
   onModeChange: (mode: AttackGeoTab) => void;
 }) {
   return (
     <Panel eyebrow="Application layer security" title={`Application Layer Security / ${scopeLabel}`}>
-      <WorldAttackMap
-        mode={mode}
-        origins={geography.origins}
-        targets={geography.targets}
-        flows={geography.flows}
-        flowMode={geography.flow_mode}
-        flowScopeNote={geography.flow_scope_note}
-        controls={controls}
-        onModeChange={onModeChange}
-      />
+      <div className="grid gap-4 lg:grid-cols-[230px_minmax(0,1fr)] 2xl:grid-cols-[260px_minmax(0,1fr)]">
+        {overview ? <div className="min-w-0">{overview}</div> : null}
+        <div className="min-w-0">
+          <WorldAttackMap
+            mode={mode}
+            origins={geography.origins}
+            targets={geography.targets}
+            flows={geography.flows}
+            flowMode={geography.flow_mode}
+            flowScopeNote={geography.flow_scope_note}
+            controls={controls}
+            onModeChange={onModeChange}
+          />
+        </div>
+      </div>
       <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-haze">
         Attack flow data is aggregated Cloudflare Radar Layer 7 geography. It is not live traffic against this portfolio website.
       </p>
@@ -2215,35 +2230,39 @@ function AttackFlowBars({ data }: { data: AttackFlowPoint[] }) {
   );
 }
 
-function SummaryCard({
-  icon: Icon,
-  label,
-  value,
-  body,
-  tone = "signal",
+function SignalOverviewPanel({
+  data,
+  severity,
+  severityClass,
 }: {
-  icon: typeof Radar;
-  label: string;
-  value: string;
-  body: string;
-  tone?: "signal" | "trace" | "cyan";
+  data: RadarDashboard;
+  severity: string;
+  severityClass: string;
 }) {
-  const toneClass =
-    tone === "trace"
-      ? "border-trace/30 bg-trace/10 text-trace"
-      : tone === "cyan"
-        ? "border-cyan-300/30 bg-cyan-400/10 text-cyan-100"
-        : "border-signal/30 bg-signal/10 text-signal";
-
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-      <div className={`mb-5 inline-flex h-11 w-11 items-center justify-center rounded-lg border ${toneClass}`}>
-        <Icon size={20} />
+    <aside className="grid gap-3">
+      <div className={`rounded-lg border p-3 ${severityClass}`}>
+        <p className="font-mono text-[11px] uppercase">Signal severity</p>
+        <p className="mt-1 text-2xl font-semibold text-white">{severity}</p>
+        <p className="mt-2 text-xs leading-5 text-haze">Aggregated Layer 7 trend movement and attack context.</p>
       </div>
-      <p className="font-mono text-xs uppercase text-haze">{label}</p>
-      <p className="mt-2 break-words text-2xl font-semibold text-white md:text-3xl">{value}</p>
-      <p className="mt-3 text-sm leading-6 text-haze">{body}</p>
-    </div>
+
+      <section className="rounded-lg border border-white/10 bg-black/20 p-3">
+        <p className="font-mono text-[11px] uppercase text-signal">Mitigation mix</p>
+        <h3 className="mt-1 text-sm font-semibold text-white">Application attack type split</h3>
+        <div className="mt-3">
+          <DonutChart data={data.layer7_mitigation_mix || []} centerLabel="Lead attack" compact />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-black/20 p-3">
+        <p className="font-mono text-[11px] uppercase text-signal">Traffic classification</p>
+        <h3 className="mt-1 text-sm font-semibold text-white">Bot vs human split</h3>
+        <div className="mt-3">
+          <DonutChart data={data.bot_human} centerLabel="Bot share" compact />
+        </div>
+      </section>
+    </aside>
   );
 }
 
@@ -2302,10 +2321,6 @@ export function GlobalThreatDashboardPage() {
     };
   }, [range, scopeKey]);
 
-  const latestAttackValue = useMemo(() => {
-    const latest = data?.layer7_trend ? lastItem(data.layer7_trend) : undefined;
-    return latest?.value ?? null;
-  }, [data]);
   const activeTrend = data?.layer7_trend || [];
   const activeTrendPoint = selectedPoint !== null ? activeTrend[selectedPoint] : lastItem(activeTrend);
   const attackGeography = data?.attack_geography || { origins: [], targets: [], flows: [] };
@@ -2435,19 +2450,19 @@ export function GlobalThreatDashboardPage() {
       </nav>
 
       <div className="relative z-10 mx-auto grid max-w-7xl gap-5 py-6 md:py-8 2xl:gap-6 2xl:py-10">
-        <header className="rounded-lg border border-white/10 bg-obsidian/80 p-5 md:p-6 2xl:p-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <header className="rounded-lg border border-white/10 bg-obsidian/80 p-4 md:p-5 2xl:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="font-mono text-xs uppercase text-signal">Application-layer attack telemetry</p>
-              <h1 className="mt-3 max-w-4xl text-3xl font-semibold leading-tight text-white md:text-5xl 2xl:text-6xl">
+              <h1 className="mt-2 max-w-4xl text-3xl font-semibold leading-tight text-white md:text-4xl 2xl:text-5xl">
                 Global Threat Dashboard.
               </h1>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-haze 2xl:text-lg">
+              <p className="mt-3 max-w-3xl text-base leading-7 text-haze">
                 A view of Layer 7 attack volume, mitigation mix, source countries, target countries, and attack flows.
               </p>
             </div>
-            <div className="rounded-lg border border-signal/25 bg-signal/10 p-3 text-sm leading-6 text-haze lg:max-w-sm 2xl:p-4">
-              <div className="mb-1.5 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+            <div className="rounded-md border border-signal/25 bg-signal/10 px-3 py-2 text-xs leading-5 text-haze lg:max-w-xs">
+              <div className="mb-1 flex items-center gap-2 font-mono text-[11px] uppercase text-signal">
                 <ShieldAlert size={16} />
                 Aggregated signal only
               </div>
@@ -2456,39 +2471,7 @@ export function GlobalThreatDashboardPage() {
           </div>
         </header>
 
-        <div className="grid gap-5 2xl:grid-cols-[280px_minmax(0,1fr)] 2xl:items-start">
-          <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-4 2xl:sticky 2xl:top-6 2xl:p-5">
-            <div className="mb-5 flex items-center gap-2 font-mono text-xs uppercase text-signal">
-              <Radar size={16} />
-              Signal overview
-            </div>
-
-            {data ? (
-              <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-1">
-                <section className="rounded-lg border border-white/10 bg-black/20 p-4">
-                  <p className="font-mono text-xs uppercase text-signal">Mitigation mix</p>
-                  <h2 className="mt-2 text-lg font-semibold text-white">Application attack type split</h2>
-                  <div className="mt-4">
-                    <DonutChart data={data.layer7_mitigation_mix || []} centerLabel="Lead attack" compact />
-                  </div>
-                </section>
-
-                <section className="rounded-lg border border-white/10 bg-black/20 p-4">
-                  <p className="font-mono text-xs uppercase text-signal">Traffic classification</p>
-                  <h2 className="mt-2 text-lg font-semibold text-white">Bot vs human split</h2>
-                  <div className="mt-4">
-                    <DonutChart data={data.bot_human} centerLabel="Bot share" compact />
-                  </div>
-                </section>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-white/10 bg-black/20 p-4 text-sm leading-6 text-haze">
-                Signal charts will appear once Radar telemetry loads.
-              </div>
-            )}
-          </aside>
-
-          <div className="grid gap-6">
+        <div className="grid gap-6">
             {loading && (
               <div className="grid min-h-[360px] place-items-center rounded-lg border border-white/10 bg-white/[0.04] p-8 text-center">
                 <div>
@@ -2528,11 +2511,12 @@ export function GlobalThreatDashboardPage() {
                   mode={attackGeoTab}
                   scopeLabel={data.filters?.scope_label || scope.label}
                   controls={dashboardControls}
+                  overview={<SignalOverviewPanel data={data} severity={severity} severityClass={severityClass} />}
                   onModeChange={setAttackGeoTab}
                 />
 
                 <Panel eyebrow="Layer 7 attack volume" title={`Application attack trend / ${data.filters?.scope_label || scope.label}`}>
-                  <LineChart data={activeTrend} tone="trace" selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
+                  <LineChart data={activeTrend} tone="trace" compact selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
                   <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
                     <p className="font-mono text-xs uppercase text-signal">Selected point</p>
                     <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -2552,73 +2536,48 @@ export function GlobalThreatDashboardPage() {
                   </div>
                 </Panel>
 
-                <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-                  <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
-                  <SummaryCard icon={MapPin} label="Top attack origin" value={attackGeography.origins[0] ? locationDisplayLabel(attackGeography.origins[0]) : "N/A"} body={attackGeography.origins[0] ? `${locationDisplayLabel(attackGeography.origins[0])} leads source locations at ${formatPercent(attackGeography.origins[0].value)}.` : "Origin country data unavailable."} tone="cyan" />
-                  <SummaryCard icon={Globe2} label="Top target" value={attackGeography.targets[0] ? locationDisplayLabel(attackGeography.targets[0]) : "N/A"} body={attackGeography.targets[0] ? `${locationDisplayLabel(attackGeography.targets[0])} leads target locations at ${formatPercent(attackGeography.targets[0].value)}.` : "Target country data unavailable."} />
-                  <SummaryCard icon={Activity} label="Last updated" value={formatTime(data.summary.last_updated)} body="Timestamp from Cloudflare Radar metadata for the newest dataset used." />
+                <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                  <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                    <BarChart3 size={16} />
+                    Analyst insights
+                  </div>
+                  <ul className="grid gap-2 md:grid-cols-2">
+                    {insights.map((insight) => (
+                      <li key={insight} className="leading-7 text-haze">
+                        {insight}
+                      </li>
+                    ))}
+                  </ul>
                 </section>
 
-                <section className="grid gap-4 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-                  <div className={`rounded-lg border p-5 ${severityClass}`}>
-                    <p className="font-mono text-xs uppercase">Global signal severity</p>
-                    <h2 className="mt-2 text-3xl font-semibold text-white">{severity}</h2>
-                    <p className="mt-3 text-sm leading-6 text-haze">
-                      This is an analyst-style signal based on aggregated Radar Layer 7 trend movement and application-layer attack context. It does not indicate attacks against this portfolio.
-                    </p>
-                  </div>
-
-                  <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-                    <div className="mb-4 flex items-center gap-2 font-mono text-xs uppercase text-signal">
-                      <BarChart3 size={16} />
-                      Analyst insights
+                <details className="group rounded-lg border border-white/10 bg-white/[0.04] p-5">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                    <span>
+                      <span className="block font-mono text-xs uppercase text-signal">Baseline context</span>
+                      <span className="mt-1 block text-xl font-semibold text-white">HTTP traffic background / {data.filters?.scope_label || scope.label}</span>
+                    </span>
+                    <ChevronDown className="shrink-0 text-signal transition group-open:rotate-180" size={20} />
+                  </summary>
+                  <div className="mt-5 grid gap-5 2xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+                      <p className="mb-3 font-mono text-xs uppercase text-signal">All HTTP trend</p>
+                      <LineChart
+                        data={data.http_trend}
+                        tone="signal"
+                        compact
+                        selectedIndex={selectedHttpPoint ?? Math.max((data.http_trend || []).length - 1, 0)}
+                        onSelect={setSelectedHttpPoint}
+                      />
                     </div>
-                    <ul className="grid gap-2">
-                      {insights.map((insight) => (
-                        <li key={insight} className="leading-7 text-haze">
-                          {insight}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </section>
-
-                <Panel eyebrow="HTTP request baseline" title={`All HTTP trend / ${data.filters?.scope_label || scope.label}`}>
-                  <LineChart
-                    data={data.http_trend}
-                    tone="signal"
-                    selectedIndex={selectedHttpPoint ?? Math.max((data.http_trend || []).length - 1, 0)}
-                    onSelect={setSelectedHttpPoint}
-                  />
-                  <div className="mt-4 rounded-md border border-white/10 bg-black/20 p-4">
-                    <p className="font-mono text-xs uppercase text-signal">Baseline context</p>
-                    <p className="mt-2 text-sm leading-6 text-haze">
-                      Total HTTP activity gives background scale for the selected Radar scope. The attack graph above remains the primary Layer 7 security signal.
-                    </p>
-                  </div>
-                </Panel>
-
-                <Panel eyebrow="Top traffic locations" title={`HTTP traffic by country / ${data.filters?.scope_label || scope.label}`}>
-                  <LocationBars data={data.top_locations} />
-                </Panel>
-
-                <section className="grid gap-4 md:grid-cols-3">
-                  {[
-                    [Globe2, "Global scope", "Radar aggregates activity from Cloudflare's global network rather than this individual portfolio site."],
-                    [Radar, "Security context", "Useful for showing internet-wide application-layer attack patterns, source countries, targets, and flow telemetry."],
-                    [Zap, "Cached edge view", "Successful dashboard responses are cached briefly to keep the public page fast and token usage low."],
-                  ].map(([Icon, title, body]) => (
-                    <div key={String(title)} className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-                      <Icon className="text-signal" size={20} />
-                      <h3 className="mt-4 text-lg font-semibold text-white">{String(title)}</h3>
-                      <p className="mt-2 text-sm leading-6 text-haze">{String(body)}</p>
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+                      <p className="mb-3 font-mono text-xs uppercase text-signal">Top traffic locations</p>
+                      <LocationBars data={data.top_locations} />
                     </div>
-                  ))}
-                </section>
+                  </div>
+                </details>
               </>
             )}
           </div>
-        </div>
       </div>
     </div>
   );
