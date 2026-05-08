@@ -732,7 +732,7 @@ function LineChart({
 
 const attackPalette = ["#67e8f9", "#f97316", "#3b82f6", "#fcee0a", "#22c55e", "#d946ef", "#ef4444", "#a855f7"];
 
-function DonutChart({ data, centerLabel = "Top share" }: { data: SplitPoint[]; centerLabel?: string }) {
+function DonutChart({ data, centerLabel = "Top share", compact = false }: { data: SplitPoint[]; centerLabel?: string; compact?: boolean }) {
   const rows = data.length ? data.slice(0, 4) : [{ label: "Unavailable", value: 100 }];
   const total = rows.reduce((sum, row) => sum + row.value, 0) || 1;
   let cursor = 0;
@@ -746,27 +746,27 @@ function DonutChart({ data, centerLabel = "Top share" }: { data: SplitPoint[]; c
   const lead = rows[0];
 
   return (
-    <div className="grid gap-5 rounded-lg border border-white/10 bg-black/20 p-4">
+    <div className={`grid rounded-lg border border-white/10 bg-black/20 p-4 ${compact ? "gap-4" : "gap-5"}`}>
       <div
-        className="relative mx-auto h-48 w-48 rounded-full"
+        className={`relative mx-auto rounded-full ${compact ? "h-36 w-36 2xl:h-40 2xl:w-40" : "h-48 w-48"}`}
         style={{
           background: `conic-gradient(${gradient})`,
           boxShadow: "0 0 38px rgba(252,238,10,0.12)",
         }}
       >
-        <div className="absolute inset-5 grid place-items-center rounded-full border border-white/10 bg-obsidian text-center">
-          <span className="font-mono text-xs uppercase text-haze">{centerLabel}</span>
-          <span className="text-3xl font-semibold text-white">{formatPercent(lead.value)}</span>
+        <div className={`absolute grid place-items-center rounded-full border border-white/10 bg-obsidian text-center ${compact ? "inset-4" : "inset-5"}`}>
+          <span className="font-mono text-[10px] uppercase text-haze sm:text-xs">{centerLabel}</span>
+          <span className={`font-semibold text-white ${compact ? "text-2xl" : "text-3xl"}`}>{formatPercent(lead.value)}</span>
         </div>
       </div>
-      <div className="grid gap-3">
+      <div className={`grid ${compact ? "gap-2" : "gap-3"}`}>
         {rows.map((row, index) => (
-          <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-white/[0.035] px-4 py-3">
-            <span className="flex min-w-0 items-center gap-3 text-sm leading-5 text-haze">
-              <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: attackPalette[index % attackPalette.length] }} />
+          <div key={row.label} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-white/[0.035] ${compact ? "px-3 py-2" : "px-4 py-3"}`}>
+            <span className={`flex min-w-0 items-center gap-3 leading-5 text-haze ${compact ? "text-xs sm:text-sm" : "text-sm"}`}>
+              <span className={`${compact ? "h-2.5 w-2.5" : "h-3 w-3"} shrink-0 rounded-full`} style={{ backgroundColor: attackPalette[index % attackPalette.length] }} />
               <span className="min-w-0 break-words">{row.label}</span>
             </span>
-            <span className="font-mono text-sm font-semibold text-white">{formatPercent(row.value)}</span>
+            <span className={`font-mono font-semibold text-white ${compact ? "text-xs" : "text-sm"}`}>{formatPercent(row.value)}</span>
           </div>
         ))}
       </div>
@@ -1056,7 +1056,7 @@ function WorldMapFlowPanel({
   const maxRanking = Math.max(...rankings.map((row) => row.value), 1);
 
   return (
-    <aside className="grid gap-4 xl:grid-cols-[minmax(260px,0.9fr)_minmax(360px,1.2fr)_minmax(260px,0.9fr)] xl:items-start">
+    <aside className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-[minmax(240px,0.9fr)_minmax(340px,1.2fr)_minmax(240px,0.9fr)] 2xl:items-start">
       <div className="rounded-md border border-white/10 bg-black/35 p-4">
         <p className="font-mono text-xs uppercase text-signal">Selected signal</p>
         <div className="mt-4 rounded-md border border-white/10 bg-white/[0.035] p-4">
@@ -1072,7 +1072,7 @@ function WorldMapFlowPanel({
         </div>
       </div>
 
-      <div className="rounded-md border border-white/10 bg-black/35 p-4">
+      <div className="rounded-md border border-white/10 bg-black/35 p-4 xl:row-span-2 2xl:row-span-1">
         <p className="font-mono text-xs uppercase text-signal">Top flows</p>
         <div className="mt-4 grid gap-3">
           {flows.length ? (
@@ -2326,7 +2326,7 @@ export function GlobalThreatDashboardPage() {
         ? "border-volt/40 bg-volt/10 text-volt"
         : "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
   const dashboardControls = (
-    <div className="grid gap-3 rounded-md border border-white/10 bg-black/25 p-3 xl:grid-cols-[minmax(260px,1fr)_auto] xl:items-end">
+    <div className="grid gap-3 rounded-md border border-white/10 bg-black/25 p-3 lg:grid-cols-[minmax(220px,1fr)_auto] lg:items-end">
       <div className="relative">
         <p className="mb-2 font-mono text-[11px] uppercase text-haze">Radar scope</p>
         <button
@@ -2401,7 +2401,7 @@ export function GlobalThreatDashboardPage() {
 
       <div>
         <p className="mb-2 font-mono text-[11px] uppercase text-haze">Time range</p>
-        <div className="grid grid-cols-3 gap-2 sm:min-w-64">
+        <div className="grid grid-cols-3 gap-2 lg:min-w-56">
           {rangeOptions.map((option) => (
             <button
               key={option.key}
@@ -2434,20 +2434,20 @@ export function GlobalThreatDashboardPage() {
         <span className="font-mono text-xs uppercase text-signal">Global threat dashboard</span>
       </nav>
 
-      <div className="relative z-10 mx-auto grid max-w-7xl gap-6 py-10 md:py-12">
-        <header className="rounded-lg border border-white/10 bg-obsidian/80 p-6 md:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+      <div className="relative z-10 mx-auto grid max-w-7xl gap-5 py-6 md:py-8 2xl:gap-6 2xl:py-10">
+        <header className="rounded-lg border border-white/10 bg-obsidian/80 p-5 md:p-6 2xl:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="font-mono text-xs uppercase text-signal">Application-layer attack telemetry</p>
-              <h1 className="mt-3 max-w-4xl text-4xl font-semibold leading-tight text-white md:text-6xl">
+              <h1 className="mt-3 max-w-4xl text-3xl font-semibold leading-tight text-white md:text-5xl 2xl:text-6xl">
                 Global Threat Dashboard.
               </h1>
-              <p className="mt-5 max-w-3xl text-base leading-7 text-haze md:text-lg">
+              <p className="mt-4 max-w-3xl text-base leading-7 text-haze 2xl:text-lg">
                 A view of Layer 7 attack volume, mitigation mix, source countries, target countries, and attack flows.
               </p>
             </div>
-            <div className="rounded-lg border border-signal/25 bg-signal/10 p-4 text-sm leading-6 text-haze lg:max-w-sm">
-              <div className="mb-2 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+            <div className="rounded-lg border border-signal/25 bg-signal/10 p-3 text-sm leading-6 text-haze lg:max-w-sm 2xl:p-4">
+              <div className="mb-1.5 flex items-center gap-2 font-mono text-xs uppercase text-signal">
                 <ShieldAlert size={16} />
                 Aggregated signal only
               </div>
@@ -2456,20 +2456,20 @@ export function GlobalThreatDashboardPage() {
           </div>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start">
-          <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-5 lg:sticky lg:top-6">
+        <div className="grid gap-5 2xl:grid-cols-[280px_minmax(0,1fr)] 2xl:items-start">
+          <aside className="rounded-lg border border-white/10 bg-white/[0.04] p-4 2xl:sticky 2xl:top-6 2xl:p-5">
             <div className="mb-5 flex items-center gap-2 font-mono text-xs uppercase text-signal">
               <Radar size={16} />
               Signal overview
             </div>
 
             {data ? (
-              <div className="grid gap-4">
+              <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-1">
                 <section className="rounded-lg border border-white/10 bg-black/20 p-4">
                   <p className="font-mono text-xs uppercase text-signal">Mitigation mix</p>
                   <h2 className="mt-2 text-lg font-semibold text-white">Application attack type split</h2>
                   <div className="mt-4">
-                    <DonutChart data={data.layer7_mitigation_mix || []} centerLabel="Lead attack" />
+                    <DonutChart data={data.layer7_mitigation_mix || []} centerLabel="Lead attack" compact />
                   </div>
                 </section>
 
@@ -2477,7 +2477,7 @@ export function GlobalThreatDashboardPage() {
                   <p className="font-mono text-xs uppercase text-signal">Traffic classification</p>
                   <h2 className="mt-2 text-lg font-semibold text-white">Bot vs human split</h2>
                   <div className="mt-4">
-                    <DonutChart data={data.bot_human} centerLabel="Bot share" />
+                    <DonutChart data={data.bot_human} centerLabel="Bot share" compact />
                   </div>
                 </section>
               </div>
@@ -2552,14 +2552,14 @@ export function GlobalThreatDashboardPage() {
                   </div>
                 </Panel>
 
-                <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
                   <SummaryCard icon={ShieldAlert} label="Application attacks" value={formatCompact(latestAttackValue)} body={data.summary.application_attack_insight} tone="trace" />
                   <SummaryCard icon={MapPin} label="Top attack origin" value={attackGeography.origins[0] ? locationDisplayLabel(attackGeography.origins[0]) : "N/A"} body={attackGeography.origins[0] ? `${locationDisplayLabel(attackGeography.origins[0])} leads source locations at ${formatPercent(attackGeography.origins[0].value)}.` : "Origin country data unavailable."} tone="cyan" />
                   <SummaryCard icon={Globe2} label="Top target" value={attackGeography.targets[0] ? locationDisplayLabel(attackGeography.targets[0]) : "N/A"} body={attackGeography.targets[0] ? `${locationDisplayLabel(attackGeography.targets[0])} leads target locations at ${formatPercent(attackGeography.targets[0].value)}.` : "Target country data unavailable."} />
                   <SummaryCard icon={Activity} label="Last updated" value={formatTime(data.summary.last_updated)} body="Timestamp from Cloudflare Radar metadata for the newest dataset used." />
                 </section>
 
-                <section className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                <section className="grid gap-4 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
                   <div className={`rounded-lg border p-5 ${severityClass}`}>
                     <p className="font-mono text-xs uppercase">Global signal severity</p>
                     <h2 className="mt-2 text-3xl font-semibold text-white">{severity}</h2>
