@@ -21,7 +21,7 @@ import {
   Search,
   ShieldAlert,
 } from "lucide-react";
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 type TrendPoint = {
   timestamp: string;
@@ -187,10 +187,22 @@ type MapFlowEdge = {
   color: string;
   width: number;
 };
+type MapPan = {
+  x: number;
+  y: number;
+};
+type MapDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  panX: number;
+  panY: number;
+};
 
 const mapWidth = 1100;
 const mapHeight = 620;
 const minMapZoom = 1;
+const defaultMapZoom = 1.5;
 const maxMapZoom = 3.5;
 const mapZoomStep = 0.5;
 const continentNames: Record<string, string> = {
@@ -586,6 +598,16 @@ function curvedMapPath(source: MapPoint, target: MapPoint) {
   const controlY = midY - lift;
 
   return `M ${source.x.toFixed(2)} ${source.y.toFixed(2)} Q ${midX.toFixed(2)} ${controlY.toFixed(2)} ${target.x.toFixed(2)} ${target.y.toFixed(2)}`;
+}
+
+function clampMapPan(pan: MapPan, zoom: number): MapPan {
+  const maxX = Math.max(0, (mapWidth * zoom - mapWidth) / 2);
+  const maxY = Math.max(0, (mapHeight * zoom - mapHeight) / 2);
+
+  return {
+    x: Math.min(maxX, Math.max(-maxX, pan.x)),
+    y: Math.min(maxY, Math.max(-maxY, pan.y)),
+  };
 }
 
 function chartPath(points: TrendPoint[], width: number, height: number, padding: number) {
@@ -1156,7 +1178,10 @@ function WorldAttackMap({
   const features = useWorldFeatures();
   const reducedMotion = useReducedMotionPreference();
   const [selectedSignal, setSelectedSignal] = useState<GraphSignal | null>(null);
-  const [mapZoom, setMapZoom] = useState(minMapZoom);
+  const [mapZoom, setMapZoom] = useState(defaultMapZoom);
+  const [mapPan, setMapPan] = useState<MapPan>({ x: 0, y: 0 });
+  const [isDraggingMap, setIsDraggingMap] = useState(false);
+  const mapDragRef = useRef<MapDragState | null>(null);
   const projection = useMemo(() => {
     const scale = (mapWidth - 58) / (2 * Math.PI);
     return geoEquirectangular()
@@ -1226,7 +1251,7 @@ function WorldAttackMap({
   const edgeOpacity = mode === "flows" ? 0.78 : 0.28;
   const zoomOffsetX = (mapWidth - mapWidth * mapZoom) / 2;
   const zoomOffsetY = (mapHeight - mapHeight * mapZoom) / 2;
-  const mapTransform = `translate(${zoomOffsetX} ${zoomOffsetY}) scale(${mapZoom})`;
+  const mapTransform = `translate(${zoomOffsetX + mapPan.x} ${zoomOffsetY + mapPan.y}) scale(${mapZoom})`;
   const showCompactCodes = mapZoom >= 1.65;
   const zoomedMarkerOuterRadius = 5.5 / mapZoom;
   const zoomedMarkerInnerRadius = 2.55 / mapZoom;
@@ -1236,16 +1261,76 @@ function WorldAttackMap({
   const zoomedPacketRadius = (width: number) => Math.max(1.7, Math.min(3.6, width / 3.6)) / mapZoom;
   const zoomedEdgeWidth = (width: number) => Math.max(0.95, width * 0.78) / mapZoom;
   const zoomLabel = `${mapZoom.toFixed(mapZoom % 1 === 0 ? 0 : 1)}x`;
-  const zoomIn = () => setMapZoom((current) => Math.min(maxMapZoom, Number((current + mapZoomStep).toFixed(2))));
-  const zoomOut = () => setMapZoom((current) => Math.max(minMapZoom, Number((current - mapZoomStep).toFixed(2))));
-  const resetZoom = () => setMapZoom(minMapZoom);
+  const zoomIn = () =>
+    setMapZoom((current) => {
+      const next = Math.min(maxMapZoom, Number((current + mapZoomStep).toFixed(2)));
+      setMapPan((pan) => clampMapPan(pan, next));
+      return next;
+    });
+  const zoomOut = () =>
+    setMapZoom((current) => {
+      const next = Math.max(minMapZoom, Number((current - mapZoomStep).toFixed(2)));
+      setMapPan((pan) => clampMapPan(pan, next));
+      return next;
+    });
+  const resetZoom = () => {
+    setMapZoom(defaultMapZoom);
+    setMapPan({ x: 0, y: 0 });
+  };
+  const isMapReset = mapZoom === defaultMapZoom && mapPan.x === 0 && mapPan.y === 0;
+  const svgPointFromPointer = (event: ReactPointerEvent<SVGSVGElement>) => {
+    const point = event.currentTarget.createSVGPoint();
+    const matrix = event.currentTarget.getScreenCTM();
+    point.x = event.clientX;
+    point.y = event.clientY;
+
+    if (!matrix) return { x: point.x, y: point.y };
+    const transformed = point.matrixTransform(matrix.inverse());
+    return { x: transformed.x, y: transformed.y };
+  };
+  const handleMapPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return;
+    const point = svgPointFromPointer(event);
+    mapDragRef.current = {
+      pointerId: event.pointerId,
+      startX: point.x,
+      startY: point.y,
+      panX: mapPan.x,
+      panY: mapPan.y,
+    };
+    setIsDraggingMap(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const handleMapPointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
+    const drag = mapDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const point = svgPointFromPointer(event);
+    setMapPan(
+      clampMapPan(
+        {
+          x: drag.panX + point.x - drag.startX,
+          y: drag.panY + point.y - drag.startY,
+        },
+        mapZoom,
+      ),
+    );
+  };
+  const stopMapDrag = (event: ReactPointerEvent<SVGSVGElement>) => {
+    const drag = mapDragRef.current;
+    if (drag?.pointerId === event.pointerId && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    mapDragRef.current = null;
+    setIsDraggingMap(false);
+  };
 
   useEffect(() => {
     setSelectedSignal(null);
   }, [mode, origins, targets, flows]);
 
   useEffect(() => {
-    setMapZoom(minMapZoom);
+    setMapZoom(defaultMapZoom);
+    setMapPan({ x: 0, y: 0 });
   }, [origins, targets, flows]);
 
   return (
@@ -1300,19 +1385,26 @@ function WorldAttackMap({
             <button
               type="button"
               onClick={resetZoom}
-              disabled={mapZoom === minMapZoom}
+              disabled={isMapReset}
               className="grid h-9 w-9 place-items-center text-haze transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-              aria-label="Reset map zoom"
+              aria-label="Reset map zoom and position"
             >
               <RotateCcw size={14} />
             </button>
           </div>
           <svg
             viewBox={`0 0 ${mapWidth} ${mapHeight}`}
-            className="h-[310px] w-full sm:h-[360px] lg:h-[420px] 2xl:h-[480px]"
+            className={`h-[310px] w-full touch-none select-none sm:h-[360px] lg:h-[420px] 2xl:h-[480px] ${isDraggingMap ? "cursor-grabbing" : "cursor-grab"}`}
             preserveAspectRatio="xMidYMid meet"
             role="img"
             aria-label="World map showing Layer 7 attack source and target flows"
+            onPointerDown={handleMapPointerDown}
+            onPointerMove={handleMapPointerMove}
+            onPointerUp={stopMapDrag}
+            onPointerCancel={stopMapDrag}
+            onPointerLeave={(event) => {
+              if (mapDragRef.current) stopMapDrag(event);
+            }}
           >
             <defs>
               <radialGradient id="world-map-glow" cx="50%" cy="50%" r="72%">
