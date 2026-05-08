@@ -1,6 +1,6 @@
 import {
   geoCentroid,
-  geoEquirectangular,
+  geoMercator,
   type GeoProjection,
 } from "d3-geo";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
@@ -199,12 +199,18 @@ type MapDragState = {
   panY: number;
 };
 
-const mapWidth = 1100;
-const mapHeight = 620;
+const mapWidth = 1500;
+const mapHeight = 1000;
 const minMapZoom = 1;
 const defaultMapZoom = 1.5;
 const maxMapZoom = 3.5;
 const mapZoomStep = 0.5;
+const mapCalibration = {
+  scale: mapWidth / (2 * Math.PI),
+  translateX: mapWidth / 2,
+  translateY: mapHeight * 0.595,
+  yBias: 0,
+};
 const continentNames: Record<string, string> = {
   AF: "Africa",
   AS: "Asia",
@@ -574,12 +580,12 @@ function projectedPoint(
 
   if (isContinent && code && continentCoordinates[code]) {
     const projected = projection(continentCoordinates[code]);
-    return projected ? { x: projected[0], y: projected[1] } : null;
+    return projected ? { x: projected[0], y: projected[1] + mapCalibration.yBias } : null;
   }
 
   if (code && fallbackCoordinates[code]) {
     const projected = projection(fallbackCoordinates[code]);
-    if (projected) return { x: projected[0], y: projected[1] };
+    if (projected) return { x: projected[0], y: projected[1] + mapCalibration.yBias };
   }
 
   const feature = mapAliases(name).map((alias) => featureLookup.get(alias)).find(Boolean);
@@ -587,7 +593,7 @@ function projectedPoint(
 
   const centroid = geoCentroid(feature);
   const projected = projection(centroid);
-  return projected ? { x: projected[0], y: projected[1] } : null;
+  return projected ? { x: projected[0], y: projected[1] + mapCalibration.yBias } : null;
 }
 
 function curvedMapPath(source: MapPoint, target: MapPoint) {
@@ -1183,11 +1189,10 @@ function WorldAttackMap({
   const [isDraggingMap, setIsDraggingMap] = useState(false);
   const mapDragRef = useRef<MapDragState | null>(null);
   const projection = useMemo(() => {
-    const scale = (mapWidth - 58) / (2 * Math.PI);
-    return geoEquirectangular()
+    return geoMercator()
       .precision(0.1)
-      .scale(scale)
-      .translate([mapWidth / 2, mapHeight * 0.595]);
+      .scale(mapCalibration.scale)
+      .translate([mapCalibration.translateX, mapCalibration.translateY]);
   }, []);
   const featureLookup = useMemo(() => buildFeatureLookup(features), [features]);
   const flowRows = flows.slice(0, 20);
@@ -1429,10 +1434,10 @@ function WorldAttackMap({
             <rect width={mapWidth} height={mapHeight} fill="#020304" />
             <rect width={mapWidth} height={mapHeight} fill="url(#world-map-glow)" />
             {[0, 1, 2, 3, 4, 5].map((line) => (
-              <line key={`map-h-${line}`} x1="28" x2={mapWidth - 28} y1={64 + line * 78} y2={64 + line * 78} stroke="rgba(252,238,10,0.045)" strokeDasharray="3 12" />
+              <line key={`map-h-${line}`} x1="34" x2={mapWidth - 34} y1={130 + line * 118} y2={130 + line * 118} stroke="rgba(252,238,10,0.045)" strokeDasharray="3 12" />
             ))}
             {[0, 1, 2, 3, 4, 5, 6, 7].map((line) => (
-              <line key={`map-v-${line}`} x1={80 + line * 135} x2={80 + line * 135} y1="34" y2={mapHeight - 34} stroke="rgba(103,232,249,0.04)" strokeDasharray="3 12" />
+              <line key={`map-v-${line}`} x1={82 + line * 190} x2={82 + line * 190} y1="46" y2={mapHeight - 46} stroke="rgba(103,232,249,0.04)" strokeDasharray="3 12" />
             ))}
 
             <g transform={mapTransform}>
@@ -1442,7 +1447,7 @@ function WorldAttackMap({
                 y="0"
                 width={mapWidth}
                 height={mapHeight}
-                preserveAspectRatio="xMidYMid slice"
+                preserveAspectRatio="xMidYMid meet"
                 opacity="0.72"
                 filter="url(#world-map-soften)"
               />
