@@ -27,10 +27,13 @@ import {
   Trophy,
 } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
-import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
-import { AdminPage, BlogIndexPage, BlogPostPage } from "./blog";
-import { EmailScannerPage } from "./emailScanner";
-import { GlobalThreatDashboardPage } from "./globalThreatDashboard";
+import { FormEvent, lazy, ReactNode, Suspense, useEffect, useRef, useState } from "react";
+
+const BlogIndexPage = lazy(() => import("./blog").then((module) => ({ default: module.BlogIndexPage })));
+const BlogPostPage = lazy(() => import("./blog").then((module) => ({ default: module.BlogPostPage })));
+const AdminPage = lazy(() => import("./blog").then((module) => ({ default: module.AdminPage })));
+const EmailScannerPage = lazy(() => import("./emailScanner").then((module) => ({ default: module.EmailScannerPage })));
+const GlobalThreatDashboardPage = lazy(() => import("./globalThreatDashboard").then((module) => ({ default: module.GlobalThreatDashboardPage })));
 
 type IconType = typeof Shield;
 
@@ -1036,6 +1039,20 @@ function SiteFooter() {
   );
 }
 
+function RouteLoadingShell() {
+  return (
+    <div className="relative grid min-h-[70vh] place-items-center overflow-hidden px-5 py-24">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(252,238,10,0.12),transparent_32%),linear-gradient(180deg,rgba(5,7,13,0.65),rgba(5,7,13,1))]" aria-hidden="true" />
+      <div className="relative rounded-lg border border-signal/25 bg-obsidian/80 px-6 py-5 text-center shadow-[0_0_50px_rgba(252,238,10,0.08)]">
+        <p className="font-mono text-xs uppercase tracking-[0.28em] text-signal">Loading interface</p>
+        <div className="mx-auto mt-4 h-1.5 w-44 overflow-hidden rounded-full bg-white/10">
+          <span className="block h-full w-2/3 animate-[pulse_1.25s_ease-in-out_infinite] rounded-full bg-signal" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const path = useCurrentPath();
   const isGlobalThreatDashboard = path.replace(/\/$/, "") === "/global-threat-dashboard";
@@ -1119,7 +1136,7 @@ export default function App() {
     <>
       <main className="min-h-screen overflow-x-hidden bg-obsidian text-white">
         {!isGlobalThreatDashboard && <AmbientGlitchLayer />}
-        {renderRoute()}
+        <Suspense fallback={<RouteLoadingShell />}>{renderRoute()}</Suspense>
         <SiteFooter />
       </main>
     </>
