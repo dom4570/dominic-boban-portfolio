@@ -1,13 +1,14 @@
 import {
+  geoArea,
   geoCentroid,
-  geoMercator,
+  geoEquirectangular,
+  geoPath,
   type GeoProjection,
 } from "d3-geo";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import {
   AlertTriangle,
   ArrowLeft,
-  ArrowRight,
   BarChart3,
   ChevronDown,
   Globe2,
@@ -201,16 +202,12 @@ type MapDragState = {
 
 const mapWidth = 1500;
 const mapHeight = 1000;
-const minMapZoom = 1;
+const minMapZoom = 1.5;
 const defaultMapZoom = 1.5;
 const maxMapZoom = 3.5;
 const mapZoomStep = 0.5;
-const mapCalibration = {
-  scale: mapWidth / (2 * Math.PI),
-  translateX: mapWidth / 2,
-  translateY: mapHeight * 0.595,
-  yBias: 0,
-};
+const effectiveMapZoomFor = (zoom: number) => zoom;
+const maxValidCountryArea = Math.PI * 2;
 const continentNames: Record<string, string> = {
   AF: "Africa",
   AS: "Asia",
@@ -219,6 +216,43 @@ const continentNames: Record<string, string> = {
   OC: "Oceania",
   SA: "South America",
 };
+
+function reverseLinearRing<T>(ring: T[]) {
+  return [...ring].reverse();
+}
+
+function reverseWorldGeometry(geometry: Geometry): Geometry {
+  switch (geometry.type) {
+    case "Polygon":
+      return {
+        ...geometry,
+        coordinates: geometry.coordinates.map(reverseLinearRing),
+      };
+    case "MultiPolygon":
+      return {
+        ...geometry,
+        coordinates: geometry.coordinates.map((polygon) => polygon.map(reverseLinearRing)),
+      };
+    case "GeometryCollection":
+      return {
+        ...geometry,
+        geometries: geometry.geometries.map(reverseWorldGeometry),
+      };
+    default:
+      return geometry;
+  }
+}
+
+function normalizeWorldFeature(feature: WorldFeature): WorldFeature {
+  // Some small territories can be wound as the spherical complement, which d3
+  // renders as a whole-world country fill. Flip only impossible country areas.
+  return geoArea(feature) > maxValidCountryArea
+    ? {
+        ...feature,
+        geometry: reverseWorldGeometry(feature.geometry),
+      }
+    : feature;
+}
 const continentCoordinates: Record<string, [number, number]> = {
   AF: [20, 3],
   AS: [86, 34],
@@ -580,12 +614,12 @@ function projectedPoint(
 
   if (isContinent && code && continentCoordinates[code]) {
     const projected = projection(continentCoordinates[code]);
-    return projected ? { x: projected[0], y: projected[1] + mapCalibration.yBias } : null;
+    return projected ? { x: projected[0], y: projected[1] } : null;
   }
 
   if (code && fallbackCoordinates[code]) {
     const projected = projection(fallbackCoordinates[code]);
-    if (projected) return { x: projected[0], y: projected[1] + mapCalibration.yBias };
+    if (projected) return { x: projected[0], y: projected[1] };
   }
 
   const feature = mapAliases(name).map((alias) => featureLookup.get(alias)).find(Boolean);
@@ -593,7 +627,7 @@ function projectedPoint(
 
   const centroid = geoCentroid(feature);
   const projected = projection(centroid);
-  return projected ? { x: projected[0], y: projected[1] + mapCalibration.yBias } : null;
+  return projected ? { x: projected[0], y: projected[1] } : null;
 }
 
 function curvedMapPath(source: MapPoint, target: MapPoint) {
@@ -829,150 +863,6 @@ function LocationBars({ data }: { data: LocationPoint[] }) {
   );
 }
 
-function flowEndpointPoints(flows: AttackFlowPoint[]) {
-  const endpoints = new Map<string, AttackLocationPoint>();
-
-  flows.forEach((flow, index) => {
-    [
-      { code: flow.origin_code, name: flow.origin_name, value: flow.value },
-      { code: flow.target_code, name: flow.target_name, value: flow.value },
-    ].forEach((point) => {
-      const key = point.code || point.name || `endpoint-${index}`;
-      const existing = endpoints.get(key);
-      if (!existing || point.value > existing.value) {
-        endpoints.set(key, {
-          code: point.code,
-          name: point.name,
-          value: point.value,
-          rank: existing?.rank || endpoints.size + 1,
-        });
-      }
-    });
-  });
-
-  return Array.from(endpoints.values())
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 12);
-}
-
-function LocationRankList({ title, data }: { title: string; data: AttackLocationPoint[] }) {
-  const max = Math.max(...data.map((point) => point.value), 1);
-
-  return (
-    <div className="rounded-md border border-white/10 bg-black/25 p-3">
-      <p className="mb-3 font-mono text-xs uppercase text-signal">{title}</p>
-      <div className="grid gap-2">
-        {data.slice(0, 6).map((point, index) => (
-          <div key={`${point.code}-${point.name}-${index}`} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: attackPalette[index % attackPalette.length] }} />
-            <span className="truncate text-sm text-white">{point.name}</span>
-            <span className="font-mono text-xs text-haze">{formatPercent(point.value)}</span>
-            <span className="col-span-3 h-1.5 overflow-hidden rounded-full bg-white/10">
-              <span className="block h-full rounded-full" style={{ width: `${Math.max(5, (point.value / max) * 100)}%`, backgroundColor: attackPalette[index % attackPalette.length] }} />
-            </span>
-          </div>
-        ))}
-        {!data.length && <p className="rounded-md border border-white/10 bg-black/20 p-4 text-sm text-haze">Radar did not return geography rows for this view.</p>}
-      </div>
-    </div>
-  );
-}
-
-function AttackFlowRibbon({ flows }: { flows: AttackFlowPoint[] }) {
-  const rows = flows.slice(0, 8);
-  const max = Math.max(...rows.map((flow) => flow.value), 1);
-  const sourceTotals = new Map<string, number>();
-  const targetTotals = new Map<string, number>();
-
-  rows.forEach((flow) => {
-    const source = flow.origin_code || flow.origin_name.slice(0, 3);
-    const target = flow.target_code || flow.target_name.slice(0, 3);
-    sourceTotals.set(source, (sourceTotals.get(source) || 0) + flow.value);
-    targetTotals.set(target, (targetTotals.get(target) || 0) + flow.value);
-  });
-
-  const sources = Array.from(sourceTotals.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-  const targets = Array.from(targetTotals.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-  const sourceY = new Map(sources.map(([label], index) => [label, 70 + index * 36]));
-  const targetY = new Map(targets.map(([label], index) => [label, 70 + index * 36]));
-
-  if (!rows.length) {
-    return (
-      <div className="grid h-full min-h-[360px] place-items-center rounded-md border border-white/10 bg-black/25 p-5 text-center text-sm text-haze">
-        Attack flow data unavailable.
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-md border border-white/10 bg-black/25 p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="font-mono text-xs uppercase text-signal">Attacks by flow</p>
-        <span className="rounded border border-white/10 bg-white/[0.05] px-2 py-1 font-mono text-[11px] uppercase text-haze">Source {"->"} Target</span>
-      </div>
-      <svg viewBox="0 0 360 390" className="h-[360px] w-full" role="img" aria-label="Source to target attack flow">
-        <rect x="0" y="0" width="360" height="390" fill="rgba(255,255,255,0.015)" />
-        {rows.map((flow, index) => {
-          const source = flow.origin_code || flow.origin_name.slice(0, 3);
-          const target = flow.target_code || flow.target_name.slice(0, 3);
-          const y1 = sourceY.get(source) || 70;
-          const y2 = targetY.get(target) || 70;
-          const width = Math.max(1.5, Math.min(30, (flow.value / max) * 30));
-          const color = attackPalette[index % attackPalette.length];
-
-          return (
-            <path
-              key={`${flow.origin_code}-${flow.target_code}-${index}`}
-              d={`M 72 ${y1} C 150 ${y1}, 210 ${y2}, 288 ${y2}`}
-              fill="none"
-              stroke={color}
-              strokeOpacity="0.52"
-              strokeWidth={width}
-              strokeLinecap="round"
-            />
-          );
-        })}
-        {sources.map(([source, value], index) => {
-          const y = sourceY.get(source) || 70;
-          const height = Math.max(8, Math.min(56, (value / max) * 56));
-
-          return (
-            <g key={source}>
-              <rect x="16" y={y - height / 2} width="46" height={height} rx="3" fill={attackPalette[index % attackPalette.length]} opacity="0.58" />
-              <text x="25" y={y + 4} fill="#ffffff" fontSize="12" fontWeight="800">
-                {source}
-              </text>
-            </g>
-          );
-        })}
-        {targets.map(([target, value], index) => {
-          const y = targetY.get(target) || 70;
-          const height = Math.max(8, Math.min(56, (value / max) * 56));
-
-          return (
-            <g key={target}>
-              <rect x="298" y={y - height / 2} width="46" height={height} rx="3" fill={attackPalette[(index + 2) % attackPalette.length]} opacity="0.58" />
-              <text x="321" y={y + 4} fill="#ffffff" fontSize="12" fontWeight="800" textAnchor="middle">
-                {target}
-              </text>
-            </g>
-          );
-        })}
-        <text x="18" y="372" fill="#67e8f9" fontSize="12" fontWeight="800">
-          Source
-        </text>
-        <text x="338" y="372" fill="#67e8f9" fontSize="12" fontWeight="800" textAnchor="end">
-          Target
-        </text>
-      </svg>
-    </div>
-  );
-}
-
 function mapPointKey(point: { code?: string; name?: string; type?: string }, kind: "source" | "target") {
   return `${kind}:${point.type || "country"}:${point.code || point.name}`.toUpperCase();
 }
@@ -1182,19 +1072,35 @@ function WorldAttackMap({
   onModeChange: (mode: AttackGeoTab) => void;
 }) {
   const features = useWorldFeatures();
+  const normalizedFeatures = useMemo(() => features.map(normalizeWorldFeature), [features]);
   const reducedMotion = useReducedMotionPreference();
   const [selectedSignal, setSelectedSignal] = useState<GraphSignal | null>(null);
   const [mapZoom, setMapZoom] = useState(defaultMapZoom);
   const [mapPan, setMapPan] = useState<MapPan>({ x: 0, y: 0 });
   const [isDraggingMap, setIsDraggingMap] = useState(false);
   const mapDragRef = useRef<MapDragState | null>(null);
+  const featureCollection = useMemo<WorldFeatureCollection>(
+    () => ({ type: "FeatureCollection", features: normalizedFeatures }) as WorldFeatureCollection,
+    [normalizedFeatures],
+  );
   const projection = useMemo(() => {
-    return geoMercator()
-      .precision(0.1)
-      .scale(mapCalibration.scale)
-      .translate([mapCalibration.translateX, mapCalibration.translateY]);
-  }, []);
-  const featureLookup = useMemo(() => buildFeatureLookup(features), [features]);
+    const base = geoEquirectangular().precision(0.1);
+    if (!normalizedFeatures.length) return base.scale(232).translate([mapWidth / 2, mapHeight / 2]);
+    return base.fitExtent([[42, 132], [mapWidth - 42, mapHeight - 132]], featureCollection as never);
+  }, [featureCollection, normalizedFeatures.length]);
+  const pathGenerator = useMemo(() => geoPath(projection), [projection]);
+  const countryPaths = useMemo(
+    () =>
+      normalizedFeatures
+        .map((feature, index) => ({
+          id: `${feature.id || feature.properties?.name || "country"}-${index}`,
+          name: feature.properties?.name,
+          path: pathGenerator(feature as never),
+        }))
+        .filter((item): item is { id: string; name: string | undefined; path: string } => typeof item.path === "string" && item.path.length > 0),
+    [normalizedFeatures, pathGenerator],
+  );
+  const featureLookup = useMemo(() => buildFeatureLookup(normalizedFeatures), [normalizedFeatures]);
   const flowRows = flows.slice(0, 20);
   const maxFlow = Math.max(...flowRows.map((flow) => flow.value), 1);
   const sourcePointsFromFlows = flowRows.map((flow, index) => mapPointFromFlow(flow, "origin", index, projection, featureLookup));
@@ -1253,29 +1159,31 @@ function WorldAttackMap({
   const activeSignal = selectedSignal || defaultSignal;
   const sourceOpacity = mode === "targets" ? 0.36 : 1;
   const targetOpacity = mode === "origins" ? 0.36 : 1;
-  const edgeOpacity = mode === "flows" ? 0.78 : 0.28;
-  const zoomOffsetX = (mapWidth - mapWidth * mapZoom) / 2;
-  const zoomOffsetY = (mapHeight - mapHeight * mapZoom) / 2;
-  const mapTransform = `translate(${zoomOffsetX + mapPan.x} ${zoomOffsetY + mapPan.y}) scale(${mapZoom})`;
-  const showCompactCodes = mapZoom >= 1.65;
-  const zoomedMarkerOuterRadius = 5.5 / mapZoom;
-  const zoomedMarkerInnerRadius = 2.55 / mapZoom;
-  const zoomedUnconnectedOuterRadius = 4 / mapZoom;
-  const zoomedUnconnectedInnerRadius = 1.9 / mapZoom;
-  const zoomedMarkerStroke = 1.8 / mapZoom;
-  const zoomedPacketRadius = (width: number) => Math.max(1.7, Math.min(3.6, width / 3.6)) / mapZoom;
-  const zoomedEdgeWidth = (width: number) => Math.max(0.95, width * 0.78) / mapZoom;
+  const edgeOpacity = mode === "flows" ? 0.86 : 0.42;
+  const effectiveMapZoom = effectiveMapZoomFor(mapZoom);
+  const zoomOffsetX = (mapWidth - mapWidth * effectiveMapZoom) / 2;
+  const zoomOffsetY = (mapHeight - mapHeight * effectiveMapZoom) / 2;
+  const mapTransform = `translate(${zoomOffsetX + mapPan.x} ${zoomOffsetY + mapPan.y}) scale(${effectiveMapZoom})`;
+  const showCompactCodes = effectiveMapZoom >= 1.65;
+  const zoomedMarkerOuterRadius = 5.5 / effectiveMapZoom;
+  const zoomedMarkerInnerRadius = 2.55 / effectiveMapZoom;
+  const zoomedUnconnectedOuterRadius = 4 / effectiveMapZoom;
+  const zoomedUnconnectedInnerRadius = 1.9 / effectiveMapZoom;
+  const zoomedMarkerStroke = 1.8 / effectiveMapZoom;
+  const zoomedPacketRadius = (width: number) => Math.max(2.1, Math.min(4.4, width / 3.2)) / effectiveMapZoom;
+  const zoomedEdgeWidth = (width: number) => Math.max(1.85, width * 1.08) / Math.sqrt(effectiveMapZoom);
+  const zoomedEdgeHaloWidth = (width: number) => Math.max(4.2, width * 1.85) / Math.sqrt(effectiveMapZoom);
   const zoomLabel = `${mapZoom.toFixed(mapZoom % 1 === 0 ? 0 : 1)}x`;
   const zoomIn = () =>
     setMapZoom((current) => {
       const next = Math.min(maxMapZoom, Number((current + mapZoomStep).toFixed(2)));
-      setMapPan((pan) => clampMapPan(pan, next));
+      setMapPan((pan) => clampMapPan(pan, effectiveMapZoomFor(next)));
       return next;
     });
   const zoomOut = () =>
     setMapZoom((current) => {
       const next = Math.max(minMapZoom, Number((current - mapZoomStep).toFixed(2)));
-      setMapPan((pan) => clampMapPan(pan, next));
+      setMapPan((pan) => clampMapPan(pan, effectiveMapZoomFor(next)));
       return next;
     });
   const resetZoom = () => {
@@ -1316,7 +1224,7 @@ function WorldAttackMap({
           x: drag.panX + point.x - drag.startX,
           y: drag.panY + point.y - drag.startY,
         },
-        mapZoom,
+        effectiveMapZoom,
       ),
     );
   };
@@ -1412,47 +1320,87 @@ function WorldAttackMap({
             }}
           >
             <defs>
+              <linearGradient id="world-map-ocean" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stopColor="#000000" />
+                <stop offset="52%" stopColor="#010303" />
+                <stop offset="100%" stopColor="#000000" />
+              </linearGradient>
+              <linearGradient id="world-land-fill" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stopColor="#8f9796" />
+                <stop offset="54%" stopColor="#7d8584" />
+                <stop offset="100%" stopColor="#697170" />
+              </linearGradient>
               <radialGradient id="world-map-glow" cx="50%" cy="50%" r="72%">
-                <stop offset="0%" stopColor="#fcee0a" stopOpacity="0.06" />
-                <stop offset="45%" stopColor="#67e8f9" stopOpacity="0.07" />
+                <stop offset="0%" stopColor="#fcee0a" stopOpacity="0.018" />
+                <stop offset="45%" stopColor="#67e8f9" stopOpacity="0.02" />
                 <stop offset="100%" stopColor="#050608" stopOpacity="0" />
               </radialGradient>
-              <filter id="world-map-soften">
-                <feColorMatrix
-                  type="matrix"
-                  values="0.52 0 0 0 0
-                          0 0.58 0 0 0
-                          0 0 0.6 0 0
-                          0 0 0 1 0"
-                />
-              </filter>
               <filter id="world-marker-glow">
                 <feDropShadow dx="0" dy="0" stdDeviation="4.2" floodColor="rgba(252,238,10,0.38)" />
                 <feDropShadow dx="0" dy="0" stdDeviation="5.5" floodColor="rgba(103,232,249,0.38)" />
               </filter>
             </defs>
-            <rect width={mapWidth} height={mapHeight} fill="#020304" />
+            <rect width={mapWidth} height={mapHeight} fill="url(#world-map-ocean)" />
             <rect width={mapWidth} height={mapHeight} fill="url(#world-map-glow)" />
             {[0, 1, 2, 3, 4, 5].map((line) => (
-              <line key={`map-h-${line}`} x1="34" x2={mapWidth - 34} y1={130 + line * 118} y2={130 + line * 118} stroke="rgba(252,238,10,0.045)" strokeDasharray="3 12" />
+              <line key={`map-h-${line}`} x1="34" x2={mapWidth - 34} y1={130 + line * 118} y2={130 + line * 118} stroke="rgba(252,238,10,0.018)" strokeDasharray="3 12" />
             ))}
             {[0, 1, 2, 3, 4, 5, 6, 7].map((line) => (
-              <line key={`map-v-${line}`} x1={82 + line * 190} x2={82 + line * 190} y1="46" y2={mapHeight - 46} stroke="rgba(103,232,249,0.04)" strokeDasharray="3 12" />
+              <line key={`map-v-${line}`} x1={82 + line * 190} x2={82 + line * 190} y1="46" y2={mapHeight - 46} stroke="rgba(103,232,249,0.016)" strokeDasharray="3 12" />
             ))}
 
             <g transform={mapTransform}>
-              <image
-                href="/radar-world-map.webp"
-                x="0"
-                y="0"
-                width={mapWidth}
-                height={mapHeight}
-                preserveAspectRatio="xMidYMid meet"
-                opacity="0.72"
-                filter="url(#world-map-soften)"
-              />
-              <rect width={mapWidth} height={mapHeight} fill="#020304" opacity="0.18" />
+              {countryPaths.length ? (
+                <g>
+                  {countryPaths.map((country) => (
+                    <path
+                      key={country.id}
+                      d={country.path}
+                      fill="url(#world-land-fill)"
+                      fillRule="evenodd"
+                      fillOpacity="0.98"
+                      stroke="rgba(0,0,0,0.78)"
+                      strokeWidth={Math.max(0.44, 0.95 / Math.sqrt(effectiveMapZoom))}
+                    >
+                      <title>{country.name}</title>
+                    </path>
+                  ))}
+                </g>
+              ) : (
+                <text x={mapWidth / 2} y={mapHeight / 2} fill="#d7c99e" fontSize="14" textAnchor="middle">
+                  Loading world map...
+                </text>
+              )}
+              {countryPaths.length ? (
+                <g pointerEvents="none">
+                  {countryPaths.map((country) => (
+                    <path
+                      key={`border-${country.id}`}
+                      d={country.path}
+                      fill="none"
+                      clipRule="evenodd"
+                      stroke="rgba(0,0,0,0.68)"
+                      strokeWidth={Math.max(0.62, 1.35 / Math.sqrt(effectiveMapZoom))}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  ))}
+                </g>
+              ) : null}
 
+              {edges.map((edge) => (
+                <path
+                  key={`${edge.id}-halo`}
+                  d={edge.path}
+                  fill="none"
+                  stroke={edge.color}
+                  strokeLinecap="round"
+                  strokeOpacity={mode === "flows" ? 0.2 : 0.12}
+                  strokeWidth={zoomedEdgeHaloWidth(edge.width)}
+                  filter="url(#world-marker-glow)"
+                  pointerEvents="none"
+                />
+              ))}
               {edges.map((edge) => (
                 <path
                   key={edge.id}
@@ -1488,7 +1436,7 @@ function WorldAttackMap({
               ))}
 
               {!reducedMotion &&
-                edges.map((edge, index) => (
+                edges.slice(0, 10).map((edge, index) => (
                   <circle key={`${edge.id}-packet`} r={zoomedPacketRadius(edge.width)} fill={edge.color} opacity={mode === "flows" ? "0.95" : "0.45"} filter="url(#world-marker-glow)">
                     <animateMotion dur={`${5.6 + index * 0.32}s`} repeatCount="indefinite">
                       <mpath href={`#${edge.id}`} />
@@ -1614,20 +1562,6 @@ type GraphSignal = {
   color: string;
 };
 
-type AttackGraphNodeInput = AttackLocationPoint & {
-  connected?: boolean;
-};
-
-type PositionedAttackNode = AttackGraphNodeInput & {
-  id: string;
-  shortLabel: string;
-  side: "source" | "target";
-  x: number;
-  y: number;
-  radius: number;
-  color: string;
-};
-
 function useReducedMotionPreference() {
   const [reducedMotion, setReducedMotion] = useState(false);
 
@@ -1646,601 +1580,6 @@ function useReducedMotionPreference() {
   }, []);
 
   return reducedMotion;
-}
-
-function graphNodeId(code?: string, name?: string) {
-  return (code || name || "unknown").toUpperCase();
-}
-
-function graphShortLabel(code?: string, name = "") {
-  if (code) return code.toUpperCase();
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 3)
-    .toUpperCase();
-}
-
-function truncateGraphLabel(value: string, maxLength = 18) {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}.` : value;
-}
-
-function mergeGraphNode(nodes: Map<string, AttackGraphNodeInput>, node: AttackGraphNodeInput) {
-  const id = graphNodeId(node.code, node.name);
-  const existing = nodes.get(id);
-
-  nodes.set(id, {
-    code: node.code,
-    name: node.name,
-    value: existing ? Math.max(existing.value, node.value) : node.value,
-    rank: existing?.rank || node.rank || nodes.size + 1,
-    connected: Boolean(existing?.connected || node.connected),
-    focus: Boolean(existing?.focus || node.focus),
-  });
-}
-
-function selectedScopeOrigin(scopeType: string | undefined, scopeValue: string | undefined, scopeLabel: string | undefined, flows: AttackFlowPoint[], origins: AttackLocationPoint[]) {
-  if (scopeType !== "country" || !scopeValue) return origins;
-
-  const selected = scopeValue.toUpperCase();
-  const existing = origins.find((origin) => origin.code?.toUpperCase() === selected);
-  const flowValue = flows
-    .filter((flow) => flow.origin_code?.toUpperCase() === selected)
-    .reduce((sum, flow) => sum + flow.value, 0);
-
-  return [
-    {
-      rank: 1,
-      code: selected,
-      name: scopeLabel || existing?.name || selected,
-      value: flowValue || existing?.value || 0,
-      focus: true,
-    },
-  ];
-}
-
-function buildAttackGraphBaseNodes(
-  flows: AttackFlowPoint[],
-  origins: AttackLocationPoint[],
-  targets: AttackLocationPoint[],
-  scopeType?: string,
-  scopeValue?: string,
-  scopeLabel?: string,
-) {
-  const sourceMap = new Map<string, AttackGraphNodeInput>();
-  const targetMap = new Map<string, AttackGraphNodeInput>();
-  const visibleOrigins = selectedScopeOrigin(scopeType, scopeValue, scopeLabel, flows, origins);
-
-  flows.slice(0, 10).forEach((flow) => {
-    if (scopeType === "country" && scopeValue && flow.origin_code?.toUpperCase() !== scopeValue.toUpperCase()) {
-      return;
-    }
-
-    const sourceId = graphNodeId(flow.origin_code, flow.origin_name);
-    const targetId = graphNodeId(flow.target_code, flow.target_name);
-    const source = sourceMap.get(sourceId);
-    const target = targetMap.get(targetId);
-
-    sourceMap.set(sourceId, {
-      code: flow.origin_code,
-      name: flow.origin_name,
-      value: (source?.value || 0) + flow.value,
-      rank: source?.rank || sourceMap.size + 1,
-      connected: true,
-    });
-    targetMap.set(targetId, {
-      code: flow.target_code,
-      name: flow.target_name,
-      value: (target?.value || 0) + flow.value,
-      rank: target?.rank || targetMap.size + 1,
-      connected: true,
-    });
-  });
-
-  visibleOrigins.forEach((origin) => mergeGraphNode(sourceMap, origin));
-  targets.forEach((target) => mergeGraphNode(targetMap, target));
-
-  const sources = sortGraphNodes(Array.from(sourceMap.values()));
-  const targetRows = sortGraphNodes(Array.from(targetMap.values()));
-
-  return {
-    sources: (sources.length ? sources : visibleOrigins).slice(0, scopeType === "country" ? 1 : 10),
-    targets: (targetRows.length ? targetRows : targets).slice(0, 10),
-  };
-}
-
-function sortGraphNodes(nodes: AttackGraphNodeInput[]) {
-  return nodes.sort((a, b) => {
-    if (a.focus !== b.focus) return a.focus ? -1 : 1;
-    if (a.connected !== b.connected) return a.connected ? -1 : 1;
-    return b.value - a.value;
-  });
-}
-
-function positionAttackNodes(nodes: AttackGraphNodeInput[], side: "source" | "target", graphHeight: number): PositionedAttackNode[] {
-  const top = 88;
-  const bottom = graphHeight - 92;
-  const max = Math.max(...nodes.map((node) => node.value), 1);
-  const x = side === "source" ? 150 : 890;
-  const usable = Math.max(bottom - top, 1);
-
-  return nodes.map((node, index) => {
-    const y = nodes.length === 1 ? graphHeight / 2 : top + (index / Math.max(nodes.length - 1, 1)) * usable;
-    const radius = 11 + Math.sqrt(Math.max(node.value, 0) / max) * 18;
-
-    return {
-      ...node,
-      id: graphNodeId(node.code, node.name),
-      shortLabel: graphShortLabel(node.code, node.name),
-      side,
-      x,
-      y,
-      radius,
-      color: attackPalette[index % attackPalette.length],
-    };
-  });
-}
-
-function AttackFlowGraph({
-  mode,
-  origins,
-  targets,
-  flows,
-  flowMode,
-  flowScopeNote,
-  flowStatus,
-  flowFilterStrategy,
-  scopeType,
-  scopeValue,
-  scopeLabel,
-  onModeChange,
-}: {
-  mode: AttackGeoTab;
-  origins: AttackLocationPoint[];
-  targets: AttackLocationPoint[];
-  flows: AttackFlowPoint[];
-  flowMode?: "merged_flows" | "partial_flows" | "rankings_only";
-  flowScopeNote?: string;
-  flowStatus?: {
-    origin_limited?: string;
-    target_limited?: string;
-    fallback?: string;
-  };
-  flowFilterStrategy?: string;
-  scopeType?: string;
-  scopeValue?: string;
-  scopeLabel?: string;
-  onModeChange: (mode: AttackGeoTab) => void;
-}) {
-  const reducedMotion = useReducedMotionPreference();
-  const [selectedSignal, setSelectedSignal] = useState<GraphSignal | null>(null);
-  const graphWidth = 1040;
-  const graphHeight = 700;
-  const surface = { x: graphWidth / 2, y: graphHeight / 2 };
-  const flowRows = flows.slice(0, 16);
-  const maxFlow = Math.max(...flowRows.map((flow) => flow.value), 1);
-  const baseNodes = buildAttackGraphBaseNodes(flowRows, origins, targets, scopeType, scopeValue, scopeLabel);
-  const sourceNodes = positionAttackNodes(baseNodes.sources, "source", graphHeight);
-  const targetNodes = positionAttackNodes(baseNodes.targets, "target", graphHeight);
-  const sourceById = new Map(sourceNodes.map((node) => [node.id, node]));
-  const targetById = new Map(targetNodes.map((node) => [node.id, node]));
-  const graphTitle =
-    mode === "targets"
-      ? "Target country pressure"
-      : mode === "flows"
-        ? "Merged origin-target attack flows"
-        : "Source country pressure";
-  const coverageLabel = flows.length ? `${flows.length} flow pairs` : "rankings only";
-  const coverageClass =
-    flowMode === "rankings_only"
-      ? "border-volt/35 bg-volt/10 text-volt"
-      : flowMode === "partial_flows"
-        ? "border-trace/35 bg-trace/10 text-trace"
-        : "border-cyan-300/35 bg-cyan-400/10 text-cyan-100";
-  const strategyLabel =
-    flowFilterStrategy === "global_filtered"
-      ? "filtered global fallback"
-      : flowFilterStrategy === "native_fallback"
-        ? "native fallback"
-        : flowFilterStrategy === "native_scope"
-          ? "native Radar scope"
-          : flowFilterStrategy === "rankings_only"
-            ? "rankings only"
-            : flowFilterStrategy || "";
-  const defaultSignal = flowRows[0]
-    ? {
-        title: `${flowRows[0].origin_code || flowRows[0].origin_name} -> ${flowRows[0].target_code || flowRows[0].target_name}`,
-        meta: "Strongest Radar flow",
-        body: `${flowRows[0].origin_name} to ${flowRows[0].target_name} represents ${formatPercent(flowRows[0].value)} of the returned Layer 7 country flow share.`,
-        value: flowRows[0].value,
-        color: attackPalette[0],
-      }
-    : {
-        title: "Layer 7 attack surface",
-        meta: "Aggregated Radar signal",
-        body: flowScopeNote || "Flow pairs are unavailable for this filter, so the graph is showing source and target country rankings only.",
-        color: "#fcee0a",
-      };
-  const activeSignal = selectedSignal || defaultSignal;
-  const topRanking = mode === "targets" ? targets : origins;
-
-  useEffect(() => {
-    setSelectedSignal(null);
-  }, [mode, origins, targets, flows]);
-
-  const edges = flowRows
-    .map((flow, index) => {
-      const source = sourceById.get(graphNodeId(flow.origin_code, flow.origin_name));
-      const target = targetById.get(graphNodeId(flow.target_code, flow.target_name));
-
-      if (!source || !target) return null;
-
-      const path = `M ${source.x + source.radius + 4} ${source.y} C ${source.x + 210} ${source.y}, ${surface.x - 120} ${surface.y}, ${surface.x - 54} ${surface.y} C ${surface.x + 54} ${surface.y}, ${target.x - 210} ${target.y}, ${target.x - target.radius - 4} ${target.y}`;
-      const width = Math.max(1.8, Math.min(16, 2 + (flow.value / maxFlow) * 14));
-
-      return {
-        id: `attack-flow-${index}`,
-        flow,
-        source,
-        target,
-        color: attackPalette[index % attackPalette.length],
-        path,
-        width,
-      };
-    })
-    .filter(Boolean) as Array<{
-      id: string;
-      flow: AttackFlowPoint;
-      source: PositionedAttackNode;
-      target: PositionedAttackNode;
-      color: string;
-      path: string;
-      width: number;
-    }>;
-
-  const edgeOpacity = mode === "flows" ? 0.72 : 0.26;
-  const sourceOpacity = mode === "targets" ? 0.48 : 1;
-  const targetOpacity = mode === "origins" ? 0.48 : 1;
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-white/10 bg-[#07090b] p-4">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-mono text-xs uppercase text-signal">Attack flow graph</p>
-          <p className="mt-1 text-sm text-haze">{flowScopeNote || `${graphTitle} from aggregated Cloudflare Radar Layer 7 data`}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded border px-3 py-1.5 font-mono text-[11px] uppercase ${coverageClass}`}>{coverageLabel}</span>
-          {strategyLabel ? <span className="rounded border border-white/10 bg-black/25 px-3 py-1.5 font-mono text-[11px] uppercase text-haze">{strategyLabel}</span> : null}
-          <span className="font-mono text-xs uppercase text-white">Attacks by</span>
-          {attackGeoTabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => onModeChange(tab.key)}
-              className={`rounded border px-3 py-1.5 text-sm transition ${
-                mode === tab.key ? "border-white/15 bg-white/15 text-white" : "border-white/10 bg-black/20 text-haze hover:border-white/25 hover:text-white"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {flowStatus && (
-        <div className="mb-4 flex flex-wrap gap-2 font-mono text-[11px] uppercase text-haze">
-          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Origin view: {flowStatus.origin_limited || "unknown"}</span>
-          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Target view: {flowStatus.target_limited || "unknown"}</span>
-          <span className="rounded border border-white/10 bg-black/25 px-2.5 py-1">Fallback: {flowStatus.fallback || "not needed"}</span>
-        </div>
-      )}
-
-      <div className="grid gap-4">
-        <div className="relative overflow-hidden rounded-md border border-white/10 bg-black/45">
-          <svg
-            viewBox={`0 0 ${graphWidth} ${graphHeight}`}
-            className="aspect-[1040/700] w-full"
-            role="img"
-            aria-label="Node graph showing source to target Layer 7 attack flows"
-          >
-            <defs>
-              <radialGradient id="flow-graph-glow" cx="50%" cy="50%" r="72%">
-                <stop offset="0%" stopColor="#67e8f9" stopOpacity="0.16" />
-                <stop offset="100%" stopColor="#67e8f9" stopOpacity="0" />
-              </radialGradient>
-              <filter id="flow-node-glow">
-                <feDropShadow dx="0" dy="0" stdDeviation="6" floodColor="rgba(103,232,249,0.5)" />
-              </filter>
-            </defs>
-
-            <rect width={graphWidth} height={graphHeight} fill="url(#flow-graph-glow)" />
-            {[0, 1, 2, 3, 4, 5, 6].map((line) => (
-              <line key={`v-${line}`} x1={80 + line * 148} x2={80 + line * 148} y1="58" y2={graphHeight - 58} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 12" />
-            ))}
-            {[0, 1, 2, 3, 4, 5, 6].map((line) => (
-              <line key={`h-${line}`} x1="56" x2={graphWidth - 56} y1={74 + line * 92} y2={74 + line * 92} stroke="rgba(255,255,255,0.055)" strokeDasharray="4 12" />
-            ))}
-            {[92, 154, 216].map((radius) => (
-              <circle key={radius} cx={surface.x} cy={surface.y} r={radius} fill="none" stroke="rgba(103,232,249,0.08)" strokeWidth="1" />
-            ))}
-
-            <text x="74" y="44" fill="#d7c99e" fontSize="13" fontWeight="800" letterSpacing="1.5">
-              SOURCES
-            </text>
-            <text x={surface.x} y="44" fill="#fcee0a" fontSize="13" fontWeight="800" letterSpacing="1.5" textAnchor="middle">
-              LAYER 7 ATTACK SURFACE
-            </text>
-            <text x={graphWidth - 74} y="44" fill="#d7c99e" fontSize="13" fontWeight="800" letterSpacing="1.5" textAnchor="end">
-              TARGETS
-            </text>
-
-            {edges.map((edge) => (
-              <path
-                key={edge.id}
-                id={edge.id}
-                d={edge.path}
-                fill="none"
-                stroke={edge.color}
-                strokeLinecap="round"
-                strokeOpacity={edgeOpacity}
-                strokeWidth={edge.width}
-                className="cursor-pointer transition-opacity"
-                onMouseEnter={() =>
-                  setSelectedSignal({
-                    title: `${edge.flow.origin_code || edge.flow.origin_name} -> ${edge.flow.target_code || edge.flow.target_name}`,
-                    meta: "Origin to target flow",
-                    body: `${edge.flow.origin_name} to ${edge.flow.target_name} represents ${formatPercent(edge.flow.value)} of the returned Layer 7 attack flow share.`,
-                    value: edge.flow.value,
-                    color: edge.color,
-                  })
-                }
-                onFocus={() =>
-                  setSelectedSignal({
-                    title: `${edge.flow.origin_code || edge.flow.origin_name} -> ${edge.flow.target_code || edge.flow.target_name}`,
-                    meta: "Origin to target flow",
-                    body: `${edge.flow.origin_name} to ${edge.flow.target_name} represents ${formatPercent(edge.flow.value)} of the returned Layer 7 attack flow share.`,
-                    value: edge.flow.value,
-                    color: edge.color,
-                  })
-                }
-                tabIndex={0}
-              />
-            ))}
-
-            {edges.length === 0 &&
-              sourceNodes.map((node) => (
-                <path
-                  key={`ghost-source-${node.id}`}
-                  d={`M ${node.x + node.radius + 4} ${node.y} C ${node.x + 220} ${node.y}, ${surface.x - 138} ${surface.y}, ${surface.x - 86} ${surface.y}`}
-                  fill="none"
-                  stroke={node.color}
-                  strokeDasharray="8 10"
-                  strokeLinecap="round"
-                  strokeOpacity="0.2"
-                  strokeWidth="1.6"
-                />
-              ))}
-            {edges.length === 0 &&
-              targetNodes.map((node) => (
-                <path
-                  key={`ghost-target-${node.id}`}
-                  d={`M ${surface.x + 86} ${surface.y} C ${surface.x + 138} ${surface.y}, ${node.x - 220} ${node.y}, ${node.x - node.radius - 4} ${node.y}`}
-                  fill="none"
-                  stroke={node.color}
-                  strokeDasharray="8 10"
-                  strokeLinecap="round"
-                  strokeOpacity="0.16"
-                  strokeWidth="1.6"
-                />
-              ))}
-            {edges.length === 0 && (
-              <text x={surface.x} y={surface.y + 102} fill="#d7c99e" fontSize="11" fontWeight="700" opacity="0.72" textAnchor="middle">
-                Rankings only - Radar returned no origin-target pairs for this scope
-              </text>
-            )}
-
-            {!reducedMotion &&
-              edges.map((edge, index) => (
-                <circle key={`${edge.id}-packet`} r={Math.max(3.5, Math.min(7, edge.width / 2.8))} fill={edge.color} opacity={mode === "flows" ? "0.95" : "0.38"}>
-                  <animateMotion dur={`${4.8 + index * 0.38}s`} repeatCount="indefinite">
-                    <mpath href={`#${edge.id}`} />
-                  </animateMotion>
-                </circle>
-              ))}
-
-            <g
-              className="cursor-pointer"
-              onMouseEnter={() =>
-                setSelectedSignal({
-                  title: "Layer 7 attack surface",
-                  meta: "Central application-layer signal",
-                  body: "Radar country rankings and source-target flow pairs are converging here as an aggregated application-layer attack surface signal.",
-                  color: "#fcee0a",
-                })
-              }
-              onFocus={() =>
-                setSelectedSignal({
-                  title: "Layer 7 attack surface",
-                  meta: "Central application-layer signal",
-                  body: "Radar country rankings and source-target flow pairs are converging here as an aggregated application-layer attack surface signal.",
-                  color: "#fcee0a",
-                })
-              }
-              tabIndex={0}
-            >
-              <circle cx={surface.x} cy={surface.y} r="86" fill="rgba(252,238,10,0.08)" stroke="rgba(252,238,10,0.45)" strokeWidth="2" />
-              <circle cx={surface.x} cy={surface.y} r="54" fill="#060809" stroke="#fcee0a" strokeWidth="3" filter="url(#flow-node-glow)" />
-              <text x={surface.x} y={surface.y - 5} fill="#ffffff" fontSize="17" fontWeight="900" textAnchor="middle">
-                LAYER 7
-              </text>
-              <text x={surface.x} y={surface.y + 20} fill="#d7c99e" fontSize="12" fontWeight="700" textAnchor="middle">
-                ATTACK SURFACE
-              </text>
-            </g>
-
-            {[...sourceNodes, ...targetNodes].map((node) => {
-              const baseOpacity = node.side === "source" ? sourceOpacity : targetOpacity;
-              const nodeOpacity = node.connected || node.focus ? baseOpacity : Math.min(baseOpacity, 0.5);
-              const nodeStroke = node.connected || node.focus ? node.color : "rgba(215,201,158,0.72)";
-
-              return (
-                <g
-                  key={`${node.side}-${node.id}`}
-                  opacity={nodeOpacity}
-                  className="cursor-pointer transition-opacity"
-                  onMouseEnter={() =>
-                    setSelectedSignal({
-                      title: node.name,
-                      meta: node.side === "source" ? "Source country / region" : "Target country / region",
-                      body:
-                        node.focus && !node.connected
-                          ? `${node.name} is the selected country focus. Radar did not return origin flow pairs for this filter, so it is shown as ranking context.`
-                          : `${node.name} is returning ${formatPercent(node.value)} in the ${node.side === "source" ? "attack origin" : "target country"} signal for this Radar filter.`,
-                      value: node.value,
-                      color: node.color,
-                    })
-                  }
-                  onFocus={() =>
-                    setSelectedSignal({
-                      title: node.name,
-                      meta: node.side === "source" ? "Source country / region" : "Target country / region",
-                      body:
-                        node.focus && !node.connected
-                          ? `${node.name} is the selected country focus. Radar did not return origin flow pairs for this filter, so it is shown as ranking context.`
-                          : `${node.name} is returning ${formatPercent(node.value)} in the ${node.side === "source" ? "attack origin" : "target country"} signal for this Radar filter.`,
-                      value: node.value,
-                      color: node.color,
-                    })
-                  }
-                  tabIndex={0}
-                >
-                  <circle cx={node.x} cy={node.y} r={node.radius + 10} fill={node.color} opacity={node.connected || node.focus ? "0.09" : "0.035"} />
-                  <circle cx={node.x} cy={node.y} r={node.radius} fill="#050608" stroke={nodeStroke} strokeWidth={node.connected || node.focus ? "3" : "1.8"} filter={node.connected || node.focus ? "url(#flow-node-glow)" : undefined} />
-                  <circle cx={node.x} cy={node.y} r={Math.max(4, node.radius * 0.24)} fill={node.connected || node.focus ? node.color : "#d7c99e"} />
-                  <text x={node.x} y={node.y + 4} fill="#ffffff" fontSize={node.connected ? "15" : "12"} fontWeight="900" textAnchor="middle">
-                    {node.shortLabel}
-                  </text>
-                  <text x={node.x} y={node.y + node.radius + 19} fill="#d7c99e" fontSize="10" fontWeight="700" textAnchor="middle">
-                    {truncateGraphLabel(node.name)}
-                  </text>
-                  <title>{`${node.name}: ${formatPercent(node.value)}`}</title>
-                </g>
-              );
-            })}
-          </svg>
-
-          {!edges.length && (
-            <div className="absolute inset-x-6 bottom-6 rounded-md border border-volt/30 bg-volt/10 px-4 py-3 text-sm text-haze">
-              {flowScopeNote || "Flow pairs unavailable from Radar for this filter."} Source and target rankings are still shown when available.
-            </div>
-          )}
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-[minmax(260px,0.9fr)_minmax(360px,1.25fr)_minmax(260px,0.9fr)] xl:items-start">
-          <div className="rounded-md border border-white/10 bg-black/25 p-4">
-            <p className="font-mono text-xs uppercase text-signal">Selected signal</p>
-            <div className="mt-4 rounded-md border border-white/10 bg-white/[0.035] p-4">
-              <div className="mb-4 flex items-center gap-3">
-                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: activeSignal.color }} />
-                <div className="min-w-0">
-                  <h3 className="truncate text-lg font-semibold text-white">{activeSignal.title}</h3>
-                  <p className="mt-1 font-mono text-[11px] uppercase text-haze">{activeSignal.meta}</p>
-                </div>
-              </div>
-              {typeof activeSignal.value === "number" && <p className="mb-3 text-3xl font-semibold text-white">{formatPercent(activeSignal.value)}</p>}
-              <p className="text-sm leading-6 text-haze">{activeSignal.body}</p>
-            </div>
-          </div>
-
-          <div className="rounded-md border border-white/10 bg-black/25 p-4">
-            <p className="font-mono text-xs uppercase text-signal">Top flows</p>
-            <div className="mt-4 grid gap-3">
-              {flowRows.length ? (
-                flowRows.slice(0, 7).map((flow, index) => (
-                  <button
-                    key={`${flow.origin_code}-${flow.target_code}-${index}`}
-                    type="button"
-                    onClick={() =>
-                      setSelectedSignal({
-                        title: `${flow.origin_code || flow.origin_name} -> ${flow.target_code || flow.target_name}`,
-                        meta: "Origin to target flow",
-                        body: `${flow.origin_name} to ${flow.target_name} represents ${formatPercent(flow.value)} of the returned Layer 7 attack flow share.`,
-                        value: flow.value,
-                        color: attackPalette[index % attackPalette.length],
-                      })
-                    }
-                    className="grid gap-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2 text-left transition hover:border-signal/35 hover:bg-white/[0.06]"
-                  >
-                    <span className="flex items-center justify-between gap-3 text-sm text-white">
-                      <span className="font-mono font-bold">
-                        {flow.origin_code || graphShortLabel(undefined, flow.origin_name)} {"->"} {flow.target_code || graphShortLabel(undefined, flow.target_name)}
-                      </span>
-                      <span className="font-mono text-xs text-haze">{formatPercent(flow.value)}</span>
-                    </span>
-                    <span className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                      <span
-                        className="block h-full rounded-full"
-                        style={{
-                          width: `${Math.max(5, (flow.value / maxFlow) * 100)}%`,
-                          backgroundColor: attackPalette[index % attackPalette.length],
-                        }}
-                      />
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <p className="rounded-md border border-white/10 bg-black/20 p-4 text-sm text-haze">Flow pairs unavailable from Radar for this filter.</p>
-              )}
-            </div>
-          </div>
-
-          <LocationRankList title={mode === "targets" ? "Top targets" : "Top sources"} data={topRanking} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AttackFlowDiagram({ data }: { data: AttackFlowPoint[] }) {
-  const rows = data.slice(0, 6);
-  const max = Math.max(...rows.map((point) => point.value), 1);
-
-  if (!rows.length) {
-    return (
-      <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
-        Attack flow data unavailable.
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="font-mono text-xs uppercase text-signal">Attacks by flow</p>
-        <span className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-xs uppercase text-haze">Source {"->"} Target</span>
-      </div>
-      <div className="grid gap-2">
-        {rows.map((flow, index) => {
-          const color = attackPalette[index % attackPalette.length];
-
-          return (
-            <div key={`${flow.origin_code}-${flow.target_code}-${index}`} className="grid gap-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2.5">
-              <div className="grid grid-cols-[52px_minmax(0,1fr)_52px_auto] items-center gap-3 text-sm">
-                <span className="rounded bg-white/10 px-2 py-1 text-center font-mono font-bold text-white">{flow.origin_code || flow.origin_name.slice(0, 3)}</span>
-                <span className="relative h-2 overflow-hidden rounded-full bg-white/10">
-                  <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.max(7, (flow.value / max) * 100)}%`, backgroundColor: color }} />
-                </span>
-                <span className="rounded bg-white/10 px-2 py-1 text-center font-mono font-bold text-white">{flow.target_code || flow.target_name.slice(0, 3)}</span>
-                <span className="font-mono text-xs text-haze">{formatPercent(flow.value)}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 function ApplicationLayerSecurityPanel({
@@ -2279,47 +1618,6 @@ function ApplicationLayerSecurityPanel({
         Attack flow data is aggregated Cloudflare Radar Layer 7 geography. It is not live traffic against this portfolio website.
       </p>
     </Panel>
-  );
-}
-
-function AttackFlowBars({ data }: { data: AttackFlowPoint[] }) {
-  const max = Math.max(...data.map((point) => point.value), 1);
-
-  if (!data.length) {
-    return (
-      <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-white/10 bg-black/20 text-sm text-haze">
-        Attack flow data unavailable.
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-3 rounded-lg border border-white/10 bg-black/20 p-4">
-      {data.map((flow, index) => (
-        <div key={`${flow.origin_code}-${flow.target_code}-${index}`} className="grid gap-2">
-          <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-            <span className="flex min-w-0 flex-wrap items-center gap-2 text-white">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-trace/30 bg-trace/10 font-mono text-[11px] text-trace">
-                {flow.rank || index + 1}
-              </span>
-              <span className="truncate">
-                {flow.origin_name}
-                {flow.origin_code ? <span className="ml-2 font-mono text-xs uppercase text-haze">{flow.origin_code}</span> : null}
-              </span>
-              <ArrowRight className="text-signal" size={16} />
-              <span className="truncate">
-                {flow.target_name}
-                {flow.target_code ? <span className="ml-2 font-mono text-xs uppercase text-haze">{flow.target_code}</span> : null}
-              </span>
-            </span>
-            <span className="font-mono text-xs text-haze">{formatCompact(flow.value)}%</span>
-          </div>
-          <div className="h-3 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full rounded-full bg-gradient-to-r from-trace via-signal to-cyan-300" style={{ width: `${Math.max(5, (flow.value / max) * 100)}%` }} />
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 

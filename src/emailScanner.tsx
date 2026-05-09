@@ -83,11 +83,6 @@ type EmailCheckResult = {
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0 },
-};
-
 function riskClasses(risk: RiskLevel) {
   if (risk === "High") return "border-trace/40 bg-trace/10 text-trace";
   if (risk === "Medium") return "border-volt/40 bg-volt/10 text-volt";
