@@ -953,18 +953,6 @@ function SourceAsDistributionPanel({ data, scopeLabel }: { data?: RadarDashboard
 
   return (
     <Panel eyebrow="Source AS distribution" title={`Application layer DDoS source AS distribution / ${scopeLabel}`}>
-      <div className="mb-4 flex flex-col gap-3 text-sm leading-6 text-haze lg:flex-row lg:items-center lg:justify-between">
-        <p>Share of application-layer attack source autonomous systems from Cloudflare Radar.</p>
-        <a
-          href="https://radar.cloudflare.com/reports"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex w-fit items-center rounded-md border border-signal/30 bg-signal/10 px-3 py-2 font-mono text-xs uppercase text-signal transition hover:border-signal/70 hover:bg-signal/15"
-        >
-          Read latest DDoS report
-        </a>
-      </div>
-
       {!rows.length ? (
         <div className="grid min-h-[260px] place-items-center rounded-lg border border-white/10 bg-black/25 p-6 text-center text-haze">
           <div>
