@@ -950,7 +950,6 @@ function SourceAsDistributionPanel({ data, scopeLabel }: { data?: RadarDashboard
   const rows = data?.rows || [];
   const cells = sourceAsTreemapCells(rows);
   const maxValue = Math.max(...rows.map((row) => row.value), 1);
-  const topRows = rows.slice(0, 6);
 
   return (
     <Panel eyebrow="Source AS distribution" title={`Application layer DDoS source AS distribution / ${scopeLabel}`}>
@@ -975,62 +974,42 @@ function SourceAsDistributionPanel({ data, scopeLabel }: { data?: RadarDashboard
           </div>
         </div>
       ) : (
-        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.35fr)_360px]">
-          <div className="rounded-lg border border-white/10 bg-black/30 p-3">
-            <div className="relative h-[420px] overflow-hidden rounded-md border border-white/10 bg-[#07100d] shadow-[inset_0_0_55px_rgba(103,232,249,0.06)]">
-              {cells.map((cell, index) => {
-                const compact = cell.width < 13 || cell.height < 12;
-                const tiny = cell.width < 8 || cell.height < 8;
+        <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+          <div className="relative h-[420px] overflow-hidden rounded-md border border-white/10 bg-[#07100d] shadow-[inset_0_0_55px_rgba(103,232,249,0.06)]">
+            {cells.map((cell, index) => {
+              const compact = cell.width < 13 || cell.height < 12;
+              const tiny = cell.width < 8 || cell.height < 8;
 
-                return (
-                  <button
-                    key={`${cell.asn}-${cell.name}-${index}`}
-                    type="button"
-                    className="absolute overflow-hidden border border-black/70 p-2 text-left transition hover:z-10 hover:scale-[1.015] hover:border-signal/60 focus:z-10 focus:outline-none focus:ring-2 focus:ring-signal"
-                    style={{
-                      left: `${cell.x}%`,
-                      top: `${cell.y}%`,
-                      width: `${cell.width}%`,
-                      height: `${cell.height}%`,
-                      background: `linear-gradient(135deg, ${cell.color}d9, rgba(213,255,218,0.68))`,
-                      color: "#020403",
-                    }}
-                    title={`${sourceAsDisplayName(cell)}: ${formatPercent(cell.value)}`}
-                  >
-                    {!tiny && (
-                      <span className="flex h-full flex-col justify-center">
-                        <span className={`block font-semibold leading-tight ${compact ? "text-xs" : "text-lg"}`}>{cell.asn}</span>
-                        {!compact && <span className="mt-1 line-clamp-2 text-xs font-medium leading-tight">{cell.name}</span>}
-                        <span className={`mt-1 font-mono font-semibold ${compact ? "text-[10px]" : "text-xs"}`}>{formatPercent(cell.value)}</span>
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 font-mono text-xs text-haze">
-              <span>0%</span>
-              <span className="h-3 rounded-full bg-gradient-to-r from-[#dff8db] via-[#67e8f9] to-[#0f4c93]" />
-              <span>{formatPercent(maxValue)}</span>
-            </div>
+              return (
+                <button
+                  key={`${cell.asn}-${cell.name}-${index}`}
+                  type="button"
+                  className="absolute overflow-hidden border border-black/70 p-2 text-left transition hover:z-10 hover:scale-[1.015] hover:border-signal/60 focus:z-10 focus:outline-none focus:ring-2 focus:ring-signal"
+                  style={{
+                    left: `${cell.x}%`,
+                    top: `${cell.y}%`,
+                    width: `${cell.width}%`,
+                    height: `${cell.height}%`,
+                    background: `linear-gradient(135deg, ${cell.color}d9, rgba(213,255,218,0.68))`,
+                    color: "#020403",
+                  }}
+                  title={`${sourceAsDisplayName(cell)}: ${formatPercent(cell.value)}`}
+                >
+                  {!tiny && (
+                    <span className="flex h-full flex-col justify-center">
+                      <span className={`block font-semibold leading-tight ${compact ? "text-xs" : "text-lg"}`}>{cell.asn}</span>
+                      {!compact && <span className="mt-1 line-clamp-2 text-xs font-medium leading-tight">{cell.name}</span>}
+                      <span className={`mt-1 font-mono font-semibold ${compact ? "text-[10px]" : "text-xs"}`}>{formatPercent(cell.value)}</span>
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
-
-          <div className="grid content-start gap-2 rounded-lg border border-white/10 bg-black/25 p-4">
-            <p className="font-mono text-xs uppercase text-signal">Top source ASes</p>
-            {topRows.map((row, index) => (
-              <div key={`${row.asn}-${row.name}`} className="grid gap-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2">
-                <div className="flex items-start justify-between gap-3">
-                  <span className="min-w-0">
-                    <span className="block font-semibold text-white">{row.asn}</span>
-                    <span className="mt-0.5 block truncate text-xs text-haze">{row.name}</span>
-                  </span>
-                  <span className="font-mono text-xs text-haze">{formatPercent(row.value)}</span>
-                </div>
-                <span className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                  <span className="block h-full rounded-full" style={{ width: `${Math.max(5, (row.value / maxValue) * 100)}%`, backgroundColor: attackPalette[index % attackPalette.length] }} />
-                </span>
-              </div>
-            ))}
+          <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 font-mono text-xs text-haze">
+            <span>0%</span>
+            <span className="h-3 rounded-full bg-gradient-to-r from-[#dff8db] via-[#67e8f9] to-[#0f4c93]" />
+            <span>{formatPercent(maxValue)}</span>
           </div>
         </div>
       )}

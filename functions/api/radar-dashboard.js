@@ -586,8 +586,10 @@ function normalizeSourceAsDistribution(raw, limit = SOURCE_AS_LIMIT) {
       );
       const asn = asNumber ? `AS${asNumber.replace(/^AS/i, "")}` : cleanString(row.asnName || row.name || row.key || "AS unknown", "AS unknown");
       const rawName =
+        row.originAsnName ||
         row.originASName ||
         row.originAsName ||
+        row.clientAsnName ||
         row.clientASNName ||
         row.clientAsName ||
         row.asnName ||
