@@ -1,10 +1,11 @@
 const RADAR_BASE_URL = "https://api.cloudflare.com/client/v4/radar";
 const CACHE_TTL_SECONDS = 600;
-const CACHE_VERSION = "attack-map-v1";
+const CACHE_VERSION = "attack-map-as-distribution-v1";
 const FLOW_LIMIT = 50;
 const FLOW_FALLBACK_LIMIT = 100;
 const FLOW_GLOBAL_FALLBACK_LIMIT = 150;
 const FLOW_LIMIT_PER_LOCATION = 10;
+const SOURCE_AS_LIMIT = 50;
 const DATE_RANGES = {
   "24h": { radar: "1d", aggInterval: "1h", label: "24 hours" },
   "7d": { radar: "7d", aggInterval: "1d", label: "7 days" },
@@ -556,6 +557,62 @@ function normalizeAttackFlows(raw, limit = FLOW_LIMIT) {
     .slice(0, limit);
 }
 
+function extractAsn(value) {
+  const match = String(value || "").match(/AS\s?(\d{1,10})/i) || String(value || "").match(/\b(\d{1,10})\b/);
+  return match ? match[1] : "";
+}
+
+function normalizeAsName(value, fallback = "Unknown network") {
+  return cleanString(String(value || fallback).replace(/^AS\s?\d+\s*[-:]\s*/i, ""), fallback);
+}
+
+function normalizeSourceAsDistribution(raw, limit = SOURCE_AS_LIMIT) {
+  const result = raw?.result || {};
+  const top = result.top_0 || result.top || result.ases || result.asns || [];
+  const rows = Array.isArray(top) ? top : Object.entries(top).map(([name, value]) => (typeof value === "object" && value !== null ? { name, ...value } : { name, value }));
+
+  return rows
+    .map((row, index) => {
+      const asNumber = cleanString(
+        row.originASN ||
+          row.originAsn ||
+          row.clientASN ||
+          row.clientAsn ||
+          row.asn ||
+          row.asNumber ||
+          row.as_number ||
+          extractAsn(row.name || row.key || row.label),
+        "",
+      );
+      const asn = asNumber ? `AS${asNumber.replace(/^AS/i, "")}` : cleanString(row.asnName || row.name || row.key || "AS unknown", "AS unknown");
+      const rawName =
+        row.originASName ||
+        row.originAsName ||
+        row.clientASNName ||
+        row.clientAsName ||
+        row.asnName ||
+        row.asName ||
+        row.name ||
+        row.key ||
+        "Unknown network";
+      const name = normalizeAsName(rawName);
+      const value = numberOrNull(row.value ?? row.requests ?? row.count ?? row.percentage ?? row.share);
+
+      return {
+        rank: numberOrNull(row.rank) || index + 1,
+        asn: cleanString(asn.toUpperCase(), "AS unknown"),
+        as_number: asNumber ? numberOrNull(asNumber.replace(/^AS/i, "")) : null,
+        name,
+        label: `${cleanString(asn.toUpperCase(), "AS unknown")} - ${name}`,
+        value,
+      };
+    })
+    .filter((row) => row.asn && row.value !== null)
+    .sort((a, b) => b.value - a.value)
+    .map((row, index) => ({ ...row, rank: index + 1 }))
+    .slice(0, limit);
+}
+
 function mergeAttackFlows(...flowSets) {
   const merged = new Map();
 
@@ -915,8 +972,9 @@ async function buildDashboard(request, token) {
   let attackOrigins = [];
   let attackTargets = [];
   let attackFlows = [];
+  let sourceAsDistribution = [];
 
-  const [layer7TimeResult, layer7SummaryResult, topLocationsResult, attackOriginResult, attackTargetResult, attackFlowResult] = await Promise.allSettled([
+  const [layer7TimeResult, layer7SummaryResult, topLocationsResult, attackOriginResult, attackTargetResult, attackFlowResult, sourceAsResult] = await Promise.allSettled([
     fetchRadar("/attacks/layer7/timeseries", token, commonParams),
     fetchFirstRadar(["/attacks/layer7/summary/MITIGATION_PRODUCT", "/attacks/layer7/summary/mitigation_product"], token, {
       dateRange: options.range.radar,
@@ -943,6 +1001,12 @@ async function buildDashboard(request, token) {
       ...(options.scope.type === "continent" ? {} : scopeParams(options.scope, ["continent"])),
     }),
     fetchAttackFlowBundle(token, options),
+    fetchRadar("/attacks/layer7/top/ases/origin", token, {
+      dateRange: options.range.radar,
+      format: "json",
+      limit: SOURCE_AS_LIMIT,
+      ...scopeParams(options.scope, ["continent", "location", "asn"]),
+    }),
   ]);
 
   if (layer7TimeResult.status === "fulfilled") {
@@ -982,6 +1046,12 @@ async function buildDashboard(request, token) {
     warnings.push("Layer 7 attack flow pairs are temporarily unavailable.");
   }
 
+  if (sourceAsResult.status === "fulfilled") {
+    sourceAsDistribution = normalizeSourceAsDistribution(sourceAsResult.value);
+  } else {
+    warnings.push("Layer 7 source AS distribution is temporarily unavailable.");
+  }
+
   const shapedGeography = shapeAttackGeography(attackOrigins, attackTargets, attackFlows, options.scope);
   attackOrigins = shapedGeography.origins;
   attackTargets = shapedGeography.targets;
@@ -996,6 +1066,7 @@ async function buildDashboard(request, token) {
     topLocationsResult.status === "fulfilled" ? topLocationsResult.value : null,
     attackOriginResult.status === "fulfilled" ? attackOriginResult.value : null,
     attackTargetResult.status === "fulfilled" ? attackTargetResult.value : null,
+    sourceAsResult.status === "fulfilled" ? sourceAsResult.value : null,
     ...(attackFlowResult.status === "fulfilled" ? attackFlowResult.value.rawResponses : []),
   );
   const flowStatus =
@@ -1035,6 +1106,12 @@ async function buildDashboard(request, token) {
       scope_strategy: scopeStrategy(options.scope),
       scope_direction: options.scope.type === "country" || options.scope.type === "continent" ? "origin" : "bidirectional",
       flow_filter_strategy: flowFilterStrategy,
+    },
+    source_as_distribution: {
+      rows: sourceAsDistribution,
+      scope_label: options.scope.label,
+      range_label: options.range.label,
+      source: "cloudflare_radar",
     },
     warnings,
     filters: {
