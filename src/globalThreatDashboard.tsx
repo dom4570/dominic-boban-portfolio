@@ -69,6 +69,15 @@ type AttackFlowPoint = {
   value: number;
 };
 
+type SourceAsPoint = {
+  rank?: number;
+  asn: string;
+  as_number?: number | null;
+  name: string;
+  label: string;
+  value: number;
+};
+
 type RadarDashboard = {
   summary: {
     bot_percent: number | null;
@@ -99,6 +108,12 @@ type RadarDashboard = {
     scope_strategy?: string;
     scope_direction?: string;
     flow_filter_strategy?: string;
+  };
+  source_as_distribution?: {
+    rows: SourceAsPoint[];
+    scope_label: string;
+    range_label: string;
+    source: string;
   };
   warnings: string[];
   filters?: {
@@ -472,6 +487,7 @@ function buildAnalystInsights(data: RadarDashboard) {
   const topTarget = data.attack_geography?.targets?.[0];
   const topFlow = data.attack_geography?.flows?.[0];
   const topMitigation = data.layer7_mitigation_mix?.[0];
+  const topSourceAs = data.source_as_distribution?.rows?.[0];
   const scopeLabel = data.filters?.scope_label || "Worldwide";
 
   if (scopeLabel !== "Worldwide") {
@@ -501,6 +517,10 @@ function buildAnalystInsights(data: RadarDashboard) {
 
   if (topFlow) {
     insights.push(`Strongest country attack flow: ${flowDisplayLabel(topFlow)} at ${formatCompact(topFlow.value)}%.`);
+  }
+
+  if (topSourceAs) {
+    insights.push(`Top source AS in the Layer 7 distribution: ${topSourceAs.asn} ${topSourceAs.name} at ${formatPercent(topSourceAs.value)}.`);
   }
 
   return insights.slice(0, 7);
@@ -860,6 +880,161 @@ function LocationBars({ data }: { data: LocationPoint[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+type SourceAsTreemapCell = SourceAsPoint & {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+};
+
+function sourceAsDisplayName(row: SourceAsPoint) {
+  return `${row.asn} ${row.name}`.trim();
+}
+
+function layoutTreemapRows(rows: SourceAsPoint[], x: number, y: number, width: number, height: number, depth = 0): SourceAsTreemapCell[] {
+  if (!rows.length) return [];
+  if (rows.length === 1) {
+    return [{ ...rows[0], x, y, width, height, color: attackPalette[depth % attackPalette.length] }];
+  }
+
+  const total = rows.reduce((sum, row) => sum + Math.max(row.value, 0), 0) || 1;
+  let cursor = 0;
+  let splitIndex = 1;
+
+  for (let index = 0; index < rows.length - 1; index += 1) {
+    cursor += Math.max(rows[index].value, 0);
+    splitIndex = index + 1;
+    if (cursor >= total / 2) break;
+  }
+
+  const first = rows.slice(0, splitIndex);
+  const second = rows.slice(splitIndex);
+  const firstTotal = first.reduce((sum, row) => sum + Math.max(row.value, 0), 0);
+  const ratio = Math.min(0.82, Math.max(0.18, firstTotal / total));
+
+  if (width >= height) {
+    const firstWidth = width * ratio;
+    return [...layoutTreemapRows(first, x, y, firstWidth, height, depth), ...layoutTreemapRows(second, x + firstWidth, y, width - firstWidth, height, depth + 1)];
+  }
+
+  const firstHeight = height * ratio;
+  return [...layoutTreemapRows(first, x, y, width, firstHeight, depth), ...layoutTreemapRows(second, x, y + firstHeight, width, height - firstHeight, depth + 1)];
+}
+
+function sourceAsTreemapCells(rows: SourceAsPoint[]) {
+  const visible = rows.slice(0, 20);
+  const hidden = rows.slice(20);
+  const hiddenTotal = hidden.reduce((sum, row) => sum + row.value, 0);
+  const treemapRows =
+    hiddenTotal > 0
+      ? [
+          ...visible,
+          {
+            rank: visible.length + 1,
+            asn: "Other",
+            name: `${hidden.length} smaller source ASes`,
+            label: "Other source ASes",
+            value: Number(hiddenTotal.toFixed(2)),
+          },
+        ]
+      : visible;
+
+  return layoutTreemapRows(treemapRows, 0, 0, 100, 100);
+}
+
+function SourceAsDistributionPanel({ data, scopeLabel }: { data?: RadarDashboard["source_as_distribution"]; scopeLabel: string }) {
+  const rows = data?.rows || [];
+  const cells = sourceAsTreemapCells(rows);
+  const maxValue = Math.max(...rows.map((row) => row.value), 1);
+  const topRows = rows.slice(0, 6);
+
+  return (
+    <Panel eyebrow="Source AS distribution" title={`Application layer DDoS source AS distribution / ${scopeLabel}`}>
+      <div className="mb-4 flex flex-col gap-3 text-sm leading-6 text-haze lg:flex-row lg:items-center lg:justify-between">
+        <p>Share of application-layer attack source autonomous systems from Cloudflare Radar.</p>
+        <a
+          href="https://radar.cloudflare.com/reports"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex w-fit items-center rounded-md border border-signal/30 bg-signal/10 px-3 py-2 font-mono text-xs uppercase text-signal transition hover:border-signal/70 hover:bg-signal/15"
+        >
+          Read latest DDoS report
+        </a>
+      </div>
+
+      {!rows.length ? (
+        <div className="grid min-h-[260px] place-items-center rounded-lg border border-white/10 bg-black/25 p-6 text-center text-haze">
+          <div>
+            <Network className="mx-auto text-signal" size={28} />
+            <p className="mt-3 font-semibold text-white">Source AS distribution unavailable.</p>
+            <p className="mt-2 text-sm">Radar did not return source AS rows for this scope and time range.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.35fr)_360px]">
+          <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+            <div className="relative h-[420px] overflow-hidden rounded-md border border-white/10 bg-[#07100d] shadow-[inset_0_0_55px_rgba(103,232,249,0.06)]">
+              {cells.map((cell, index) => {
+                const compact = cell.width < 13 || cell.height < 12;
+                const tiny = cell.width < 8 || cell.height < 8;
+
+                return (
+                  <button
+                    key={`${cell.asn}-${cell.name}-${index}`}
+                    type="button"
+                    className="absolute overflow-hidden border border-black/70 p-2 text-left transition hover:z-10 hover:scale-[1.015] hover:border-signal/60 focus:z-10 focus:outline-none focus:ring-2 focus:ring-signal"
+                    style={{
+                      left: `${cell.x}%`,
+                      top: `${cell.y}%`,
+                      width: `${cell.width}%`,
+                      height: `${cell.height}%`,
+                      background: `linear-gradient(135deg, ${cell.color}d9, rgba(213,255,218,0.68))`,
+                      color: "#020403",
+                    }}
+                    title={`${sourceAsDisplayName(cell)}: ${formatPercent(cell.value)}`}
+                  >
+                    {!tiny && (
+                      <span className="flex h-full flex-col justify-center">
+                        <span className={`block font-semibold leading-tight ${compact ? "text-xs" : "text-lg"}`}>{cell.asn}</span>
+                        {!compact && <span className="mt-1 line-clamp-2 text-xs font-medium leading-tight">{cell.name}</span>}
+                        <span className={`mt-1 font-mono font-semibold ${compact ? "text-[10px]" : "text-xs"}`}>{formatPercent(cell.value)}</span>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 font-mono text-xs text-haze">
+              <span>0%</span>
+              <span className="h-3 rounded-full bg-gradient-to-r from-[#dff8db] via-[#67e8f9] to-[#0f4c93]" />
+              <span>{formatPercent(maxValue)}</span>
+            </div>
+          </div>
+
+          <div className="grid content-start gap-2 rounded-lg border border-white/10 bg-black/25 p-4">
+            <p className="font-mono text-xs uppercase text-signal">Top source ASes</p>
+            {topRows.map((row, index) => (
+              <div key={`${row.asn}-${row.name}`} className="grid gap-2 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block font-semibold text-white">{row.asn}</span>
+                    <span className="mt-0.5 block truncate text-xs text-haze">{row.name}</span>
+                  </span>
+                  <span className="font-mono text-xs text-haze">{formatPercent(row.value)}</span>
+                </div>
+                <span className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <span className="block h-full rounded-full" style={{ width: `${Math.max(5, (row.value / maxValue) * 100)}%`, backgroundColor: attackPalette[index % attackPalette.length] }} />
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -1905,6 +2080,8 @@ export function GlobalThreatDashboardPage() {
                   overview={<SignalOverviewPanel data={data} severity={severity} severityClass={severityClass} />}
                   onModeChange={setAttackGeoTab}
                 />
+
+                <SourceAsDistributionPanel data={data.source_as_distribution} scopeLabel={data.filters?.scope_label || scope.label} />
 
                 <Panel eyebrow="Layer 7 attack volume" title={`Application attack trend / ${data.filters?.scope_label || scope.label}`}>
                   <LineChart data={activeTrend} tone="trace" compact selectedIndex={selectedPoint ?? Math.max(activeTrend.length - 1, 0)} onSelect={setSelectedPoint} />
