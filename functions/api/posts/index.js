@@ -21,6 +21,6 @@ export async function onRequestGet({ env }) {
       "Cache-Control": "public, max-age=60",
     });
   } catch (error) {
-    return problem(error instanceof Error ? error.message : "Unable to load posts.", 500);
+    return problem("Unable to load posts.", 500);
   }
 }

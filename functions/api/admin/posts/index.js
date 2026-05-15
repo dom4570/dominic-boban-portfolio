@@ -1,7 +1,7 @@
 import { getDatabase, json, normalizePost, problem, readPostInput, requireAdmin } from "../../../../server/blog-utils.js";
 
 export async function onRequestGet({ request, env }) {
-  const authError = requireAdmin(request, env);
+  const authError = await requireAdmin(request, env);
   if (authError) return authError;
 
   const database = getDatabase(env);
@@ -19,7 +19,7 @@ export async function onRequestGet({ request, env }) {
 }
 
 export async function onRequestPost({ request, env }) {
-  const authError = requireAdmin(request, env);
+  const authError = await requireAdmin(request, env);
   if (authError) return authError;
 
   const database = getDatabase(env);
