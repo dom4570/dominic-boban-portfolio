@@ -56,10 +56,10 @@ const appLaunchers = [
     meta: "Cloudflare Radar telemetry",
   },
   {
-    label: "Live Threat Origin Map",
+    label: "Daily Top 50 Threat Map",
     href: "/live-threat-map",
     icon: Globe2,
-    meta: "AbuseIPDB source geolocation",
+    meta: "24h AbuseIPDB source ranking",
   },
   {
     label: "Identity Exposure Scanner",

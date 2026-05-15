@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type ThreatPoint = {
   id: string;
+  rank: number;
   ip: string;
   latitude: number;
   longitude: number;
@@ -36,11 +37,16 @@ type ThreatPoint = {
 
 type ThreatOriginResponse = {
   mode: "live" | "fallback";
+  cache_status: "fresh" | "cached" | "stale" | "fallback";
   generated_at: string;
+  cache_expires_at: string | null;
+  next_refresh_at: string | null;
   source: string;
   points: ThreatPoint[];
   warnings: string[];
 };
+
+const MAX_DAILY_POINTS = 50;
 
 function escapeHtml(value: unknown) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => {
@@ -66,7 +72,7 @@ function readJson<T>(response: Response): Promise<T> {
   });
 }
 
-function formatDate(value: string) {
+function formatDate(value: string | null | undefined) {
   if (!value || value === "Demo data") return value || "Unknown";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -87,14 +93,24 @@ function formatLocation(point: ThreatPoint) {
   return [city, country].filter(Boolean).join(", ");
 }
 
-function scoreTone(score: number) {
-  if (score >= 95) return "#ff2a3d";
-  if (score >= 85) return "#fcee0a";
+function cacheStatusLabel(status: ThreatOriginResponse["cache_status"] | undefined) {
+  if (status === "fresh") return "Fresh daily snapshot";
+  if (status === "cached") return "Cached daily snapshot";
+  if (status === "stale") return "Stale daily snapshot";
+  if (status === "fallback") return "Demo fallback";
+  return "Loading";
+}
+
+function rankTone(rank: number) {
+  if (rank <= 10) return "#ff2a3d";
+  if (rank <= 25) return "#fcee0a";
   return "#22d3ee";
 }
 
-function markerSize(score: number) {
-  return Math.max(16, Math.min(28, 14 + score / 7));
+function markerSize(rank: number) {
+  if (rank <= 10) return 28;
+  if (rank <= 25) return 22;
+  return 18;
 }
 
 function tooltipHtml(point: ThreatPoint) {
@@ -110,7 +126,7 @@ function tooltipHtml(point: ThreatPoint) {
       <div class="threat-map-tooltip__ip">${escapeHtml(point.ip)}</div>
       <div class="threat-map-tooltip__location">${escapeHtml(formatLocation(point))}</div>
       <div class="threat-map-tooltip__grid">
-        <span>Confidence</span><strong>${escapeHtml(point.abuse_confidence_score)}%</strong>
+        <span>Daily rank</span><strong>#${escapeHtml(point.rank || "?")}</strong>
         <span>Last report</span><strong>${escapeHtml(formatDate(point.last_reported_at))}</strong>
         <span>Network</span><strong>${escapeHtml(network)}</strong>
       </div>
@@ -123,7 +139,7 @@ function StatBlock({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-white/10 bg-black/25 p-4">
       <p className="font-mono text-[11px] uppercase text-haze">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
+      <p className="mt-2 break-words text-xl font-semibold leading-tight text-white">{value}</p>
     </div>
   );
 }
@@ -161,19 +177,14 @@ export function LiveThreatMapPage() {
   const points = data?.points || [];
   const selectedPoint = points.find((point) => point.id === selectedId) || points[0] || null;
   const countryCount = useMemo(() => new Set(points.map((point) => point.country_code || point.country).filter(Boolean)).size, [points]);
-  const averageScore = useMemo(() => {
-    if (!points.length) return "N/A";
-    const total = points.reduce((sum, point) => sum + point.abuse_confidence_score, 0);
-    return `${Math.round(total / points.length)}%`;
-  }, [points]);
-  const topScore = points.length ? `${Math.max(...points.map((point) => point.abuse_confidence_score))}%` : "N/A";
+  const refreshCycle = data?.mode === "live" ? "24h" : "Demo";
+  const nextRefresh = data?.next_refresh_at ? formatDate(data.next_refresh_at) : "Not scheduled";
 
   const loadThreatOrigins = () => {
     setLoading(true);
     setError("");
 
     fetch("/api/abuse-origin-map", {
-      cache: "no-store",
       headers: {
         Accept: "application/json",
       },
@@ -239,13 +250,14 @@ export function LiveThreatMapPage() {
     const bounds = L.latLngBounds([]);
 
     points.forEach((point) => {
-      const color = scoreTone(point.abuse_confidence_score);
-      const size = `${markerSize(point.abuse_confidence_score)}px`;
+      const color = rankTone(point.rank || MAX_DAILY_POINTS);
+      const sizeValue = markerSize(point.rank || MAX_DAILY_POINTS);
+      const size = `${sizeValue}px`;
       const icon = L.divIcon({
         className: "",
         html: `<span class="threat-pulse-marker" style="--marker-color:${color};--marker-size:${size}"></span>`,
-        iconAnchor: [markerSize(point.abuse_confidence_score) / 2, markerSize(point.abuse_confidence_score) / 2],
-        iconSize: [markerSize(point.abuse_confidence_score), markerSize(point.abuse_confidence_score)],
+        iconAnchor: [sizeValue / 2, sizeValue / 2],
+        iconSize: [sizeValue, sizeValue],
       });
       const marker = L.marker([point.latitude, point.longitude], {
         icon,
@@ -289,7 +301,7 @@ export function LiveThreatMapPage() {
         </a>
         <span className="inline-flex items-center gap-2 rounded-md border border-signal/25 bg-signal/10 px-3 py-2 font-mono text-xs uppercase text-signal">
           <Radar size={15} />
-          AbuseIPDB source map
+          Daily Top 50
         </span>
       </nav>
 
@@ -297,22 +309,24 @@ export function LiveThreatMapPage() {
         <header className="rounded-lg border border-white/10 bg-obsidian/82 p-5 shadow-glow backdrop-blur-xl md:p-6">
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
             <div>
-              <p className="font-mono text-xs uppercase text-signal">Reported abusive IP geolocation</p>
+              <p className="font-mono text-xs uppercase text-signal">Daily Top 50 AbuseIPDB sources</p>
               <h1 className="mt-2 max-w-4xl text-3xl font-semibold leading-tight text-white md:text-5xl">
-                Live Threat Origin Map.
+                Daily Top 50 Threat Origin Map.
               </h1>
               <p className="mt-4 max-w-3xl text-base leading-8 text-haze">
-                Pulsing points show the approximate geo-IP locations of recently reported abusive sources from AbuseIPDB. They are not confirmed victim locations or live attacks against this portfolio.
+                Pulsing points show the approximate geo-IP locations of the daily cached AbuseIPDB blacklist snapshot. They are reported abusive source locations, not confirmed victim locations or live attacks against this portfolio.
               </p>
             </div>
             <div className={`rounded-lg border p-4 ${data?.mode === "live" ? "border-signal/35 bg-signal/10" : "border-volt/35 bg-volt/10"}`}>
               <div className={`mb-2 flex items-center gap-2 font-mono text-[11px] uppercase ${data?.mode === "live" ? "text-signal" : "text-volt"}`}>
                 <ShieldAlert size={16} />
-                {data?.mode === "live" ? "Live provider data" : loading ? "Checking provider" : "Demo fallback"}
+                {cacheStatusLabel(data?.cache_status)}
               </div>
-              <p className="text-sm leading-6 text-haze">
-                Generated {data?.generated_at ? formatDate(data.generated_at) : "after provider response"}.
-              </p>
+              <div className="grid gap-2 text-sm leading-6 text-haze">
+                <p>Refreshes every 24 hours.</p>
+                <p>Last updated {formatDate(data?.generated_at)}.</p>
+                <p>Next refresh {nextRefresh}.</p>
+              </div>
             </div>
           </div>
         </header>
@@ -332,7 +346,7 @@ export function LiveThreatMapPage() {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
               <div className="flex items-center gap-2 font-mono text-xs uppercase text-signal">
                 <Globe2 size={16} />
-                Source geolocation layer
+                Daily source geolocation layer
               </div>
               <button
                 type="button"
@@ -341,7 +355,7 @@ export function LiveThreatMapPage() {
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm font-medium text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? <Loader2 className="animate-spin" size={15} /> : <RotateCcw size={15} />}
-                Refresh
+                Reload cache
               </button>
             </div>
             <div className="relative">
@@ -354,8 +368,8 @@ export function LiveThreatMapPage() {
             <div className="grid grid-cols-2 gap-3">
               <StatBlock label="Mapped IPs" value={String(points.length)} />
               <StatBlock label="Countries" value={String(countryCount)} />
-              <StatBlock label="Avg score" value={averageScore} />
-              <StatBlock label="Top score" value={topScore} />
+              <StatBlock label="Refresh cycle" value={refreshCycle} />
+              <StatBlock label="Next refresh" value={nextRefresh} />
             </div>
 
             {selectedPoint ? (
@@ -368,8 +382,8 @@ export function LiveThreatMapPage() {
                 <p className="mt-2 leading-6 text-haze">{formatLocation(selectedPoint)}</p>
                 <div className="mt-4 grid gap-3 text-sm">
                   <div className="flex justify-between gap-4">
-                    <span className="text-haze">Confidence</span>
-                    <strong className="text-white">{selectedPoint.abuse_confidence_score}%</strong>
+                    <span className="text-haze">Daily rank</span>
+                    <strong className="text-white">#{selectedPoint.rank || "?"}</strong>
                   </div>
                   <div className="flex justify-between gap-4">
                     <span className="text-haze">Last report</span>
@@ -385,16 +399,15 @@ export function LiveThreatMapPage() {
 
             <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="font-mono text-xs uppercase text-signal">Highest confidence</p>
+                <p className="font-mono text-xs uppercase text-signal">Daily Top 50 ranking</p>
                 <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[11px] uppercase text-haze">
-                  {data?.mode || "loading"}
+                  {data?.cache_status || "loading"}
                 </span>
               </div>
               <div className="max-h-[410px] space-y-2 overflow-y-auto pr-1">
                 {points
                   .slice()
-                  .sort((left, right) => right.abuse_confidence_score - left.abuse_confidence_score)
-                  .slice(0, 12)
+                  .sort((left, right) => (left.rank || MAX_DAILY_POINTS) - (right.rank || MAX_DAILY_POINTS))
                   .map((point) => (
                     <button
                       key={point.id}
@@ -411,8 +424,8 @@ export function LiveThreatMapPage() {
                           <span className="block truncate text-sm font-semibold text-white">{point.ip}</span>
                           <span className="mt-1 block truncate text-xs text-haze">{formatLocation(point)}</span>
                         </span>
-                        <span className="shrink-0 rounded-md px-2 py-1 text-sm font-semibold text-obsidian" style={{ backgroundColor: scoreTone(point.abuse_confidence_score) }}>
-                          {point.abuse_confidence_score}%
+                        <span className="shrink-0 rounded-md px-2 py-1 text-sm font-semibold text-obsidian" style={{ backgroundColor: rankTone(point.rank || MAX_DAILY_POINTS) }}>
+                          #{point.rank || "?"}
                         </span>
                       </span>
                     </button>
