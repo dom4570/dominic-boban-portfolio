@@ -1,6 +1,7 @@
 const ABUSEIPDB_BLACKLIST_URL = "https://api.abuseipdb.com/api/v2/blacklist";
 const IP_API_BATCH_URL = "http://ip-api.com/batch";
-const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_TTL_SECONDS = Math.floor(CACHE_TTL_MS / 1000);
 const POINT_LIMIT = 50;
 const DEFAULT_CONFIDENCE_MINIMUM = 90;
 
@@ -115,7 +116,7 @@ function json(data, status = 200, headers = {}) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": data?.mode === "live" ? "public, max-age=120" : "no-store",
+      "Cache-Control": data?.mode === "live" ? `public, max-age=${CACHE_TTL_SECONDS}` : "no-store",
       ...headers,
     },
   });
@@ -146,13 +147,36 @@ function isUsableCoordinate(lat, lon) {
   return typeof lat === "number" && typeof lon === "number" && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }
 
+function isoFromTime(time) {
+  return new Date(time).toISOString();
+}
+
 function fallbackPayload(warning) {
   return {
     mode: "fallback",
+    cache_status: "fallback",
     generated_at: new Date().toISOString(),
+    cache_expires_at: null,
+    next_refresh_at: null,
     source: "fallback_demo",
-    points: fallbackPoints,
+    points: fallbackPoints.map((point, index) => ({ ...point, rank: index + 1 })),
     warnings: [warning],
+  };
+}
+
+function cachedResponse(cacheStatus, warning) {
+  const warnings = [...(cachedPayload?.warnings || [])];
+
+  if (warning) {
+    warnings.push(warning);
+  }
+
+  return {
+    ...cachedPayload,
+    cache_status: cacheStatus,
+    cache_expires_at: isoFromTime(cachedUntil),
+    next_refresh_at: isoFromTime(cachedUntil),
+    warnings,
   };
 }
 
@@ -187,6 +211,7 @@ async function fetchAbuseIpdbBlacklist(apiKey) {
     if (!ip || unique.has(ip)) return;
 
     unique.set(ip, {
+      rank: unique.size + 1,
       ip,
       abuse_confidence_score: Math.max(0, Math.min(100, numberOrNull(row?.abuseConfidenceScore) ?? 0)),
       last_reported_at: cleanString(row?.lastReportedAt, "", 80),
@@ -231,6 +256,7 @@ function normalizePoint(row, geo, index) {
   }
 
   return {
+    rank: numberOrNull(row.rank) || index + 1,
     id: `${cleanString(row.ip, "ip")}-${index}`,
     ip: row.ip,
     latitude,
@@ -253,14 +279,14 @@ function normalizePoint(row, geo, index) {
 }
 
 async function buildLivePayload(env) {
+  const now = Date.now();
+  if (cachedPayload && cachedUntil > now) {
+    return cachedResponse(cachedPayload.cache_status === "stale" ? "stale" : "cached");
+  }
+
   const apiKey = cleanString(env?.ABUSEIPDB_API_KEY, "", 256);
   if (!apiKey) {
     return fallbackPayload("ABUSEIPDB_API_KEY is not configured. Showing demo source locations.");
-  }
-
-  const now = Date.now();
-  if (cachedPayload && cachedUntil > now) {
-    return cachedPayload;
   }
 
   const blacklist = await fetchAbuseIpdbBlacklist(apiKey);
@@ -285,16 +311,19 @@ async function buildLivePayload(env) {
     return fallbackPayload("Geo-IP returned no usable coordinates. Showing demo source locations.");
   }
 
+  cachedUntil = now + CACHE_TTL_MS;
   const payload = {
     mode: "live",
+    cache_status: "fresh",
     generated_at: blacklist.generated_at || new Date().toISOString(),
+    cache_expires_at: isoFromTime(cachedUntil),
+    next_refresh_at: isoFromTime(cachedUntil),
     source: "abuseipdb_blacklist",
     points,
     warnings,
   };
 
   cachedPayload = payload;
-  cachedUntil = now + CACHE_TTL_MS;
 
   return payload;
 }
@@ -308,6 +337,12 @@ export async function handleAbuseOriginMapRequest(request, env = {}) {
     return json(await buildLivePayload(env));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Threat origin providers are temporarily unavailable.";
+    if (cachedPayload?.mode === "live") {
+      cachedUntil = Date.now() + CACHE_TTL_MS;
+      cachedPayload = cachedResponse("stale", `Live refresh failed, so the last daily snapshot is still being shown. ${message}`);
+      return json(cachedPayload);
+    }
+
     return json(fallbackPayload(message));
   }
 }

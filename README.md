@@ -26,9 +26,9 @@ Security notes:
 - Successful Radar responses are cached briefly at the edge to reduce API usage.
 - Radar data is aggregated/anonymized internet trend data, not individual live attack events.
 
-## Live Threat Origin Map
+## Daily Top 50 Threat Map
 
-The `/live-threat-map` page shows approximate geo-IP locations for AbuseIPDB-reported abusive IP sources.
+The `/live-threat-map` page shows approximate geo-IP locations for the daily top 50 AbuseIPDB-reported abusive IP sources.
 It intentionally uses pulsing dots instead of destination lines because AbuseIPDB does not identify victim or target locations.
 
 Runtime configuration:
@@ -41,4 +41,5 @@ Security notes:
 
 - The AbuseIPDB key is read only by `/api/abuse-origin-map`.
 - The key is never exposed to frontend code.
+- The blacklist feed is cached for 24 hours, so normal page reloads do not spend more AbuseIPDB quota.
 - If AbuseIPDB or geo-IP lookup is unavailable, the page shows clearly labelled demo fallback points.
