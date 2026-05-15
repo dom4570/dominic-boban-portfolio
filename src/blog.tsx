@@ -343,7 +343,6 @@ export function BlogPostPage({ slug }: { slug: string }) {
           <h1 className="micro-glitch-heading mt-5 text-5xl font-semibold leading-tight text-white md:text-7xl" data-text={post.title}>{post.title}</h1>
           <p className="mt-6 text-xl leading-8 text-haze">{post.summary}</p>
         </header>
-        {post.cover_image_url ? <img src={post.cover_image_url} alt="" className="mt-10 aspect-[21/9] w-full rounded-lg border border-white/10 object-cover shadow-glow" /> : null}
         <div className="mx-auto mt-12 max-w-4xl">
           <MarkdownView content={post.content_md} />
         </div>
