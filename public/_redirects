@@ -4,5 +4,7 @@
 /blog/* / 200
 /identity-exposure-scanner / 200
 /identity-exposure-scanner/* / 200
+/live-threat-map / 200
+/live-threat-map/* / 200
 /admin / 200
 /admin/* / 200

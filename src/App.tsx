@@ -11,6 +11,7 @@ import {
   ExternalLink,
   FileSearch,
   Github,
+  Globe2,
   GraduationCap,
   Linkedin,
   Mail,
@@ -34,6 +35,7 @@ const BlogPostPage = lazy(() => import("./blog").then((module) => ({ default: mo
 const AdminPage = lazy(() => import("./blog").then((module) => ({ default: module.AdminPage })));
 const EmailScannerPage = lazy(() => import("./emailScanner").then((module) => ({ default: module.EmailScannerPage })));
 const GlobalThreatDashboardPage = lazy(() => import("./globalThreatDashboard").then((module) => ({ default: module.GlobalThreatDashboardPage })));
+const LiveThreatMapPage = lazy(() => import("./liveThreatMap").then((module) => ({ default: module.LiveThreatMapPage })));
 
 type IconType = typeof Shield;
 
@@ -52,6 +54,12 @@ const appLaunchers = [
     href: "/global-threat-dashboard",
     icon: Radar,
     meta: "Cloudflare Radar telemetry",
+  },
+  {
+    label: "Live Threat Origin Map",
+    href: "/live-threat-map",
+    icon: Globe2,
+    meta: "AbuseIPDB source geolocation",
   },
   {
     label: "Identity Exposure Scanner",
@@ -506,7 +514,7 @@ function Hero() {
         </a>
       </nav>
 
-      <div className="relative z-20 mx-auto mt-4 grid max-w-7xl gap-3 md:grid-cols-3">
+      <div className="relative z-20 mx-auto mt-4 grid max-w-7xl gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {appLaunchers.map((item) => {
           const Icon = item.icon;
 
@@ -1055,10 +1063,13 @@ function RouteLoadingShell() {
 
 export default function App() {
   const path = useCurrentPath();
-  const isGlobalThreatDashboard = path.replace(/\/$/, "") === "/global-threat-dashboard";
+  const normalizedPath = path.replace(/\/$/, "");
+  const isFullScreenTool = normalizedPath === "/global-threat-dashboard" || normalizedPath === "/live-threat-map";
 
   useEffect(() => {
-    if (path.replace(/\/$/, "") === "/global-threat-dashboard") {
+    const normalized = path.replace(/\/$/, "");
+
+    if (normalized === "/global-threat-dashboard" || normalized === "/live-threat-map") {
       document.body.classList.remove("is-signal-jitter");
       return;
     }
@@ -1119,8 +1130,6 @@ export default function App() {
       return <AdminPage path={path} />;
     }
 
-    const normalizedPath = path.replace(/\/$/, "");
-
     if (normalizedPath === "/identity-exposure-scanner" || normalizedPath === "/email-scanner") {
       return <EmailScannerPage />;
     }
@@ -1129,13 +1138,17 @@ export default function App() {
       return <GlobalThreatDashboardPage />;
     }
 
+    if (normalizedPath === "/live-threat-map") {
+      return <LiveThreatMapPage />;
+    }
+
     return <PortfolioHome />;
   };
 
   return (
     <>
       <main className="min-h-screen overflow-x-hidden bg-obsidian text-white">
-        {!isGlobalThreatDashboard && <AmbientGlitchLayer />}
+        {!isFullScreenTool && <AmbientGlitchLayer />}
         <Suspense fallback={<RouteLoadingShell />}>{renderRoute()}</Suspense>
         <SiteFooter />
       </main>
