@@ -1,39 +1,11 @@
 const ABUSEIPDB_BLACKLIST_URL = "https://api.abuseipdb.com/api/v2/blacklist";
-const ABUSEIPDB_CHECK_URL = "https://api.abuseipdb.com/api/v2/check";
 const IP_API_BATCH_URL = "http://ip-api.com/batch";
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
 const POINT_LIMIT = 50;
 const DEFAULT_CONFIDENCE_MINIMUM = 90;
-const REPORT_LIMIT = 10;
 
 let cachedPayload = null;
 let cachedUntil = 0;
-const detailCache = new Map();
-
-const categoryLabels = {
-  3: "Fraud Orders",
-  4: "DDoS Attack",
-  5: "FTP Brute-Force",
-  6: "Ping of Death",
-  7: "Phishing",
-  8: "Fraud VoIP",
-  9: "Open Proxy",
-  10: "Web Spam",
-  11: "Email Spam",
-  12: "Blog Spam",
-  13: "VPN IP",
-  14: "Port Scan",
-  15: "Hacking",
-  16: "SQL Injection",
-  17: "Spoofing",
-  18: "Brute-Force",
-  19: "Bad Web Bot",
-  20: "Exploited Host / possible malware-compromised host",
-  21: "Web App Attack",
-  22: "SSH",
-  23: "IoT Targeted",
-};
 
 const fallbackPoints = [
   {
@@ -55,7 +27,6 @@ const fallbackPoints = [
     proxy: false,
     mobile: false,
     source: "fallback_demo",
-    usage_type: "Data center/web hosting/transit",
   },
   {
     id: "demo-frankfurt",
@@ -76,7 +47,6 @@ const fallbackPoints = [
     proxy: true,
     mobile: false,
     source: "fallback_demo",
-    usage_type: "Data center/web hosting/transit",
   },
   {
     id: "demo-singapore",
@@ -97,7 +67,6 @@ const fallbackPoints = [
     proxy: false,
     mobile: false,
     source: "fallback_demo",
-    usage_type: "Data center/web hosting/transit",
   },
   {
     id: "demo-sao-paulo",
@@ -118,7 +87,6 @@ const fallbackPoints = [
     proxy: false,
     mobile: false,
     source: "fallback_demo",
-    usage_type: "Fixed line ISP",
   },
   {
     id: "demo-toronto",
@@ -139,7 +107,6 @@ const fallbackPoints = [
     proxy: true,
     mobile: false,
     source: "fallback_demo",
-    usage_type: "Fixed line ISP",
   },
 ];
 
@@ -161,10 +128,6 @@ function cleanString(value, fallback = "", maxLength = 160) {
     .slice(0, maxLength);
 }
 
-function cleanComment(value) {
-  return cleanString(value, "", 260);
-}
-
 function cleanCountryCode(value) {
   const code = cleanString(value, "", 4).toUpperCase();
   return /^[A-Z]{2}$/.test(code) ? code : "";
@@ -177,14 +140,6 @@ function numberOrNull(value) {
 
 function booleanValue(value) {
   return value === true;
-}
-
-function isValidIp(value) {
-  const ip = cleanString(value, "", 80);
-  return (
-    /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) ||
-    /^[0-9a-f:]{3,45}$/i.test(ip)
-  );
 }
 
 function isUsableCoordinate(lat, lon) {
@@ -204,41 +159,6 @@ function fallbackPayload(warning) {
 function upstreamMessage(body, fallback) {
   const detail = body?.errors?.[0]?.detail || body?.message || body?.error;
   return cleanString(detail, fallback, 220);
-}
-
-function categoryLabel(categoryId) {
-  const id = Number(categoryId);
-  return categoryLabels[id] || `Category ${id}`;
-}
-
-function normalizeCategories(categoryIds) {
-  const categories = new Map();
-
-  (Array.isArray(categoryIds) ? categoryIds : []).forEach((category) => {
-    const id = Number(typeof category === "object" && category !== null ? category.id : category);
-    if (!Number.isFinite(id)) return;
-
-    categories.set(id, {
-      id,
-      label: typeof category === "object" && category !== null && category.label ? cleanString(category.label, categoryLabel(id), 120) : categoryLabel(id),
-    });
-  });
-
-  return Array.from(categories.values());
-}
-
-function aggregateCategories(reports) {
-  const counts = new Map();
-
-  reports.forEach((report) => {
-    normalizeCategories(report.categories).forEach((category) => {
-      const existing = counts.get(category.id) || { ...category, count: 0 };
-      existing.count += 1;
-      counts.set(category.id, existing);
-    });
-  });
-
-  return Array.from(counts.values()).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 }
 
 async function fetchAbuseIpdbBlacklist(apiKey) {
@@ -268,11 +188,10 @@ async function fetchAbuseIpdbBlacklist(apiKey) {
 
     unique.set(ip, {
       ip,
-        abuse_confidence_score: Math.max(0, Math.min(100, numberOrNull(row?.abuseConfidenceScore) ?? 0)),
-        last_reported_at: cleanString(row?.lastReportedAt, "", 80),
-        abuse_country_code: cleanCountryCode(row?.countryCode),
-        usage_type: cleanString(row?.usageType, ""),
-      });
+      abuse_confidence_score: Math.max(0, Math.min(100, numberOrNull(row?.abuseConfidenceScore) ?? 0)),
+      last_reported_at: cleanString(row?.lastReportedAt, "", 80),
+      abuse_country_code: cleanCountryCode(row?.countryCode),
+    });
   });
 
   return {
@@ -330,100 +249,7 @@ function normalizePoint(row, geo, index) {
     proxy: booleanValue(geo?.proxy),
     mobile: booleanValue(geo?.mobile),
     source: "abuseipdb_blacklist",
-    usage_type: row.usage_type || cleanString(geo?.usageType, ""),
   };
-}
-
-async function fetchAbuseIpdbDetail(ip, apiKey) {
-  const url = new URL(ABUSEIPDB_CHECK_URL);
-  url.searchParams.set("ipAddress", ip);
-  url.searchParams.set("maxAgeInDays", "90");
-  url.searchParams.set("verbose", "");
-
-  const response = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/json",
-      Key: apiKey,
-      "User-Agent": "DominicBobanPortfolio/1.0 live-threat-map",
-    },
-  });
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok || body?.errors) {
-    throw new Error(upstreamMessage(body, "AbuseIPDB detail lookup is temporarily unavailable."));
-  }
-
-  return body?.data || {};
-}
-
-function unavailableDetail(ip, warning) {
-  return {
-    mode: "unavailable",
-    ip,
-    generated_at: new Date().toISOString(),
-    available: false,
-    total_reports: null,
-    distinct_reporters: null,
-    usage_type: "",
-    domain: "",
-    hostnames: [],
-    categories: [],
-    recent_reports: [],
-    warnings: [warning],
-  };
-}
-
-function normalizeDetail(ip, detail) {
-  const reports = Array.isArray(detail?.reports) ? detail.reports.slice(0, REPORT_LIMIT) : [];
-  const recentReports = reports.map((report, index) => ({
-    id: `${ip}-report-${index}`,
-    reported_at: cleanString(report?.reportedAt, "", 80),
-    comment: cleanComment(report?.comment),
-    categories: normalizeCategories(report?.categories),
-  }));
-
-  return {
-    mode: "live",
-    ip,
-    generated_at: new Date().toISOString(),
-    available: true,
-    total_reports: numberOrNull(detail?.totalReports),
-    distinct_reporters: numberOrNull(detail?.numDistinctUsers),
-    usage_type: cleanString(detail?.usageType, ""),
-    domain: cleanString(detail?.domain, ""),
-    hostnames: Array.isArray(detail?.hostnames) ? detail.hostnames.map((host) => cleanString(host, "", 120)).filter(Boolean).slice(0, 5) : [],
-    categories: aggregateCategories(recentReports),
-    recent_reports: recentReports,
-    warnings: reports.length ? [] : ["AbuseIPDB returned no verbose recent reports for this IP."],
-  };
-}
-
-async function buildDetailPayload(request, env) {
-  const url = new URL(request.url);
-  const ip = cleanString(url.searchParams.get("ip"), "", 80);
-
-  if (!ip || !isValidIp(ip)) {
-    return unavailableDetail(ip, "A valid IP address is required.");
-  }
-
-  const apiKey = cleanString(env?.ABUSEIPDB_API_KEY, "", 256);
-  if (!apiKey) {
-    return unavailableDetail(ip, "ABUSEIPDB_API_KEY is not configured. Detail lookup is unavailable.");
-  }
-
-  const now = Date.now();
-  const cached = detailCache.get(ip);
-  if (cached && cached.expiresAt > now) {
-    return cached.payload;
-  }
-
-  const payload = normalizeDetail(ip, await fetchAbuseIpdbDetail(ip, apiKey));
-  detailCache.set(ip, {
-    payload,
-    expiresAt: now + DETAIL_CACHE_TTL_MS,
-  });
-
-  return payload;
 }
 
 async function buildLivePayload(env) {
@@ -483,20 +309,5 @@ export async function handleAbuseOriginMapRequest(request, env = {}) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Threat origin providers are temporarily unavailable.";
     return json(fallbackPayload(message));
-  }
-}
-
-export async function handleAbuseOriginDetailRequest(request, env = {}) {
-  if (request.method !== "GET") {
-    return json({ message: "Method not allowed" }, 405, { Allow: "GET" });
-  }
-
-  try {
-    return json(await buildDetailPayload(request, env), 200, { "Cache-Control": "no-store" });
-  } catch (error) {
-    const url = new URL(request.url);
-    const ip = cleanString(url.searchParams.get("ip"), "", 80);
-    const message = error instanceof Error ? error.message : "Threat origin detail is temporarily unavailable.";
-    return json(unavailableDetail(ip, message), 200, { "Cache-Control": "no-store" });
   }
 }
