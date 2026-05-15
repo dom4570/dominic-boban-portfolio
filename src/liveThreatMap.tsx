@@ -48,20 +48,6 @@ type ThreatOriginResponse = {
 
 const MAX_DAILY_POINTS = 50;
 
-function escapeHtml(value: unknown) {
-  return String(value ?? "").replace(/[&<>"']/g, (character) => {
-    const entities: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;",
-    };
-
-    return entities[character] || character;
-  });
-}
-
 function readJson<T>(response: Response): Promise<T> {
   return response.json().then((body) => {
     if (!response.ok) {
@@ -111,28 +97,6 @@ function markerSize(rank: number) {
   if (rank <= 10) return 28;
   if (rank <= 25) return 22;
   return 18;
-}
-
-function tooltipHtml(point: ThreatPoint) {
-  const network = point.as_name || point.org || point.isp || "Network unknown";
-  const flags = [
-    point.hosting ? "Hosting" : "",
-    point.proxy ? "Proxy/VPN" : "",
-    point.mobile ? "Mobile" : "",
-  ].filter(Boolean);
-
-  return `
-    <div class="threat-map-tooltip__content">
-      <div class="threat-map-tooltip__ip">${escapeHtml(point.ip)}</div>
-      <div class="threat-map-tooltip__location">${escapeHtml(formatLocation(point))}</div>
-      <div class="threat-map-tooltip__grid">
-        <span>Daily rank</span><strong>#${escapeHtml(point.rank || "?")}</strong>
-        <span>Last report</span><strong>${escapeHtml(formatDate(point.last_reported_at))}</strong>
-        <span>Network</span><strong>${escapeHtml(network)}</strong>
-      </div>
-      ${flags.length ? `<div class="threat-map-tooltip__flags">${flags.map((flag) => `<span>${escapeHtml(flag)}</span>`).join("")}</div>` : ""}
-    </div>
-  `;
 }
 
 function StatBlock({ label, value }: { label: string; value: string }) {
@@ -263,12 +227,6 @@ export function LiveThreatMapPage() {
         icon,
         title: `${point.ip} / ${formatLocation(point)}`,
       })
-        .bindTooltip(tooltipHtml(point), {
-          className: "threat-map-tooltip",
-          direction: "top",
-          offset: [0, -10],
-          opacity: 0.98,
-        })
         .on("click", () => setSelectedId(point.id));
 
       marker.addTo(layer);
@@ -287,7 +245,6 @@ export function LiveThreatMapPage() {
   const focusPoint = (point: ThreatPoint) => {
     setSelectedId(point.id);
     mapRef.current?.setView([point.latitude, point.longitude], Math.max(mapRef.current.getZoom(), 4), { animate: true });
-    markerRefs.current.get(point.id)?.openTooltip();
   };
 
   return (
@@ -314,7 +271,7 @@ export function LiveThreatMapPage() {
                 Daily Top 50 Threat Origin Map.
               </h1>
               <p className="mt-4 max-w-3xl text-base leading-8 text-haze">
-                Pulsing points show the approximate geo-IP locations of the daily cached AbuseIPDB blacklist snapshot. They are reported abusive source locations, not confirmed victim locations or live attacks against this portfolio.
+                Pulsing points show the approximate geo-IP locations of the daily cached AbuseIPDB blacklist snapshot. They are reported abusive source locations.
               </p>
             </div>
             <div className={`rounded-lg border p-4 ${data?.mode === "live" ? "border-signal/35 bg-signal/10" : "border-volt/35 bg-volt/10"}`}>
@@ -341,70 +298,74 @@ export function LiveThreatMapPage() {
           </div>
         ) : null}
 
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.04]">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-              <div className="flex items-center gap-2 font-mono text-xs uppercase text-signal">
-                <Globe2 size={16} />
-                Daily source geolocation layer
+        <section className="grid gap-5">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.04]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+                <div className="flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                  <Globe2 size={16} />
+                  Daily source geolocation layer
+                </div>
+                <button
+                  type="button"
+                  onClick={loadThreatOrigins}
+                  disabled={loading}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm font-medium text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? <Loader2 className="animate-spin" size={15} /> : <RotateCcw size={15} />}
+                  Reload cache
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={loadThreatOrigins}
-                disabled={loading}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm font-medium text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? <Loader2 className="animate-spin" size={15} /> : <RotateCcw size={15} />}
-                Reload cache
-              </button>
+              <div className="relative">
+                <div ref={mapContainerRef} className="threat-origin-map h-[68vh] min-h-[460px] w-full" aria-label="Reported abusive IP source map" />
+                {(loading || (!points.length && error)) && <EmptyMapState loading={loading} error={error} />}
+              </div>
             </div>
-            <div className="relative">
-              <div ref={mapContainerRef} className="threat-origin-map h-[68vh] min-h-[460px] w-full" aria-label="Reported abusive IP source map" />
-              {(loading || (!points.length && error)) && <EmptyMapState loading={loading} error={error} />}
-            </div>
+
+            <aside className="grid content-start gap-4">
+              <div className="grid grid-cols-2 gap-3">
+                <StatBlock label="Mapped IPs" value={String(points.length)} />
+                <StatBlock label="Countries" value={String(countryCount)} />
+                <StatBlock label="Refresh cycle" value={refreshCycle} />
+                <StatBlock label="Next refresh" value={nextRefresh} />
+              </div>
+
+              {selectedPoint ? (
+                <div className="rounded-lg border border-signal/25 bg-signal/10 p-4">
+                  <div className="mb-3 flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                    <MapPin size={16} />
+                    Selected source
+                  </div>
+                  <h2 className="text-xl font-semibold text-white">{selectedPoint.ip}</h2>
+                  <p className="mt-2 leading-6 text-haze">{formatLocation(selectedPoint)}</p>
+                  <div className="mt-4 grid gap-3 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-haze">Daily rank</span>
+                      <strong className="text-white">#{selectedPoint.rank || "?"}</strong>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-haze">Last report</span>
+                      <strong className="text-right text-white">{formatDate(selectedPoint.last_reported_at)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-haze">Network</span>
+                      <p className="mt-1 text-white">{selectedPoint.as_name || selectedPoint.org || selectedPoint.isp || "Unknown network"}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </aside>
           </div>
 
-          <aside className="grid gap-4">
-            <div className="grid grid-cols-2 gap-3">
-              <StatBlock label="Mapped IPs" value={String(points.length)} />
-              <StatBlock label="Countries" value={String(countryCount)} />
-              <StatBlock label="Refresh cycle" value={refreshCycle} />
-              <StatBlock label="Next refresh" value={nextRefresh} />
+          <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="font-mono text-xs uppercase text-signal">Daily Top 50 ranking</p>
+              <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[11px] uppercase text-haze">
+                {data?.cache_status || "loading"}
+              </span>
             </div>
-
-            {selectedPoint ? (
-              <div className="rounded-lg border border-signal/25 bg-signal/10 p-4">
-                <div className="mb-3 flex items-center gap-2 font-mono text-xs uppercase text-signal">
-                  <MapPin size={16} />
-                  Selected source
-                </div>
-                <h2 className="text-xl font-semibold text-white">{selectedPoint.ip}</h2>
-                <p className="mt-2 leading-6 text-haze">{formatLocation(selectedPoint)}</p>
-                <div className="mt-4 grid gap-3 text-sm">
-                  <div className="flex justify-between gap-4">
-                    <span className="text-haze">Daily rank</span>
-                    <strong className="text-white">#{selectedPoint.rank || "?"}</strong>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-haze">Last report</span>
-                    <strong className="text-right text-white">{formatDate(selectedPoint.last_reported_at)}</strong>
-                  </div>
-                  <div>
-                    <span className="text-haze">Network</span>
-                    <p className="mt-1 text-white">{selectedPoint.as_name || selectedPoint.org || selectedPoint.isp || "Unknown network"}</p>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="font-mono text-xs uppercase text-signal">Daily Top 50 ranking</p>
-                <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[11px] uppercase text-haze">
-                  {data?.cache_status || "loading"}
-                </span>
-              </div>
-              <div className="max-h-[410px] space-y-2 overflow-y-auto pr-1">
+            <div className="max-h-[360px] overflow-y-auto pr-1">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {points
                   .slice()
                   .sort((left, right) => (left.rank || MAX_DAILY_POINTS) - (right.rank || MAX_DAILY_POINTS))
@@ -413,13 +374,13 @@ export function LiveThreatMapPage() {
                       key={point.id}
                       type="button"
                       onClick={() => focusPoint(point)}
-                      className={`w-full rounded-md border p-3 text-left transition ${
+                      className={`min-h-[82px] rounded-md border p-3 text-left transition ${
                         selectedPoint?.id === point.id
                           ? "border-signal/55 bg-signal/10"
                           : "border-white/10 bg-black/20 hover:border-signal/35 hover:bg-white/[0.06]"
                       }`}
                     >
-                      <span className="flex items-center justify-between gap-3">
+                      <span className="flex h-full items-center justify-between gap-3">
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-semibold text-white">{point.ip}</span>
                           <span className="mt-1 block truncate text-xs text-haze">{formatLocation(point)}</span>
@@ -432,7 +393,7 @@ export function LiveThreatMapPage() {
                   ))}
               </div>
             </div>
-          </aside>
+          </div>
         </section>
       </div>
     </div>

@@ -4,9 +4,13 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_SECONDS = Math.floor(CACHE_TTL_MS / 1000);
 const POINT_LIMIT = 50;
 const DEFAULT_CONFIDENCE_MINIMUM = 90;
+const CACHE_SCHEMA_VERSION = 1;
+const LOCAL_CACHE_FILE = ".cache/abuse-origin-map.json";
+const EDGE_CACHE_URL = "https://portfolio-cache.local/abuse-origin-map/daily-top-50";
 
 let cachedPayload = null;
 let cachedUntil = 0;
+let pendingLivePayload = null;
 const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
 
 const countryCentroids = new Map(
@@ -244,6 +248,24 @@ function isoFromTime(time) {
   return new Date(time).toISOString();
 }
 
+function isNodeRuntime() {
+  return typeof process !== "undefined" && Boolean(process.versions?.node);
+}
+
+function cacheExpiryTime(payload) {
+  const expiry = new Date(payload?.cache_expires_at || payload?.next_refresh_at || 0).getTime();
+  return Number.isFinite(expiry) ? expiry : 0;
+}
+
+function isCachePayloadUsable(payload, now = Date.now()) {
+  return payload?.mode === "live" && Array.isArray(payload.points) && payload.points.length > 0 && cacheExpiryTime(payload) > now;
+}
+
+function setMemoryCache(payload) {
+  cachedPayload = payload;
+  cachedUntil = cacheExpiryTime(payload);
+}
+
 function fallbackPayload(warning) {
   return {
     mode: "fallback",
@@ -275,6 +297,104 @@ function cachedResponse(cacheStatus, warning) {
     next_refresh_at: isoFromTime(cachedUntil),
     warnings,
   };
+}
+
+function cacheablePayload(payload, cacheStatus = payload.cache_status || "fresh") {
+  return {
+    ...payload,
+    cache_schema_version: CACHE_SCHEMA_VERSION,
+    cache_status: cacheStatus,
+    cache_expires_at: isoFromTime(cachedUntil),
+    next_refresh_at: isoFromTime(cachedUntil),
+  };
+}
+
+function edgeCacheRequest() {
+  return new Request(EDGE_CACHE_URL, { method: "GET" });
+}
+
+async function readEdgeCache() {
+  if (!globalThis.caches?.default) {
+    return null;
+  }
+
+  const response = await globalThis.caches.default.match(edgeCacheRequest()).catch(() => null);
+  if (!response?.ok) {
+    return null;
+  }
+
+  const payload = await response.json().catch(() => null);
+  return isCachePayloadUsable(payload) ? payload : null;
+}
+
+async function writeEdgeCache(payload) {
+  if (!globalThis.caches?.default || !isCachePayloadUsable(payload)) {
+    return;
+  }
+
+  const response = new Response(JSON.stringify(payload), {
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
+    },
+  });
+
+  await globalThis.caches.default.put(edgeCacheRequest(), response).catch(() => {});
+}
+
+async function localCachePath() {
+  if (!isNodeRuntime()) {
+    return "";
+  }
+
+  const path = await import("node:path");
+  return path.resolve(process.cwd(), LOCAL_CACHE_FILE);
+}
+
+async function readLocalCache() {
+  const filePath = await localCachePath();
+  if (!filePath) {
+    return null;
+  }
+
+  try {
+    const fs = await import("node:fs/promises");
+    const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
+    return isCachePayloadUsable(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeLocalCache(payload) {
+  const filePath = await localCachePath();
+  if (!filePath || !isCachePayloadUsable(payload)) {
+    return;
+  }
+
+  try {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+  } catch {
+    // The in-memory cache still protects the API quota for this process.
+  }
+}
+
+async function readPersistentCache() {
+  const payload = (await readEdgeCache()) || (await readLocalCache());
+
+  if (!payload) {
+    return null;
+  }
+
+  setMemoryCache(payload);
+  return cachedResponse(payload.cache_status === "stale" ? "stale" : "cached");
+}
+
+async function writePersistentCache(payload) {
+  await Promise.all([writeEdgeCache(payload), writeLocalCache(payload)]);
 }
 
 function countryNameFromCode(countryCode) {
@@ -389,11 +509,28 @@ async function buildLivePayload(env) {
     return cachedResponse(cachedPayload.cache_status === "stale" ? "stale" : "cached");
   }
 
+  const persistentPayload = await readPersistentCache();
+  if (persistentPayload) {
+    return persistentPayload;
+  }
+
+  if (pendingLivePayload) {
+    return pendingLivePayload;
+  }
+
   const apiKey = cleanString(env?.ABUSEIPDB_API_KEY, "", 256);
   if (!apiKey) {
     return fallbackPayload("ABUSEIPDB_API_KEY is not configured. Showing demo source locations.");
   }
 
+  pendingLivePayload = refreshLivePayload(apiKey, now).finally(() => {
+    pendingLivePayload = null;
+  });
+
+  return pendingLivePayload;
+}
+
+async function refreshLivePayload(apiKey, now) {
   const blacklist = await fetchAbuseIpdbBlacklist(apiKey);
   if (!blacklist.rows.length) {
     return fallbackPayload("AbuseIPDB returned no blacklist rows. Showing demo source locations.");
@@ -440,6 +577,7 @@ async function buildLivePayload(env) {
   };
 
   cachedPayload = payload;
+  await writePersistentCache(cacheablePayload(payload));
 
   return payload;
 }
@@ -486,7 +624,8 @@ export async function handleAbuseOriginMapRequest(request, env = {}) {
     const message = messageFromError(error, "Threat origin providers are temporarily unavailable.");
     if (cachedPayload?.mode === "live") {
       cachedUntil = Date.now() + CACHE_TTL_MS;
-      cachedPayload = cachedResponse("stale", `Live refresh failed, so the last daily snapshot is still being shown. ${message}`);
+      cachedPayload = cacheablePayload(cachedResponse("stale", `Live refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
+      await writePersistentCache(cachedPayload);
       return json(cachedPayload);
     }
 
