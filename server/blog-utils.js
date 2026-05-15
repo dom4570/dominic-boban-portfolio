@@ -74,7 +74,7 @@ function isAllowedAdminHost(request, env) {
   return allowedHosts.includes(hostname);
 }
 
-export function requireAdmin(request, env) {
+export async function requireAdmin(request, env) {
   const configuredEmail = String(env.ADMIN_EMAIL || "").trim().toLowerCase();
   const requestEmail =
     String(request.headers.get("Cf-Access-Authenticated-User-Email") || "").trim().toLowerCase() ||
