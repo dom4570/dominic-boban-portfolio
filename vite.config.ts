@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
+import { handleAbuseOriginMapRequest } from "./server/abuse-origin-map.js";
 
 declare const process: {
   env: Record<string, string | undefined>;
@@ -37,7 +38,6 @@ function localAbuseOriginMapApi(): Plugin {
         }
 
         try {
-          const { handleAbuseOriginMapRequest } = await import("./server/abuse-origin-map.js");
           const url = new URL(`/api/abuse-origin-map${devReq.url || ""}`, `http://${host}`);
           const response = await handleAbuseOriginMapRequest(
             new Request(url, {
@@ -51,10 +51,11 @@ function localAbuseOriginMapApi(): Plugin {
           devRes.statusCode = response.status;
           response.headers.forEach((value, key) => devRes.setHeader(key, value));
           devRes.end(body);
-        } catch {
+        } catch (error) {
           devRes.statusCode = 500;
           devRes.setHeader("Content-Type", "application/json; charset=utf-8");
-          devRes.end(JSON.stringify({ message: "Local threat origin API failed." }));
+          const message = error instanceof Error ? error.message : "Local threat origin API failed.";
+          devRes.end(JSON.stringify({ message }));
         }
       });
     },
