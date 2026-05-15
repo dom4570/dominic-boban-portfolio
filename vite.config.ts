@@ -17,22 +17,13 @@ type DevResponse = {
   end: (body?: string | Uint8Array) => void;
 };
 
-function localAbuseOriginApi(): Plugin {
+function localAbuseOriginMapApi(): Plugin {
   return {
-    name: "local-abuse-origin-api",
+    name: "local-abuse-origin-map-api",
     configureServer(server: ViteDevServer) {
-      server.middlewares.use(async (req, res, next) => {
+      server.middlewares.use("/api/abuse-origin-map", async (req, res) => {
         const devReq = req as unknown as DevRequest;
         const devRes = res as unknown as DevResponse;
-        const path = devReq.url?.split("?")[0] || "";
-        const isMapRequest = path === "/api/abuse-origin-map";
-        const isDetailRequest = path === "/api/abuse-origin-detail";
-
-        if (!isMapRequest && !isDetailRequest) {
-          next();
-          return;
-        }
-
         const rawHost = devReq.headers.host;
         const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) || "127.0.0.1:5173";
         const headers = new Headers();
@@ -46,10 +37,9 @@ function localAbuseOriginApi(): Plugin {
         }
 
         try {
-          const { handleAbuseOriginDetailRequest, handleAbuseOriginMapRequest } = await import("./server/abuse-origin-map.js");
-          const url = new URL(devReq.url || path, `http://${host}`);
-          const handler = isDetailRequest ? handleAbuseOriginDetailRequest : handleAbuseOriginMapRequest;
-          const response = await handler(
+          const { handleAbuseOriginMapRequest } = await import("./server/abuse-origin-map.js");
+          const url = new URL(`/api/abuse-origin-map${devReq.url || ""}`, `http://${host}`);
+          const response = await handleAbuseOriginMapRequest(
             new Request(url, {
               method: devReq.method || "GET",
               headers,
@@ -72,7 +62,7 @@ function localAbuseOriginApi(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), localAbuseOriginApi()],
+  plugins: [react(), localAbuseOriginMapApi()],
   server: {
     proxy: {
       "/api/radar-dashboard": {
