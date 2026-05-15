@@ -1,11 +1,109 @@
 const ABUSEIPDB_BLACKLIST_URL = "https://api.abuseipdb.com/api/v2/blacklist";
 const IP_API_BATCH_URL = "http://ip-api.com/batch";
-const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_TTL_SECONDS = Math.floor(CACHE_TTL_MS / 1000);
 const POINT_LIMIT = 50;
 const DEFAULT_CONFIDENCE_MINIMUM = 90;
+const CACHE_SCHEMA_VERSION = 1;
+const LOCAL_CACHE_FILE = ".cache/abuse-origin-map.json";
+const EDGE_CACHE_URL = "https://portfolio-cache.local/abuse-origin-map/daily-top-50";
 
 let cachedPayload = null;
 let cachedUntil = 0;
+let pendingLivePayload = null;
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+
+const countryCentroids = new Map(
+  Object.entries({
+    AE: [23.4241, 53.8478],
+    AL: [41.1533, 20.1683],
+    AR: [-38.4161, -63.6167],
+    AT: [47.5162, 14.5501],
+    AU: [-25.2744, 133.7751],
+    AZ: [40.1431, 47.5769],
+    BA: [43.9159, 17.6791],
+    BD: [23.685, 90.3563],
+    BE: [50.5039, 4.4699],
+    BG: [42.7339, 25.4858],
+    BO: [-16.2902, -63.5887],
+    BR: [-14.235, -51.9253],
+    BY: [53.7098, 27.9534],
+    CA: [56.1304, -106.3468],
+    CH: [46.8182, 8.2275],
+    CL: [-35.6751, -71.543],
+    CN: [35.8617, 104.1954],
+    CO: [4.5709, -74.2973],
+    CR: [9.7489, -83.7534],
+    CZ: [49.8175, 15.473],
+    DE: [51.1657, 10.4515],
+    DK: [56.2639, 9.5018],
+    DO: [18.7357, -70.1627],
+    EC: [-1.8312, -78.1834],
+    EE: [58.5953, 25.0136],
+    EG: [26.8206, 30.8025],
+    ES: [40.4637, -3.7492],
+    FI: [61.9241, 25.7482],
+    FR: [46.2276, 2.2137],
+    GB: [55.3781, -3.436],
+    GE: [42.3154, 43.3569],
+    GR: [39.0742, 21.8243],
+    HK: [22.3193, 114.1694],
+    HR: [45.1, 15.2],
+    HU: [47.1625, 19.5033],
+    ID: [-0.7893, 113.9213],
+    IE: [53.1424, -7.6921],
+    IL: [31.0461, 34.8516],
+    IN: [20.5937, 78.9629],
+    IR: [32.4279, 53.688],
+    IT: [41.8719, 12.5674],
+    JP: [36.2048, 138.2529],
+    KE: [-0.0236, 37.9062],
+    KH: [12.5657, 104.991],
+    KR: [35.9078, 127.7669],
+    KZ: [48.0196, 66.9237],
+    LA: [19.8563, 102.4955],
+    LK: [7.8731, 80.7718],
+    LT: [55.1694, 23.8813],
+    LV: [56.8796, 24.6032],
+    MA: [31.7917, -7.0926],
+    MD: [47.4116, 28.3699],
+    MK: [41.6086, 21.7453],
+    MM: [21.9162, 95.956],
+    MX: [23.6345, -102.5528],
+    MY: [4.2105, 101.9758],
+    NG: [9.082, 8.6753],
+    NL: [52.1326, 5.2913],
+    NO: [60.472, 8.4689],
+    NP: [28.3949, 84.124],
+    NZ: [-40.9006, 174.886],
+    PA: [8.538, -80.7821],
+    PE: [-9.19, -75.0152],
+    PH: [12.8797, 121.774],
+    PK: [30.3753, 69.3451],
+    PL: [51.9194, 19.1451],
+    PT: [39.3999, -8.2245],
+    PY: [-23.4425, -58.4438],
+    RO: [45.9432, 24.9668],
+    RS: [44.0165, 21.0059],
+    RU: [61.524, 105.3188],
+    SA: [23.8859, 45.0792],
+    SC: [-4.6796, 55.492],
+    SE: [60.1282, 18.6435],
+    SG: [1.3521, 103.8198],
+    SI: [46.1512, 14.9955],
+    SK: [48.669, 19.699],
+    TH: [15.87, 100.9925],
+    TR: [38.9637, 35.2433],
+    TW: [23.6978, 120.9605],
+    UA: [48.3794, 31.1656],
+    US: [37.0902, -95.7129],
+    UY: [-32.5228, -55.7658],
+    UZ: [41.3775, 64.5853],
+    VE: [6.4238, -66.5897],
+    VN: [14.0583, 108.2772],
+    ZA: [-30.5595, 22.9375],
+  })
+);
 
 const fallbackPoints = [
   {
@@ -115,7 +213,7 @@ function json(data, status = 200, headers = {}) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": data?.mode === "live" ? "public, max-age=120" : "no-store",
+      "Cache-Control": data?.mode === "live" ? `public, max-age=${CACHE_TTL_SECONDS}` : "no-store",
       ...headers,
     },
   });
@@ -146,14 +244,165 @@ function isUsableCoordinate(lat, lon) {
   return typeof lat === "number" && typeof lon === "number" && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }
 
+function isoFromTime(time) {
+  return new Date(time).toISOString();
+}
+
+function isNodeRuntime() {
+  return typeof process !== "undefined" && Boolean(process.versions?.node);
+}
+
+function cacheExpiryTime(payload) {
+  const expiry = new Date(payload?.cache_expires_at || payload?.next_refresh_at || 0).getTime();
+  return Number.isFinite(expiry) ? expiry : 0;
+}
+
+function isCachePayloadUsable(payload, now = Date.now()) {
+  return payload?.mode === "live" && Array.isArray(payload.points) && payload.points.length > 0 && cacheExpiryTime(payload) > now;
+}
+
+function setMemoryCache(payload) {
+  cachedPayload = payload;
+  cachedUntil = cacheExpiryTime(payload);
+}
+
 function fallbackPayload(warning) {
   return {
     mode: "fallback",
+    cache_status: "fallback",
     generated_at: new Date().toISOString(),
+    cache_expires_at: null,
+    next_refresh_at: null,
     source: "fallback_demo",
-    points: fallbackPoints,
+    points: fallbackPoints.map((point, index) => ({ ...point, rank: index + 1 })),
     warnings: [warning],
   };
+}
+
+function messageFromError(error, fallback) {
+  return cleanString(error?.message || error, fallback, 240);
+}
+
+function cachedResponse(cacheStatus, warning) {
+  const warnings = [...(cachedPayload?.warnings || [])];
+
+  if (warning) {
+    warnings.push(warning);
+  }
+
+  return {
+    ...cachedPayload,
+    cache_status: cacheStatus,
+    cache_expires_at: isoFromTime(cachedUntil),
+    next_refresh_at: isoFromTime(cachedUntil),
+    warnings,
+  };
+}
+
+function cacheablePayload(payload, cacheStatus = payload.cache_status || "fresh") {
+  return {
+    ...payload,
+    cache_schema_version: CACHE_SCHEMA_VERSION,
+    cache_status: cacheStatus,
+    cache_expires_at: isoFromTime(cachedUntil),
+    next_refresh_at: isoFromTime(cachedUntil),
+  };
+}
+
+function edgeCacheRequest() {
+  return new Request(EDGE_CACHE_URL, { method: "GET" });
+}
+
+async function readEdgeCache() {
+  if (!globalThis.caches?.default) {
+    return null;
+  }
+
+  const response = await globalThis.caches.default.match(edgeCacheRequest()).catch(() => null);
+  if (!response?.ok) {
+    return null;
+  }
+
+  const payload = await response.json().catch(() => null);
+  return isCachePayloadUsable(payload) ? payload : null;
+}
+
+async function writeEdgeCache(payload) {
+  if (!globalThis.caches?.default || !isCachePayloadUsable(payload)) {
+    return;
+  }
+
+  const response = new Response(JSON.stringify(payload), {
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
+    },
+  });
+
+  await globalThis.caches.default.put(edgeCacheRequest(), response).catch(() => {});
+}
+
+async function localCachePath() {
+  if (!isNodeRuntime()) {
+    return "";
+  }
+
+  const path = await import("node:path");
+  return path.resolve(process.cwd(), LOCAL_CACHE_FILE);
+}
+
+async function readLocalCache() {
+  const filePath = await localCachePath();
+  if (!filePath) {
+    return null;
+  }
+
+  try {
+    const fs = await import("node:fs/promises");
+    const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
+    return isCachePayloadUsable(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeLocalCache(payload) {
+  const filePath = await localCachePath();
+  if (!filePath || !isCachePayloadUsable(payload)) {
+    return;
+  }
+
+  try {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+  } catch {
+    // The in-memory cache still protects the API quota for this process.
+  }
+}
+
+async function readPersistentCache() {
+  const payload = (await readEdgeCache()) || (await readLocalCache());
+
+  if (!payload) {
+    return null;
+  }
+
+  setMemoryCache(payload);
+  return cachedResponse(payload.cache_status === "stale" ? "stale" : "cached");
+}
+
+async function writePersistentCache(payload) {
+  await Promise.all([writeEdgeCache(payload), writeLocalCache(payload)]);
+}
+
+function countryNameFromCode(countryCode) {
+  try {
+    return regionNames.of(countryCode) || countryCode;
+  } catch {
+    return countryCode;
+  }
 }
 
 function upstreamMessage(body, fallback) {
@@ -187,6 +436,7 @@ async function fetchAbuseIpdbBlacklist(apiKey) {
     if (!ip || unique.has(ip)) return;
 
     unique.set(ip, {
+      rank: unique.size + 1,
       ip,
       abuse_confidence_score: Math.max(0, Math.min(100, numberOrNull(row?.abuseConfidenceScore) ?? 0)),
       last_reported_at: cleanString(row?.lastReportedAt, "", 80),
@@ -231,6 +481,7 @@ function normalizePoint(row, geo, index) {
   }
 
   return {
+    rank: numberOrNull(row.rank) || index + 1,
     id: `${cleanString(row.ip, "ip")}-${index}`,
     ip: row.ip,
     latitude,
@@ -253,29 +504,57 @@ function normalizePoint(row, geo, index) {
 }
 
 async function buildLivePayload(env) {
+  const now = Date.now();
+  if (cachedPayload && cachedUntil > now) {
+    return cachedResponse(cachedPayload.cache_status === "stale" ? "stale" : "cached");
+  }
+
+  const persistentPayload = await readPersistentCache();
+  if (persistentPayload) {
+    return persistentPayload;
+  }
+
+  if (pendingLivePayload) {
+    return pendingLivePayload;
+  }
+
   const apiKey = cleanString(env?.ABUSEIPDB_API_KEY, "", 256);
   if (!apiKey) {
     return fallbackPayload("ABUSEIPDB_API_KEY is not configured. Showing demo source locations.");
   }
 
-  const now = Date.now();
-  if (cachedPayload && cachedUntil > now) {
-    return cachedPayload;
-  }
+  pendingLivePayload = refreshLivePayload(apiKey, now).finally(() => {
+    pendingLivePayload = null;
+  });
 
+  return pendingLivePayload;
+}
+
+async function refreshLivePayload(apiKey, now) {
   const blacklist = await fetchAbuseIpdbBlacklist(apiKey);
   if (!blacklist.rows.length) {
     return fallbackPayload("AbuseIPDB returned no blacklist rows. Showing demo source locations.");
   }
 
-  const geoRows = await fetchGeoBatch(blacklist.rows.map((row) => row.ip));
+  let geoWarning = "";
+  let geoRows = [];
+  try {
+    geoRows = await fetchGeoBatch(blacklist.rows.map((row) => row.ip));
+  } catch (error) {
+    geoWarning = `${messageFromError(error, "Geo-IP lookup is temporarily unavailable.")} Showing country-level estimates where AbuseIPDB provides a country code.`;
+  }
+
   const geoByIp = new Map(geoRows.map((geo) => [cleanString(geo?.query, "", 80), geo]));
   const points = blacklist.rows
-    .map((row, index) => normalizePoint(row, geoByIp.get(row.ip), index))
+    .map((row, index) => normalizePoint(row, geoByIp.get(row.ip), index) || normalizeCountryPoint(row, index))
     .filter(Boolean)
     .slice(0, POINT_LIMIT);
   const failedGeoCount = blacklist.rows.length - points.length;
   const warnings = [];
+
+  if (geoWarning) {
+    warnings.push(geoWarning);
+  }
 
   if (failedGeoCount > 0) {
     warnings.push(`${failedGeoCount} AbuseIPDB IP ${failedGeoCount === 1 ? "location was" : "locations were"} unavailable from geo-IP and hidden from the map.`);
@@ -285,18 +564,53 @@ async function buildLivePayload(env) {
     return fallbackPayload("Geo-IP returned no usable coordinates. Showing demo source locations.");
   }
 
+  cachedUntil = now + CACHE_TTL_MS;
   const payload = {
     mode: "live",
+    cache_status: "fresh",
     generated_at: blacklist.generated_at || new Date().toISOString(),
+    cache_expires_at: isoFromTime(cachedUntil),
+    next_refresh_at: isoFromTime(cachedUntil),
     source: "abuseipdb_blacklist",
     points,
     warnings,
   };
 
   cachedPayload = payload;
-  cachedUntil = now + CACHE_TTL_MS;
+  await writePersistentCache(cacheablePayload(payload));
 
   return payload;
+}
+
+function normalizeCountryPoint(row, index) {
+  const countryCode = cleanCountryCode(row.abuse_country_code);
+  const centroid = countryCentroids.get(countryCode);
+
+  if (!centroid) {
+    return null;
+  }
+
+  return {
+    rank: numberOrNull(row.rank) || index + 1,
+    id: `${cleanString(row.ip, "ip")}-${index}-country`,
+    ip: row.ip,
+    latitude: centroid[0],
+    longitude: centroid[1],
+    city: "",
+    region: "Country-level estimate",
+    country: cleanString(countryNameFromCode(countryCode), countryCode),
+    country_code: countryCode,
+    abuse_confidence_score: row.abuse_confidence_score,
+    last_reported_at: row.last_reported_at,
+    asn: "",
+    as_name: "",
+    isp: "",
+    org: "",
+    hosting: false,
+    proxy: false,
+    mobile: false,
+    source: "abuseipdb_blacklist_country",
+  };
 }
 
 export async function handleAbuseOriginMapRequest(request, env = {}) {
@@ -307,7 +621,14 @@ export async function handleAbuseOriginMapRequest(request, env = {}) {
   try {
     return json(await buildLivePayload(env));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Threat origin providers are temporarily unavailable.";
+    const message = messageFromError(error, "Threat origin providers are temporarily unavailable.");
+    if (cachedPayload?.mode === "live") {
+      cachedUntil = Date.now() + CACHE_TTL_MS;
+      cachedPayload = cacheablePayload(cachedResponse("stale", `Live refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
+      await writePersistentCache(cachedPayload);
+      return json(cachedPayload);
+    }
+
     return json(fallbackPayload(message));
   }
 }
