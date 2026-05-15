@@ -8,7 +8,7 @@ const allowedTypes = new Map([
 ]);
 
 export async function onRequestPost({ request, env }) {
-  const authError = requireAdmin(request, env);
+  const authError = await requireAdmin(request, env);
   if (authError) return authError;
 
   if (!env.BLOG_MEDIA) {
