@@ -148,7 +148,7 @@ function EmptyMapState({ loading, error }: { loading: boolean; error: string }) 
   );
 }
 
-function SpamhausInsight({
+function IpIntelligence({
   detail,
   error,
   loading,
@@ -158,9 +158,9 @@ function SpamhausInsight({
   loading: boolean;
 }) {
   return (
-    <div className="mt-5 rounded-lg border border-white/10 bg-black/25 p-3">
+    <div className="rounded-lg border border-white/10 bg-black/25 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="font-mono text-[11px] uppercase text-signal">Spamhaus intelligence</p>
+        <p className="font-mono text-[11px] uppercase text-signal">IP Intelligence</p>
         {detail?.cache_status ? (
           <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 font-mono text-[10px] uppercase text-haze">
             {detail.cache_status}
@@ -171,18 +171,18 @@ function SpamhausInsight({
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-haze">
           <Loader2 className="animate-spin text-signal" size={15} />
-          Checking Spamhaus...
+          Checking IP intelligence...
         </div>
       ) : error ? (
         <p className="text-sm leading-6 text-trace">{error}</p>
       ) : !detail ? (
-        <p className="text-sm leading-6 text-haze">Select a source to check Spamhaus.</p>
+        <p className="text-sm leading-6 text-haze">Select a source to check IP intelligence.</p>
       ) : detail.status === "listed" ? (
         <div>
           <p className="text-sm font-semibold text-white">
             {detail.ip} has {detail.listing_count} Spamhaus {detail.listing_count === 1 ? "listing" : "listings"}.
           </p>
-          <div className="mt-3 grid gap-2">
+          <div className="mt-3 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
             {detail.datasets.map((dataset) => (
               <div key={`${dataset.code}-${dataset.dataset}`} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -450,26 +450,30 @@ export function LiveThreatMapPage() {
 
         <section className="grid gap-5">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.04]">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-                <div className="flex items-center gap-2 font-mono text-xs uppercase text-signal">
-                  <Globe2 size={16} />
-                  Daily source geolocation layer
+            <div className="grid gap-4">
+              <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.04]">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+                  <div className="flex items-center gap-2 font-mono text-xs uppercase text-signal">
+                    <Globe2 size={16} />
+                    Daily source geolocation layer
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadThreatOrigins}
+                    disabled={loading}
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm font-medium text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {loading ? <Loader2 className="animate-spin" size={15} /> : <RotateCcw size={15} />}
+                    Reload cache
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={loadThreatOrigins}
-                  disabled={loading}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm font-medium text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? <Loader2 className="animate-spin" size={15} /> : <RotateCcw size={15} />}
-                  Reload cache
-                </button>
+                <div className="relative">
+                  <div ref={mapContainerRef} className="threat-origin-map h-[58vh] min-h-[420px] w-full" aria-label="Reported abusive IP source map" />
+                  {(loading || (!points.length && error)) && <EmptyMapState loading={loading} error={error} />}
+                </div>
               </div>
-              <div className="relative">
-                <div ref={mapContainerRef} className="threat-origin-map h-[68vh] min-h-[460px] w-full" aria-label="Reported abusive IP source map" />
-                {(loading || (!points.length && error)) && <EmptyMapState loading={loading} error={error} />}
-              </div>
+
+              <IpIntelligence detail={spamhausDetail} error={spamhausError} loading={spamhausLoading} />
             </div>
 
             <aside className="grid content-start gap-4">
@@ -502,7 +506,6 @@ export function LiveThreatMapPage() {
                       <p className="mt-1 text-white">{selectedPoint.as_name || selectedPoint.org || selectedPoint.isp || "Unknown network"}</p>
                     </div>
                   </div>
-                  <SpamhausInsight detail={spamhausDetail} error={spamhausError} loading={spamhausLoading} />
                 </div>
               ) : null}
             </aside>
