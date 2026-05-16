@@ -133,13 +133,8 @@ function spamhausDqsKeyWarning(apiKey) {
     return "SPAMHAUS_DQS_KEY is not configured.";
   }
 
-  const labels = apiKey.split(".");
-  const maxDnsNameLength = 253;
-  const suffixLength = ".zen.dq.spamhaus.net".length;
-  const shortestReversedIpLength = "1.1.1.1".length;
-
-  if (!labels.every(isDnsLabel) || shortestReversedIpLength + 1 + apiKey.length + suffixLength > maxDnsNameLength) {
-    return "Spamhaus DQS fallback could not run because SPAMHAUS_DQS_KEY is not a DNS-safe DQS key. Store only the bare Spamhaus key, without Bearer, quotes, spaces, headers, or curl text.";
+  if (!isDnsLabel(apiKey) || apiKey.length !== 26) {
+    return "Spamhaus DQS fallback could not run because SPAMHAUS_DQS_KEY must be the bare 26-character Spamhaus DQS customer code, without Bearer, quotes, spaces, headers, or curl text.";
   }
 
   return "";
