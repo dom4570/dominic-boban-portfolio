@@ -3,7 +3,7 @@
 A production-grade cybersecurity portfolio, threat intelligence suite, and serverless content platform. This application is deployed natively at the edge on **Cloudflare Pages** and engineered using **React, Vite, TypeScript, and Cloudflare Pages Functions**.
 
 [![Semgrep Scan Status](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/semgrep.yml/badge.svg)](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/semgrep.yml)
-[![CodeQL Scan Status](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/CodeQL%20Setup/badge.svg)](https://github.com/dom4570/dominic-boban-portfolio/actions)
+[![CodeQL](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/github-code-scanning/codeql)
 
 ---
 
