@@ -35,6 +35,7 @@ Runtime configuration:
 
 - Environment variable: `ABUSEIPDB_API_KEY`
 - Optional enrichment variable: `SPAMHAUS_DQS_KEY`
+- Spamhaus key format: the bare 26-character DQS customer code only, not `Bearer ...`, a curl command, or a website lookup URL
 - Local dev: set the variable in the terminal before `npm run dev`
 - Secret location: Cloudflare Pages project settings, production environment variables/secrets
 
@@ -44,5 +45,5 @@ Security notes:
 - The Spamhaus DQS key is read only by `/api/spamhaus-ip-detail`.
 - The key is never exposed to frontend code.
 - The blacklist feed is cached for 24 hours, so normal page reloads do not spend more AbuseIPDB quota.
-- Spamhaus enrichment is fetched per selected IP and cached for 24 hours.
+- Spamhaus enrichment uses the official DQS DNS lookup first, then WQS as a backup, and is fetched per selected IP and cached for 24 hours.
 - If AbuseIPDB or geo-IP lookup is unavailable, the page shows clearly labelled demo fallback points.
