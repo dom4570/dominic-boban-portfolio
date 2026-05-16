@@ -180,9 +180,9 @@ function IpIntelligence({
       ) : detail.status === "listed" ? (
         <div>
           <p className="text-sm font-semibold text-white">
-            {detail.ip} has {detail.listing_count} Spamhaus {detail.listing_count === 1 ? "listing" : "listings"}.
+            {detail.ip} has {detail.listing_count} intelligence {detail.listing_count === 1 ? "listing" : "listings"}.
           </p>
-          <div className="mt-3 grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+          <div className="mt-3 grid gap-2 lg:grid-cols-3">
             {detail.datasets.map((dataset) => (
               <div key={`${dataset.code}-${dataset.dataset}`} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -198,10 +198,10 @@ function IpIntelligence({
           </div>
         </div>
       ) : detail.status === "not_listed" ? (
-        <p className="text-sm leading-6 text-haze">No Spamhaus IP Data listing found for this IP.</p>
+        <p className="text-sm leading-6 text-haze">No IP Data listing found for this IP.</p>
       ) : (
         <p className="text-sm leading-6 text-haze">
-          {detail.status === "not_configured" ? "Spamhaus DQS is not configured yet." : "Spamhaus detail is unavailable right now."}
+          {detail.status === "not_configured" ? "IP intelligence is not configured yet." : "IP intelligence is unavailable right now."}
         </p>
       )}
 
@@ -276,7 +276,7 @@ export function LiveThreatMapPage() {
         generated_at: new Date().toISOString(),
         cache_status: "fresh",
         cache_expires_at: "",
-        warnings: ["Spamhaus detail is available after the live daily AbuseIPDB map loads."],
+        warnings: ["IP intelligence is available after the live daily AbuseIPDB map loads."],
       });
       setSpamhausError("");
       setSpamhausLoading(false);
@@ -309,7 +309,7 @@ export function LiveThreatMapPage() {
       })
       .catch((loadError) => {
         if (loadError instanceof DOMException && loadError.name === "AbortError") return;
-        setSpamhausError(loadError instanceof Error ? loadError.message : "Spamhaus detail is temporarily unavailable.");
+        setSpamhausError(loadError instanceof Error ? loadError.message : "IP intelligence is temporarily unavailable.");
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -401,7 +401,7 @@ export function LiveThreatMapPage() {
     <div className="live-threat-map-page relative min-h-screen px-5 py-6">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_10%,rgba(252,238,10,0.13),transparent_25%),radial-gradient(circle_at_82%_16%,rgba(34,211,238,0.12),transparent_24%),linear-gradient(180deg,rgba(5,7,13,0.52),#05070d_82%)]" aria-hidden="true" />
 
-      <nav className="relative z-10 mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-obsidian/82 px-4 py-3 backdrop-blur-xl">
+      <nav className="relative z-10 mx-auto flex max-w-[1720px] flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 bg-obsidian/82 px-4 py-3 backdrop-blur-xl">
         <a href="/" className="inline-flex items-center gap-2 text-sm font-semibold uppercase text-white transition hover:text-signal">
           <ArrowLeft size={16} />
           Home
@@ -412,9 +412,9 @@ export function LiveThreatMapPage() {
         </span>
       </nav>
 
-      <div className="relative z-10 mx-auto grid max-w-7xl gap-5 py-6 md:py-8">
+      <div className="relative z-10 mx-auto grid max-w-[1720px] gap-5 py-6 md:py-8">
         <header className="rounded-lg border border-white/10 bg-obsidian/82 p-5 shadow-glow backdrop-blur-xl md:p-6">
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
             <div>
               <p className="font-mono text-xs uppercase text-signal">Daily Top 50 AbuseIPDB sources</p>
               <h1 className="mt-2 max-w-4xl text-3xl font-semibold leading-tight text-white md:text-5xl">
@@ -449,8 +449,8 @@ export function LiveThreatMapPage() {
         ) : null}
 
         <section className="grid gap-5">
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="grid gap-4">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <div>
               <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.04]">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
                   <div className="flex items-center gap-2 font-mono text-xs uppercase text-signal">
@@ -472,8 +472,6 @@ export function LiveThreatMapPage() {
                   {(loading || (!points.length && error)) && <EmptyMapState loading={loading} error={error} />}
                 </div>
               </div>
-
-              <IpIntelligence detail={spamhausDetail} error={spamhausError} loading={spamhausLoading} />
             </div>
 
             <aside className="grid content-start gap-4">
@@ -511,6 +509,8 @@ export function LiveThreatMapPage() {
             </aside>
           </div>
 
+          <IpIntelligence detail={spamhausDetail} error={spamhausError} loading={spamhausLoading} />
+
           <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="font-mono text-xs uppercase text-signal">Daily Top 50 ranking</p>
@@ -519,7 +519,7 @@ export function LiveThreatMapPage() {
               </span>
             </div>
             <div className="max-h-[360px] overflow-y-auto pr-1">
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {points
                   .slice()
                   .sort((left, right) => (left.rank || MAX_DAILY_POINTS) - (right.rank || MAX_DAILY_POINTS))
