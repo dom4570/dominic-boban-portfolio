@@ -1,7 +1,11 @@
 import { isLiveThreatMapIp } from "./abuse-origin-map.js";
 
 const SPAMHAUS_WQS_URL = "https://apibl.spamhaus.net/lookup/v1/zen";
-const DNS_JSON_URL = "https://cloudflare-dns.com/dns-query";
+const DNS_JSON_PROVIDERS = [
+  { name: "Cloudflare DNS", url: "https://cloudflare-dns.com/dns-query" },
+  { name: "Google DNS", url: "https://dns.google/resolve" },
+  { name: "Quad9 DNS", url: "https://dns.quad9.net/dns-query" },
+];
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_SECONDS = Math.floor(CACHE_TTL_MS / 1000);
 const CACHE_SCHEMA_VERSION = 1;
@@ -47,6 +51,16 @@ const codeDefinitions = new Map([
       label: "DROP",
       explanation: "Part of a hijacked or leased netblock used by spam or cyber-crime operations.",
       url: "https://www.spamhaus.org/drop/",
+    },
+  ],
+  [
+    1030,
+    {
+      code: 1030,
+      dataset: "BCL",
+      label: "Botnet Controller List",
+      explanation: "Host is associated with botnet command-and-control infrastructure according to Spamhaus.",
+      url: "https://www.spamhaus.org/",
     },
   ],
   [
@@ -131,6 +145,26 @@ function reversedIpv4(ip) {
   }
 
   return parts.reverse().join(".");
+}
+
+function timeoutSignal(timeoutMs) {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(timeoutMs);
+  }
+
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
+}
+
+async function fetchJson(url, options = {}, timeoutMs = 8000) {
+  const response = await fetch(url, {
+    ...options,
+    signal: options.signal || timeoutSignal(timeoutMs),
+  });
+  const body = await response.json().catch(() => null);
+
+  return { response, body };
 }
 
 function expiresAtFromNow() {
@@ -313,41 +347,14 @@ function dqsCodeFromAnswer(answer) {
   }
 
   const suffix = Number(match[1]);
-  if ([2, 3, 4, 9, 10, 11, 20].includes(suffix)) {
+  if ([2, 3, 4, 9, 10, 11, 20, 30].includes(suffix)) {
     return 1000 + suffix;
   }
 
   return null;
 }
 
-async function fetchSpamhausDqsFallback(ip, apiKey) {
-  const reversed = reversedIpv4(ip);
-  if (!reversed) {
-    return statusPayload(ip, "unavailable", ["Spamhaus WQS timed out and DQS fallback currently supports IPv4 lookups only."]);
-  }
-
-  const hostname = `${reversed}.${apiKey}.zen.dq.spamhaus.net`;
-  const url = new URL(DNS_JSON_URL);
-  url.searchParams.set("name", hostname);
-  url.searchParams.set("type", "A");
-
-  const response = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/dns-json",
-      "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-ip-detail",
-    },
-  });
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok || !body) {
-    return statusPayload(ip, "unavailable", ["Spamhaus WQS timed out and DQS fallback is temporarily unavailable."]);
-  }
-
-  if (body.Status === 3) {
-    return statusPayload(ip, "not_listed");
-  }
-
-  const answers = Array.isArray(body.Answer) ? body.Answer.map((answer) => answer?.data).filter(Boolean) : [];
+function dqsPayloadFromAnswers(ip, answers) {
   const errorAnswer = answers.find((answer) => /^127\.255\.255\./.test(String(answer)));
   if (errorAnswer) {
     return statusPayload(ip, "unavailable", [`Spamhaus DQS returned an error response (${errorAnswer}). Check the DQS key and enabled IP datasets.`]);
@@ -358,22 +365,135 @@ async function fetchSpamhausDqsFallback(ip, apiKey) {
     return listedPayload(ip, codes);
   }
 
-  if (body.Status === 0) {
-    return statusPayload(ip, "not_listed");
+  return null;
+}
+
+async function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchNativeDqs(ip, hostname) {
+  if (!isNodeRuntime()) {
+    return null;
   }
 
-  return statusPayload(ip, "unavailable", [`Spamhaus DQS fallback returned DNS status ${body.Status}.`]);
+  try {
+    const dns = await import("node:dns/promises");
+    const resolver = new dns.Resolver();
+    const answers = await withTimeout(resolver.resolve4(hostname), 5000, "Native DNS timed out.").finally(() => {
+      resolver.cancel?.();
+    });
+    return dqsPayloadFromAnswers(ip, answers) || statusPayload(ip, "not_listed");
+  } catch (error) {
+    if (error?.code === "ENOTFOUND" || error?.code === "ENODATA") {
+      return statusPayload(ip, "not_listed");
+    }
+
+    return {
+      warning: `Native DNS failed: ${messageFromError(error, "lookup failed")}.`,
+    };
+  }
+}
+
+async function fetchSpamhausDqsFallback(ip, apiKey) {
+  const reversed = reversedIpv4(ip);
+  if (!reversed) {
+    return statusPayload(ip, "unavailable", ["Spamhaus WQS timed out and DQS fallback currently supports IPv4 lookups only."]);
+  }
+
+  const hostname = `${reversed}.${apiKey}.zen.dq.spamhaus.net`;
+  const warnings = [];
+  const nativePayload = await fetchNativeDqs(ip, hostname);
+
+  if (nativePayload?.status) {
+    return nativePayload;
+  }
+
+  if (nativePayload?.warning) {
+    warnings.push(nativePayload.warning);
+  }
+
+  for (const provider of DNS_JSON_PROVIDERS) {
+    try {
+      const url = new URL(provider.url);
+      url.searchParams.set("name", hostname);
+      url.searchParams.set("type", "A");
+
+      const { response, body } = await fetchJson(
+        url.toString(),
+        {
+          headers: {
+            Accept: "application/dns-json",
+            "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-ip-detail",
+          },
+        },
+        6000,
+      );
+
+      if (!response.ok || !body) {
+        warnings.push(`${provider.name} returned status ${response.status}.`);
+        continue;
+      }
+
+      if (body.Status === 3) {
+        return statusPayload(ip, "not_listed");
+      }
+
+      const answers = Array.isArray(body.Answer) ? body.Answer.map((answer) => answer?.data).filter(Boolean) : [];
+      const payload = dqsPayloadFromAnswers(ip, answers);
+      if (payload) {
+        return payload;
+      }
+
+      if (body.Status === 0) {
+        return statusPayload(ip, "not_listed");
+      }
+
+      warnings.push(`${provider.name} returned DNS status ${body.Status}.`);
+    } catch (error) {
+      warnings.push(`${provider.name} failed: ${messageFromError(error, "lookup failed")}.`);
+    }
+  }
+
+  return statusPayload(ip, "unavailable", [
+    `Spamhaus WQS timed out and all DQS fallback lookups failed. ${warnings.join(" ")}`,
+  ]);
 }
 
 async function fetchSpamhausDetail(ip, apiKey) {
-  const response = await fetch(`${SPAMHAUS_WQS_URL}/${encodeURIComponent(ip)}`, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-ip-detail",
-    },
-  });
-  const body = await response.json().catch(() => null);
+  let response;
+  let body;
+
+  try {
+    ({ response, body } = await fetchJson(
+      `${SPAMHAUS_WQS_URL}/${encodeURIComponent(ip)}`,
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-ip-detail",
+        },
+      },
+      9000,
+    ));
+  } catch (error) {
+    return fetchSpamhausDqsFallback(ip, apiKey).then((payload) => ({
+      ...payload,
+      warnings:
+        payload.status === "listed" || payload.status === "not_listed"
+          ? payload.warnings
+          : [`Spamhaus WQS failed: ${messageFromError(error, "request failed")}.`, ...payload.warnings],
+    }));
+  }
 
   if (response.status === 200 && Array.isArray(body?.resp)) {
     return listedPayload(ip, body.resp);
