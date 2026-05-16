@@ -45,5 +45,5 @@ Security notes:
 - The Spamhaus DQS key is read only by `/api/spamhaus-ip-detail`.
 - The key is never exposed to frontend code.
 - The blacklist feed is cached for 24 hours, so normal page reloads do not spend more AbuseIPDB quota.
-- Spamhaus enrichment uses the official DQS DNS lookup first, then WQS as a backup, and is fetched per selected IP and cached for 24 hours.
+- Spamhaus enrichment uses official DQS DNS lookups for the IP Data component zones (`sbl`, `xbl`, `pbl`, and `authbl`), then WQS as a backup, and is fetched per selected IP and cached for 24 hours.
 - If AbuseIPDB or geo-IP lookup is unavailable, the page shows clearly labelled demo fallback points.
