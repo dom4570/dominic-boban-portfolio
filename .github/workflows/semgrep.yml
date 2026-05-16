@@ -1,0 +1,20 @@
+name: Semgrep OSS Scan
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  semgrep-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep OSS
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/javascript p/typescript p/react p/owasp-top-10
