@@ -34,12 +34,15 @@ It intentionally uses pulsing dots instead of destination lines because AbuseIPD
 Runtime configuration:
 
 - Environment variable: `ABUSEIPDB_API_KEY`
+- Optional enrichment variable: `SPAMHAUS_DQS_KEY`
 - Local dev: set the variable in the terminal before `npm run dev`
 - Secret location: Cloudflare Pages project settings, production environment variables/secrets
 
 Security notes:
 
 - The AbuseIPDB key is read only by `/api/abuse-origin-map`.
+- The Spamhaus DQS key is read only by `/api/spamhaus-ip-detail`.
 - The key is never exposed to frontend code.
 - The blacklist feed is cached for 24 hours, so normal page reloads do not spend more AbuseIPDB quota.
+- Spamhaus enrichment is fetched per selected IP and cached for 24 hours.
 - If AbuseIPDB or geo-IP lookup is unavailable, the page shows clearly labelled demo fallback points.
