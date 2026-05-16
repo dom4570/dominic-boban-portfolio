@@ -546,11 +546,23 @@ async function fetchSpamhausDetail(ip, apiKey) {
   }
 
   if (response.status === 401 || response.status === 403) {
-    return statusPayload(ip, "unavailable", ["Spamhaus authorization failed. Check the SPAMHAUS_DQS_KEY secret."]);
+    return {
+      ...dqsPayload,
+      warnings: [
+        ...dqsPayload.warnings,
+        "Spamhaus WQS backup rejected the configured key. Check that SPAMHAUS_DQS_KEY is the active DQS key with ZEN/IP lookups enabled.",
+      ],
+    };
   }
 
   if (response.status === 429) {
-    return statusPayload(ip, "unavailable", ["Spamhaus rate limiting is in effect. Showing cached or unavailable detail only."]);
+    return {
+      ...dqsPayload,
+      warnings: [
+        ...dqsPayload.warnings,
+        "Spamhaus WQS backup is rate limited. DQS remains the primary lookup path for this feature.",
+      ],
+    };
   }
 
   if (response.status === 504) {
