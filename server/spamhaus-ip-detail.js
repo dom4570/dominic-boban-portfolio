@@ -392,6 +392,18 @@ function dqsPayloadFromAnswers(ip, answers) {
   return null;
 }
 
+function dqsDnsStatusMessage(providerName, status) {
+  if (status === 2) {
+    return `${providerName} returned DNS status 2 (SERVFAIL). For Spamhaus DQS this usually means the configured key is not active for ZEN/IP lookups, the DQS service is disabled on the key, or the contract/key is not active.`;
+  }
+
+  if (status === 5) {
+    return `${providerName} returned DNS status 5 (REFUSED). Check that the DQS key has ZEN/IP lookups enabled.`;
+  }
+
+  return `${providerName} returned DNS status ${status}.`;
+}
+
 async function withTimeout(promise, timeoutMs, message) {
   let timeoutId;
   const timeout = new Promise((_, reject) => {
@@ -420,6 +432,12 @@ async function fetchNativeDqs(ip, hostname) {
   } catch (error) {
     if (error?.code === "ENOTFOUND" || error?.code === "ENODATA") {
       return statusPayload(ip, "not_listed");
+    }
+
+    if (error?.code === "ESERVFAIL") {
+      return {
+        warning: "Native DNS returned SERVFAIL. Check that the Spamhaus DQS key is active and enabled for ZEN/IP lookups.",
+      };
     }
 
     return {
@@ -487,7 +505,7 @@ async function fetchSpamhausDqsDetail(ip, apiKey, lookupLabel = "Spamhaus DQS lo
         return statusPayload(ip, "not_listed");
       }
 
-      warnings.push(`${provider.name} returned DNS status ${body.Status}.`);
+      warnings.push(dqsDnsStatusMessage(provider.name, body.Status));
     } catch (error) {
       warnings.push(`${provider.name} failed: ${messageFromError(error, "lookup failed")}.`);
     }
