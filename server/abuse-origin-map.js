@@ -632,3 +632,18 @@ export async function handleAbuseOriginMapRequest(request, env = {}) {
     return json(fallbackPayload(message));
   }
 }
+
+export async function isLiveThreatMapIp(ip) {
+  const normalizedIp = cleanString(ip, "", 80);
+  if (!normalizedIp) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (cachedPayload?.mode === "live" && cachedUntil > now) {
+    return cachedPayload.points?.some((point) => point.ip === normalizedIp) || false;
+  }
+
+  const persistentPayload = await readPersistentCache();
+  return persistentPayload?.mode === "live" && persistentPayload.points?.some((point) => point.ip === normalizedIp);
+}

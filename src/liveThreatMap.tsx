@@ -46,6 +46,26 @@ type ThreatOriginResponse = {
   warnings: string[];
 };
 
+type SpamhausDataset = {
+  code: number;
+  dataset: string;
+  label: string;
+  explanation: string;
+  url: string;
+};
+
+type SpamhausDetail = {
+  ip: string;
+  status: "listed" | "not_listed" | "unavailable" | "not_configured";
+  listing_count: number;
+  codes: number[];
+  datasets: SpamhausDataset[];
+  generated_at: string;
+  cache_status: "fresh" | "cached";
+  cache_expires_at: string;
+  warnings: string[];
+};
+
 const MAX_DAILY_POINTS = 50;
 
 function readJson<T>(response: Response): Promise<T> {
@@ -128,15 +148,83 @@ function EmptyMapState({ loading, error }: { loading: boolean; error: string }) 
   );
 }
 
+function SpamhausInsight({
+  detail,
+  error,
+  loading,
+}: {
+  detail: SpamhausDetail | null;
+  error: string;
+  loading: boolean;
+}) {
+  return (
+    <div className="mt-5 rounded-lg border border-white/10 bg-black/25 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="font-mono text-[11px] uppercase text-signal">Spamhaus intelligence</p>
+        {detail?.cache_status ? (
+          <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 font-mono text-[10px] uppercase text-haze">
+            {detail.cache_status}
+          </span>
+        ) : null}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-haze">
+          <Loader2 className="animate-spin text-signal" size={15} />
+          Checking Spamhaus...
+        </div>
+      ) : error ? (
+        <p className="text-sm leading-6 text-trace">{error}</p>
+      ) : !detail ? (
+        <p className="text-sm leading-6 text-haze">Select a source to check Spamhaus.</p>
+      ) : detail.status === "listed" ? (
+        <div>
+          <p className="text-sm font-semibold text-white">
+            {detail.ip} has {detail.listing_count} Spamhaus {detail.listing_count === 1 ? "listing" : "listings"}.
+          </p>
+          <div className="mt-3 grid gap-2">
+            {detail.datasets.map((dataset) => (
+              <div key={`${dataset.code}-${dataset.dataset}`} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-md bg-signal px-2 py-1 font-mono text-[10px] font-semibold uppercase text-obsidian">
+                    {dataset.dataset}
+                  </span>
+                  <span className="font-mono text-[10px] uppercase text-haze">Code {dataset.code}</span>
+                </div>
+                <p className="text-sm font-semibold text-white">{dataset.label}</p>
+                <p className="mt-1 text-xs leading-5 text-haze">{dataset.explanation}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : detail.status === "not_listed" ? (
+        <p className="text-sm leading-6 text-haze">No Spamhaus ZEN listing found for this IP.</p>
+      ) : (
+        <p className="text-sm leading-6 text-haze">
+          {detail.status === "not_configured" ? "Spamhaus DQS is not configured yet." : "Spamhaus detail is unavailable right now."}
+        </p>
+      )}
+
+      {detail?.warnings?.length ? (
+        <p className="mt-3 text-xs leading-5 text-volt">{detail.warnings.join(" ")}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export function LiveThreatMapPage() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const markerRefs = useRef(new Map<string, L.Marker>());
+  const spamhausCacheRef = useRef(new Map<string, SpamhausDetail>());
   const [data, setData] = useState<ThreatOriginResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState("");
+  const [spamhausDetail, setSpamhausDetail] = useState<SpamhausDetail | null>(null);
+  const [spamhausLoading, setSpamhausLoading] = useState(false);
+  const [spamhausError, setSpamhausError] = useState("");
 
   const points = data?.points || [];
   const selectedPoint = points.find((point) => point.id === selectedId) || points[0] || null;
@@ -169,6 +257,68 @@ export function LiveThreatMapPage() {
   useEffect(() => {
     loadThreatOrigins();
   }, []);
+
+  useEffect(() => {
+    if (!selectedPoint?.ip) {
+      setSpamhausDetail(null);
+      setSpamhausError("");
+      setSpamhausLoading(false);
+      return;
+    }
+
+    if (data?.mode !== "live") {
+      setSpamhausDetail({
+        ip: selectedPoint.ip,
+        status: "unavailable",
+        listing_count: 0,
+        codes: [],
+        datasets: [],
+        generated_at: new Date().toISOString(),
+        cache_status: "fresh",
+        cache_expires_at: "",
+        warnings: ["Spamhaus detail is available after the live daily AbuseIPDB map loads."],
+      });
+      setSpamhausError("");
+      setSpamhausLoading(false);
+      return;
+    }
+
+    const cachedDetail = spamhausCacheRef.current.get(selectedPoint.ip);
+    if (cachedDetail) {
+      setSpamhausDetail(cachedDetail);
+      setSpamhausError("");
+      setSpamhausLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSpamhausLoading(true);
+    setSpamhausError("");
+    setSpamhausDetail(null);
+
+    fetch(`/api/spamhaus-ip-detail?ip=${encodeURIComponent(selectedPoint.ip)}`, {
+      headers: {
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    })
+      .then((response) => readJson<SpamhausDetail>(response))
+      .then((payload) => {
+        spamhausCacheRef.current.set(selectedPoint.ip, payload);
+        setSpamhausDetail(payload);
+      })
+      .catch((loadError) => {
+        if (loadError instanceof DOMException && loadError.name === "AbortError") return;
+        setSpamhausError(loadError instanceof Error ? loadError.message : "Spamhaus detail is temporarily unavailable.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setSpamhausLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [data?.mode, selectedPoint?.ip]);
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
@@ -352,6 +502,7 @@ export function LiveThreatMapPage() {
                       <p className="mt-1 text-white">{selectedPoint.as_name || selectedPoint.org || selectedPoint.isp || "Unknown network"}</p>
                     </div>
                   </div>
+                  <SpamhausInsight detail={spamhausDetail} error={spamhausError} loading={spamhausLoading} />
                 </div>
               ) : null}
             </aside>
