@@ -134,7 +134,7 @@ function spamhausDqsKeyWarning(apiKey) {
   }
 
   if (!isDnsLabel(apiKey) || apiKey.length !== 26) {
-    return "Spamhaus DQS fallback could not run because SPAMHAUS_DQS_KEY must be the bare 26-character Spamhaus DQS customer code, without Bearer, quotes, spaces, headers, or curl text.";
+    return "SPAMHAUS_DQS_KEY must be the bare 26-character Spamhaus DQS customer code, without Bearer, quotes, spaces, headers, or curl text.";
   }
 
   return "";
@@ -428,15 +428,15 @@ async function fetchNativeDqs(ip, hostname) {
   }
 }
 
-async function fetchSpamhausDqsFallback(ip, apiKey) {
+async function fetchSpamhausDqsDetail(ip, apiKey, lookupLabel = "Spamhaus DQS lookup") {
   const reversed = reversedIpv4(ip);
   if (!reversed) {
-    return statusPayload(ip, "unavailable", ["Spamhaus WQS timed out and DQS fallback currently supports IPv4 lookups only."]);
+    return statusPayload(ip, "unavailable", [`${lookupLabel} currently supports IPv4 lookups only.`]);
   }
 
   const keyWarning = spamhausDqsKeyWarning(apiKey);
   if (keyWarning) {
-    return statusPayload(ip, "unavailable", [`Spamhaus WQS timed out. ${keyWarning}`]);
+    return statusPayload(ip, "unavailable", [`${lookupLabel} could not run because ${keyWarning}`]);
   }
 
   const hostname = `${reversed}.${apiKey}.zen.dq.spamhaus.net`;
@@ -494,11 +494,24 @@ async function fetchSpamhausDqsFallback(ip, apiKey) {
   }
 
   return statusPayload(ip, "unavailable", [
-    `Spamhaus WQS timed out and all DQS fallback lookups failed. ${warnings.join(" ")}`,
+    `${lookupLabel} failed. ${warnings.join(" ")}`,
   ]);
 }
 
+function isResolvedSpamhausPayload(payload) {
+  return payload?.status === "listed" || payload?.status === "not_listed";
+}
+
+function hasSpamhausKeyProblem(payload) {
+  return payload?.warnings?.some((warning) => warning.includes("SPAMHAUS_DQS_KEY")) || false;
+}
+
 async function fetchSpamhausDetail(ip, apiKey) {
+  const dqsPayload = await fetchSpamhausDqsDetail(ip, apiKey);
+  if (isResolvedSpamhausPayload(dqsPayload) || hasSpamhausKeyProblem(dqsPayload)) {
+    return dqsPayload;
+  }
+
   let response;
   let body;
 
@@ -515,13 +528,13 @@ async function fetchSpamhausDetail(ip, apiKey) {
       9000,
     ));
   } catch (error) {
-    return fetchSpamhausDqsFallback(ip, apiKey).then((payload) => ({
-      ...payload,
-      warnings:
-        payload.status === "listed" || payload.status === "not_listed"
-          ? payload.warnings
-          : [`Spamhaus WQS failed: ${messageFromError(error, "request failed")}.`, ...payload.warnings],
-    }));
+    return {
+      ...dqsPayload,
+      warnings: [
+        ...dqsPayload.warnings,
+        `Spamhaus WQS also failed: ${messageFromError(error, "request failed")}.`,
+      ],
+    };
   }
 
   if (response.status === 200 && Array.isArray(body?.resp)) {
@@ -541,10 +554,22 @@ async function fetchSpamhausDetail(ip, apiKey) {
   }
 
   if (response.status === 504) {
-    return fetchSpamhausDqsFallback(ip, apiKey);
+    return {
+      ...dqsPayload,
+      warnings: [
+        ...dqsPayload.warnings,
+        "Spamhaus WQS also returned 504, so neither official Spamhaus lookup path could complete for this IP.",
+      ],
+    };
   }
 
-  return statusPayload(ip, "unavailable", [`Spamhaus detail is temporarily unavailable. Status ${response.status}.`]);
+  return {
+    ...dqsPayload,
+    warnings: [
+      ...dqsPayload.warnings,
+      `Spamhaus WQS also returned status ${response.status}.`,
+    ],
+  };
 }
 
 async function buildSpamhausDetailPayload(ip, env) {
