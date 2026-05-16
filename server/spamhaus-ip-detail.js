@@ -116,6 +116,35 @@ function cleanString(value, fallback = "", maxLength = 220) {
     .slice(0, maxLength);
 }
 
+function normalizeSecretValue(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+}
+
+function isDnsLabel(value) {
+  return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(value);
+}
+
+function spamhausDqsKeyWarning(apiKey) {
+  if (!apiKey) {
+    return "SPAMHAUS_DQS_KEY is not configured.";
+  }
+
+  const labels = apiKey.split(".");
+  const maxDnsNameLength = 253;
+  const suffixLength = ".zen.dq.spamhaus.net".length;
+  const shortestReversedIpLength = "1.1.1.1".length;
+
+  if (!labels.every(isDnsLabel) || shortestReversedIpLength + 1 + apiKey.length + suffixLength > maxDnsNameLength) {
+    return "Spamhaus DQS fallback could not run because SPAMHAUS_DQS_KEY is not a DNS-safe DQS key. Store only the bare Spamhaus key, without Bearer, quotes, spaces, headers, or curl text.";
+  }
+
+  return "";
+}
+
 function messageFromError(error, fallback) {
   return cleanString(error?.message || error, fallback, 240);
 }
@@ -410,6 +439,11 @@ async function fetchSpamhausDqsFallback(ip, apiKey) {
     return statusPayload(ip, "unavailable", ["Spamhaus WQS timed out and DQS fallback currently supports IPv4 lookups only."]);
   }
 
+  const keyWarning = spamhausDqsKeyWarning(apiKey);
+  if (keyWarning) {
+    return statusPayload(ip, "unavailable", [`Spamhaus WQS timed out. ${keyWarning}`]);
+  }
+
   const hostname = `${reversed}.${apiKey}.zen.dq.spamhaus.net`;
   const warnings = [];
   const nativePayload = await fetchNativeDqs(ip, hostname);
@@ -524,7 +558,7 @@ async function buildSpamhausDetailPayload(ip, env) {
     return cached;
   }
 
-  const apiKey = cleanString(env?.SPAMHAUS_DQS_KEY, "", 256);
+  const apiKey = normalizeSecretValue(env?.SPAMHAUS_DQS_KEY);
   if (!apiKey) {
     return statusPayload(ip, "not_configured", ["SPAMHAUS_DQS_KEY is not configured."]);
   }
