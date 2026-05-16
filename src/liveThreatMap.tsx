@@ -198,7 +198,7 @@ function SpamhausInsight({
           </div>
         </div>
       ) : detail.status === "not_listed" ? (
-        <p className="text-sm leading-6 text-haze">No Spamhaus ZEN listing found for this IP.</p>
+        <p className="text-sm leading-6 text-haze">No Spamhaus IP Data listing found for this IP.</p>
       ) : (
         <p className="text-sm leading-6 text-haze">
           {detail.status === "not_configured" ? "Spamhaus DQS is not configured yet." : "Spamhaus detail is unavailable right now."}

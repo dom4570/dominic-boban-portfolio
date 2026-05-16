@@ -6,6 +6,7 @@ const DNS_JSON_PROVIDERS = [
   { name: "Google DNS", url: "https://dns.google/resolve" },
   { name: "Quad9 DNS", url: "https://dns.quad9.net/dns-query" },
 ];
+const DQS_IP_ZONES = ["sbl", "xbl", "pbl", "authbl"];
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_SECONDS = Math.floor(CACHE_TTL_MS / 1000);
 const CACHE_SCHEMA_VERSION = 1;
@@ -378,27 +379,48 @@ function dqsCodeFromAnswer(answer) {
   return null;
 }
 
-function dqsPayloadFromAnswers(ip, answers) {
+function dqsResultFromAnswers(answers) {
   const errorAnswer = answers.find((answer) => /^127\.255\.255\./.test(String(answer)));
   if (errorAnswer) {
-    return statusPayload(ip, "unavailable", [`Spamhaus DQS returned an error response (${errorAnswer}). Check the DQS key and enabled IP datasets.`]);
+    return {
+      status: "unavailable",
+      codes: [],
+      warnings: [`Spamhaus DQS returned an error response (${errorAnswer}). Check the DQS key and enabled IP datasets.`],
+    };
   }
 
   const codes = answers.map(dqsCodeFromAnswer).filter(Number.isFinite);
   if (codes.length) {
-    return listedPayload(ip, codes);
+    return {
+      status: "listed",
+      codes,
+      warnings: [],
+    };
   }
 
   return null;
 }
 
+function dqsPayloadFromAnswers(ip, answers) {
+  const result = dqsResultFromAnswers(answers);
+  if (!result) {
+    return null;
+  }
+
+  if (result.status === "listed") {
+    return listedPayload(ip, result.codes, result.warnings);
+  }
+
+  return statusPayload(ip, result.status, result.warnings);
+}
+
 function dqsDnsStatusMessage(providerName, status) {
   if (status === 2) {
-    return `${providerName} returned DNS status 2 (SERVFAIL). For Spamhaus DQS this usually means the configured key is not active for ZEN/IP lookups, the DQS service is disabled on the key, or the contract/key is not active.`;
+    return `${providerName} returned DNS status 2 (SERVFAIL). For Spamhaus DQS this usually means the configured key is not active for this IP dataset, the DQS service is disabled on the key, or the contract/key is not active.`;
   }
 
   if (status === 5) {
-    return `${providerName} returned DNS status 5 (REFUSED). Check that the DQS key has ZEN/IP lookups enabled.`;
+    return `${providerName} returned DNS status 5 (REFUSED). Check that the DQS key has IP Data lookups enabled.`;
   }
 
   return `${providerName} returned DNS status ${status}.`;
@@ -428,15 +450,20 @@ async function fetchNativeDqs(ip, hostname) {
     const answers = await withTimeout(resolver.resolve4(hostname), 5000, "Native DNS timed out.").finally(() => {
       resolver.cancel?.();
     });
-    return dqsPayloadFromAnswers(ip, answers) || statusPayload(ip, "not_listed");
+    const result = dqsResultFromAnswers(answers);
+    if (!result) {
+      return { status: "not_listed", codes: [], warnings: [] };
+    }
+
+    return result;
   } catch (error) {
     if (error?.code === "ENOTFOUND" || error?.code === "ENODATA") {
-      return statusPayload(ip, "not_listed");
+      return { status: "not_listed", codes: [], warnings: [] };
     }
 
     if (error?.code === "ESERVFAIL") {
       return {
-        warning: "Native DNS returned SERVFAIL. Check that the Spamhaus DQS key is active and enabled for ZEN/IP lookups.",
+        warning: "Native DNS returned SERVFAIL. Check that the Spamhaus DQS key is active and enabled for this IP lookup dataset.",
       };
     }
 
@@ -446,18 +473,7 @@ async function fetchNativeDqs(ip, hostname) {
   }
 }
 
-async function fetchSpamhausDqsDetail(ip, apiKey, lookupLabel = "Spamhaus DQS lookup") {
-  const reversed = reversedIpv4(ip);
-  if (!reversed) {
-    return statusPayload(ip, "unavailable", [`${lookupLabel} currently supports IPv4 lookups only.`]);
-  }
-
-  const keyWarning = spamhausDqsKeyWarning(apiKey);
-  if (keyWarning) {
-    return statusPayload(ip, "unavailable", [`${lookupLabel} could not run because ${keyWarning}`]);
-  }
-
-  const hostname = `${reversed}.${apiKey}.zen.dq.spamhaus.net`;
+async function fetchDqsZoneResult(ip, hostname) {
   const warnings = [];
   const nativePayload = await fetchNativeDqs(ip, hostname);
 
@@ -492,17 +508,17 @@ async function fetchSpamhausDqsDetail(ip, apiKey, lookupLabel = "Spamhaus DQS lo
       }
 
       if (body.Status === 3) {
-        return statusPayload(ip, "not_listed");
+        return { status: "not_listed", codes: [], warnings: [] };
       }
 
       const answers = Array.isArray(body.Answer) ? body.Answer.map((answer) => answer?.data).filter(Boolean) : [];
-      const payload = dqsPayloadFromAnswers(ip, answers);
-      if (payload) {
-        return payload;
+      const result = dqsResultFromAnswers(answers);
+      if (result) {
+        return result;
       }
 
       if (body.Status === 0) {
-        return statusPayload(ip, "not_listed");
+        return { status: "not_listed", codes: [], warnings: [] };
       }
 
       warnings.push(dqsDnsStatusMessage(provider.name, body.Status));
@@ -511,9 +527,53 @@ async function fetchSpamhausDqsDetail(ip, apiKey, lookupLabel = "Spamhaus DQS lo
     }
   }
 
-  return statusPayload(ip, "unavailable", [
-    `${lookupLabel} failed. ${warnings.join(" ")}`,
-  ]);
+  return {
+    status: "unavailable",
+    codes: [],
+    warnings,
+  };
+}
+
+async function fetchSpamhausDqsDetail(ip, apiKey, lookupLabel = "Spamhaus DQS IP lookup") {
+  const reversed = reversedIpv4(ip);
+  if (!reversed) {
+    return statusPayload(ip, "unavailable", [`${lookupLabel} currently supports IPv4 lookups only.`]);
+  }
+
+  const keyWarning = spamhausDqsKeyWarning(apiKey);
+  if (keyWarning) {
+    return statusPayload(ip, "unavailable", [`${lookupLabel} could not run because ${keyWarning}`]);
+  }
+
+  const results = await Promise.all(
+    DQS_IP_ZONES.map(async (zone) => ({
+      zone,
+      result: await fetchDqsZoneResult(ip, `${reversed}.${apiKey}.${zone}.dq.spamhaus.net`),
+    })),
+  );
+  const warnings = [];
+  const codes = [];
+
+  for (const { zone, result } of results) {
+    if (result?.status === "listed") {
+      codes.push(...result.codes);
+    }
+
+    if (result?.status === "unavailable" || result?.warning) {
+      const resultWarnings = result.warnings || [result.warning];
+      warnings.push(...resultWarnings.map((warning) => `${zone.toUpperCase()} lookup: ${warning}`));
+    }
+  }
+
+  if (codes.length) {
+    return listedPayload(ip, codes, warnings);
+  }
+
+  if (!warnings.length && results.every(({ result }) => result?.status === "not_listed")) {
+    return statusPayload(ip, "not_listed");
+  }
+
+  return statusPayload(ip, "unavailable", [`${lookupLabel} failed. ${warnings.join(" ")}`]);
 }
 
 function isResolvedSpamhausPayload(payload) {
@@ -568,7 +628,7 @@ async function fetchSpamhausDetail(ip, apiKey) {
       ...dqsPayload,
       warnings: [
         ...dqsPayload.warnings,
-        "Spamhaus WQS backup rejected the configured key. Check that SPAMHAUS_DQS_KEY is the active DQS key with ZEN/IP lookups enabled.",
+        "Spamhaus WQS backup rejected the configured key. Check that SPAMHAUS_DQS_KEY is the active DQS key with IP Data lookups enabled.",
       ],
     };
   }
