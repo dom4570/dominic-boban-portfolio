@@ -28,6 +28,11 @@ export type SpamhausSummary = {
 
 export type SpamhausHistory = {
   status: "found" | "not_found" | "unavailable";
+  events?: SpamhausHistoryEvent[];
+  warnings: string[];
+};
+
+export type SpamhausHistoryEvent = {
   dataset?: string;
   listed_at?: string;
   removed_at?: string;
@@ -41,5 +46,4 @@ export type SpamhausHistory = {
   destination_ip?: string;
   destination_port?: number | null;
   protocol?: string;
-  warnings: string[];
 };
