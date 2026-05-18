@@ -7,6 +7,8 @@ const DEFAULT_CONFIDENCE_MINIMUM = 90;
 const CACHE_SCHEMA_VERSION = 1;
 const LOCAL_CACHE_FILE = ".cache/abuse-origin-map.json";
 const EDGE_CACHE_URL = "https://portfolio-cache.local/abuse-origin-map/daily-top-50";
+const SPAMHAUS_PREWARM_CONCURRENCY = 3;
+const SPAMHAUS_PREWARM_TIMEOUT_MS = 25000;
 
 let cachedPayload = null;
 let cachedUntil = 0;
@@ -213,7 +215,7 @@ function json(data, status = 200, headers = {}) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": data?.mode === "live" ? `public, max-age=${CACHE_TTL_SECONDS}` : "no-store",
+      "Cache-Control": "no-store",
       ...headers,
     },
   });
@@ -397,6 +399,44 @@ async function writePersistentCache(payload) {
   await Promise.all([writeEdgeCache(payload), writeLocalCache(payload)]);
 }
 
+async function withIpIntelligenceSummaries(payload) {
+  if (payload?.mode !== "live" || !Array.isArray(payload.points) || !payload.points.length) {
+    return payload;
+  }
+
+  try {
+    const { addSpamhausSummariesToPoints } = await import("./spamhaus-ip-detail.js");
+    return {
+      ...payload,
+      points: await addSpamhausSummariesToPoints(payload.points),
+    };
+  } catch {
+    return payload;
+  }
+}
+
+function scheduleSpamhausPrewarm(points, env, context) {
+  if (!Array.isArray(points) || !points.length) {
+    return;
+  }
+
+  const task = import("./spamhaus-ip-detail.js")
+    .then(({ prewarmSpamhausDetails }) =>
+      prewarmSpamhausDetails(points, env, {
+        concurrency: SPAMHAUS_PREWARM_CONCURRENCY,
+        timeoutMs: SPAMHAUS_PREWARM_TIMEOUT_MS,
+      }),
+    )
+    .catch(() => null);
+
+  if (typeof context?.waitUntil === "function") {
+    context.waitUntil(task);
+    return;
+  }
+
+  void task;
+}
+
 function countryNameFromCode(countryCode) {
   try {
     return regionNames.of(countryCode) || countryCode;
@@ -503,7 +543,7 @@ function normalizePoint(row, geo, index) {
   };
 }
 
-async function buildLivePayload(env) {
+async function buildLivePayload(env, context) {
   const now = Date.now();
   if (cachedPayload && cachedUntil > now) {
     return cachedResponse(cachedPayload.cache_status === "stale" ? "stale" : "cached");
@@ -523,14 +563,14 @@ async function buildLivePayload(env) {
     return fallbackPayload("ABUSEIPDB_API_KEY is not configured. Showing demo source locations.");
   }
 
-  pendingLivePayload = refreshLivePayload(apiKey, now).finally(() => {
+  pendingLivePayload = refreshLivePayload(apiKey, now, env, context).finally(() => {
     pendingLivePayload = null;
   });
 
   return pendingLivePayload;
 }
 
-async function refreshLivePayload(apiKey, now) {
+async function refreshLivePayload(apiKey, now, env, context) {
   const blacklist = await fetchAbuseIpdbBlacklist(apiKey);
   if (!blacklist.rows.length) {
     return fallbackPayload("AbuseIPDB returned no blacklist rows. Showing demo source locations.");
@@ -578,6 +618,7 @@ async function refreshLivePayload(apiKey, now) {
 
   cachedPayload = payload;
   await writePersistentCache(cacheablePayload(payload));
+  scheduleSpamhausPrewarm(points, env, context);
 
   return payload;
 }
@@ -613,20 +654,20 @@ function normalizeCountryPoint(row, index) {
   };
 }
 
-export async function handleAbuseOriginMapRequest(request, env = {}) {
+export async function handleAbuseOriginMapRequest(request, env = {}, context = {}) {
   if (request.method !== "GET") {
     return json({ message: "Method not allowed" }, 405, { Allow: "GET" });
   }
 
   try {
-    return json(await buildLivePayload(env));
+    return json(await withIpIntelligenceSummaries(await buildLivePayload(env, context)));
   } catch (error) {
     const message = messageFromError(error, "Threat origin providers are temporarily unavailable.");
     if (cachedPayload?.mode === "live") {
       cachedUntil = Date.now() + CACHE_TTL_MS;
       cachedPayload = cacheablePayload(cachedResponse("stale", `Live refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
       await writePersistentCache(cachedPayload);
-      return json(cachedPayload);
+      return json(await withIpIntelligenceSummaries(cachedPayload));
     }
 
     return json(fallbackPayload(message));
