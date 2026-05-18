@@ -66,6 +66,11 @@ type IpIntelligenceSummary = {
 
 type SpamhausHistory = {
   status: "found" | "not_found" | "unavailable";
+  events?: SpamhausHistoryEvent[];
+  warnings: string[];
+};
+
+type SpamhausHistoryEvent = {
   dataset?: string;
   listed_at?: string;
   removed_at?: string;
@@ -79,7 +84,6 @@ type SpamhausHistory = {
   destination_ip?: string;
   destination_port?: number | null;
   protocol?: string;
-  warnings: string[];
 };
 
 type SpamhausDetail = {
@@ -233,13 +237,92 @@ function EmptyMapState({ loading, error }: { loading: boolean; error: string }) 
   );
 }
 
+function historyConnection(event: SpamhausHistoryEvent) {
+  return [
+    formatEndpoint(event.source_ip, event.source_port),
+    formatEndpoint(event.destination_ip, event.destination_port),
+  ].filter(Boolean);
+}
+
+function HistoricalEventDetail({ event }: { event: SpamhausHistoryEvent }) {
+  const connection = historyConnection(event);
+
+  return (
+    <div className="mt-3 rounded-md border border-white/10 bg-white/[0.04] p-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[10px] uppercase text-haze">Newest event</span>
+        {event.dataset ? (
+          <span className="rounded-md bg-signal px-2 py-1 font-mono text-[10px] font-semibold uppercase text-obsidian">
+            {event.dataset}
+          </span>
+        ) : null}
+      </div>
+      <div className="grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
+        {event.listed_at ? (
+          <p>
+            <span className="text-white">Date listed:</span> {formatDate(event.listed_at)}
+          </p>
+        ) : null}
+        {event.removed_at || event.valid_until_at ? (
+          <p>
+            <span className="text-white">{event.removed_at ? "Date removed:" : "Valid until:"}</span>{" "}
+            {formatDate(event.removed_at || event.valid_until_at)}
+          </p>
+        ) : null}
+        {event.seen_at ? (
+          <p>
+            <span className="text-white">Most recent detection:</span> {formatDate(event.seen_at)}
+          </p>
+        ) : null}
+        {connection.length ? (
+          <p>
+            <span className="text-white">Connection:</span> {connection.join(" -> ")}
+            {event.protocol ? ` (${event.protocol})` : ""}
+          </p>
+        ) : null}
+      </div>
+      {event.detection ? <p className="mt-3 text-sm leading-6 text-white">{event.detection}</p> : null}
+      {event.botname || event.heuristic ? (
+        <p className="mt-2 text-xs leading-5 text-haze">
+          {[event.botname ? `Bot: ${event.botname}` : "", event.heuristic ? `Heuristic: ${event.heuristic}` : ""].filter(Boolean).join(" / ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function HistoricalEventRow({ event, index }: { event: SpamhausHistoryEvent; index: number }) {
+  const connection = historyConnection(event);
+
+  return (
+    <div className="grid gap-2 border-t border-white/10 py-3 text-xs leading-5 text-haze md:grid-cols-[96px_1fr]">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[10px] uppercase text-haze">#{index + 2}</span>
+        {event.dataset ? (
+          <span className="rounded-md border border-signal/30 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal">
+            {event.dataset}
+          </span>
+        ) : null}
+      </div>
+      <div>
+        <p className="text-white">{event.detection || event.heuristic || "Historical listing event"}</p>
+        <p className="mt-1">
+          {[event.seen_at ? formatDate(event.seen_at) : "", connection.length ? connection.join(" -> ") : "", event.protocol || ""]
+            .filter(Boolean)
+            .join(" / ")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function HistoricalListing({ history }: { history: SpamhausHistory | null | undefined }) {
   if (!history) return null;
 
   if (history.status === "not_found") {
     return (
       <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
-        <p className="font-mono text-[10px] uppercase text-haze">Historical listing</p>
+        <p className="font-mono text-[10px] uppercase text-haze">Historical listings</p>
         <p className="mt-2 text-xs leading-5 text-haze">No historical listing event was returned by Spamhaus Intelligence API.</p>
       </div>
     );
@@ -248,56 +331,40 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
   if (history.status === "unavailable") {
     return (
       <div className="mt-4 rounded-md border border-volt/20 bg-volt/10 p-3">
-        <p className="font-mono text-[10px] uppercase text-volt">Historical listing unavailable</p>
+        <p className="font-mono text-[10px] uppercase text-volt">Historical listings unavailable</p>
         {history.warnings?.length ? <p className="mt-2 text-xs leading-5 text-haze">{history.warnings.join(" ")}</p> : null}
       </div>
     );
   }
 
-  const connection = [
-    formatEndpoint(history.source_ip, history.source_port),
-    formatEndpoint(history.destination_ip, history.destination_port),
-  ].filter(Boolean);
+  const events = history.events || [];
+  const newest = events[0];
+  const olderEvents = events.slice(1);
+
+  if (!newest) {
+    return (
+      <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
+        <p className="font-mono text-[10px] uppercase text-haze">Historical listings</p>
+        <p className="mt-2 text-xs leading-5 text-haze">No historical listing event was returned by Spamhaus Intelligence API.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="mt-4 rounded-md border border-white/10 bg-white/[0.04] p-3">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[10px] uppercase text-haze">Latest historical listing</span>
-        {history.dataset ? (
-          <span className="rounded-md bg-signal px-2 py-1 font-mono text-[10px] font-semibold uppercase text-obsidian">
-            {history.dataset}
-          </span>
-        ) : null}
+    <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-[10px] uppercase text-haze">Historical listings</p>
+        <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
+          Last {events.length}
+        </span>
       </div>
-      <div className="grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
-        {history.listed_at ? (
-          <p>
-            <span className="text-white">Date listed:</span> {formatDate(history.listed_at)}
-          </p>
-        ) : null}
-        {history.removed_at || history.valid_until_at ? (
-          <p>
-            <span className="text-white">{history.removed_at ? "Date removed:" : "Valid until:"}</span>{" "}
-            {formatDate(history.removed_at || history.valid_until_at)}
-          </p>
-        ) : null}
-        {history.seen_at ? (
-          <p>
-            <span className="text-white">Most recent detection:</span> {formatDate(history.seen_at)}
-          </p>
-        ) : null}
-        {connection.length ? (
-          <p>
-            <span className="text-white">Connection:</span> {connection.join(" -> ")}
-            {history.protocol ? ` (${history.protocol})` : ""}
-          </p>
-        ) : null}
-      </div>
-      {history.detection ? <p className="mt-3 text-sm leading-6 text-white">{history.detection}</p> : null}
-      {history.botname || history.heuristic ? (
-        <p className="mt-2 text-xs leading-5 text-haze">
-          {[history.botname ? `Bot: ${history.botname}` : "", history.heuristic ? `Heuristic: ${history.heuristic}` : ""].filter(Boolean).join(" / ")}
-        </p>
+      <HistoricalEventDetail event={newest} />
+      {olderEvents.length ? (
+        <div className="mt-3">
+          {olderEvents.map((event, index) => (
+            <HistoricalEventRow key={`${event.dataset || "event"}-${event.seen_at || event.listed_at || index}`} event={event} index={index} />
+          ))}
+        </div>
       ) : null}
     </div>
   );
