@@ -1,6 +1,7 @@
 import { isLiveThreatMapIp } from "./abuse-origin-map.js";
 
 const SPAMHAUS_WQS_URL = "https://apibl.spamhaus.net/lookup/v1/zen";
+const SPAMHAUS_SIA_LOGIN_URL = "https://api.spamhaus.org/api/v1/login";
 const SPAMHAUS_SIA_CIDR_URL = "https://api.spamhaus.org/api/intel/v1/byobject/cidr";
 const DNS_JSON_PROVIDERS = [
   { name: "Cloudflare DNS", url: "https://cloudflare-dns.com/dns-query" },
@@ -99,6 +100,9 @@ const codeDefinitions = new Map([
 
 let memoryCache = new Map();
 let pendingDetails = new Map();
+let cachedSiaToken = "";
+let cachedSiaTokenExpiresAt = 0;
+let pendingSiaLogin = null;
 
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
@@ -331,12 +335,23 @@ async function readCachedDetail(ip) {
 }
 
 async function writeCachedDetail(payload) {
-  if (!isCachePayloadUsable(payload)) {
+  const cachePayload = cacheSafePayload(payload);
+
+  if (!isCachePayloadUsable(cachePayload)) {
     return;
   }
 
-  memoryCache.set(payload.ip, payload);
-  await Promise.all([writeEdgeCache(payload), writeLocalCache(payload)]);
+  memoryCache.set(cachePayload.ip, cachePayload);
+  await Promise.all([writeEdgeCache(cachePayload), writeLocalCache(cachePayload)]);
+}
+
+function cacheSafePayload(payload) {
+  if (payload?.history?.status !== "unavailable") {
+    return payload;
+  }
+
+  const { history: _history, ...rest } = payload;
+  return rest;
 }
 
 function detailSummary(payload) {
@@ -667,9 +682,81 @@ function latestHistoryRecord(records) {
   })[0] || null;
 }
 
-async function fetchSpamhausHistory(ip, siaToken) {
-  const token = normalizeSecretValue(siaToken);
+async function fetchSpamhausSiaToken(env) {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (cachedSiaToken && cachedSiaTokenExpiresAt - 300 > nowSeconds) {
+    return {
+      token: cachedSiaToken,
+      warning: "",
+    };
+  }
+
+  const username = normalizeSecretValue(env?.SPAMHAUS_SIA_USERNAME);
+  const password = normalizeSecretValue(env?.SPAMHAUS_SIA_PASSWORD);
+
+  if (!username || !password) {
+    return {
+      token: "",
+      warning: "",
+    };
+  }
+
+  if (!pendingSiaLogin) {
+    pendingSiaLogin = fetchJson(
+      SPAMHAUS_SIA_LOGIN_URL,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-history-login",
+        },
+        body: JSON.stringify({
+          username,
+          password,
+          realm: "intel",
+        }),
+      },
+      9000,
+    )
+      .then(({ response, body }) => {
+        if (!response.ok || body?.code !== 200 || !body?.token) {
+          return {
+            token: "",
+            warning: "Spamhaus historical intelligence login failed. Check SPAMHAUS_SIA_USERNAME and SPAMHAUS_SIA_PASSWORD.",
+          };
+        }
+
+        cachedSiaToken = normalizeSecretValue(body.token);
+        cachedSiaTokenExpiresAt = numberOrNull(body.expires) || nowSeconds + CACHE_TTL_SECONDS;
+
+        return {
+          token: cachedSiaToken,
+          warning: "",
+        };
+      })
+      .catch((error) => ({
+        token: "",
+        warning: `Spamhaus historical intelligence login failed: ${messageFromError(error, "request failed")}.`,
+      }))
+      .finally(() => {
+        pendingSiaLogin = null;
+      });
+  }
+
+  return pendingSiaLogin;
+}
+
+async function fetchSpamhausHistory(ip, env) {
+  const { token, warning } = await fetchSpamhausSiaToken(env);
   if (!token) {
+    if (warning) {
+      return {
+        status: "unavailable",
+        warnings: [warning],
+      };
+    }
+
     return null;
   }
 
@@ -697,9 +784,12 @@ async function fetchSpamhausHistory(ip, siaToken) {
     }
 
     if (response.status === 401 || response.status === 403) {
+      cachedSiaToken = "";
+      cachedSiaTokenExpiresAt = 0;
+
       return {
         status: "unavailable",
-        warnings: ["Spamhaus historical intelligence authorization failed. Check the SPAMHAUS_SIA_TOKEN secret."],
+        warnings: ["Spamhaus historical intelligence authorization failed. Check SPAMHAUS_SIA_USERNAME and SPAMHAUS_SIA_PASSWORD."],
       };
     }
 
@@ -737,11 +827,11 @@ async function fetchSpamhausHistory(ip, siaToken) {
 }
 
 async function addHistoricalDetail(payload, env) {
-  if (!isResolvedSpamhausPayload(payload) || payload.history) {
+  if (!isResolvedSpamhausPayload(payload) || (payload.history && payload.history.status !== "unavailable")) {
     return payload;
   }
 
-  const history = await fetchSpamhausHistory(payload.ip, env?.SPAMHAUS_SIA_TOKEN);
+  const history = await fetchSpamhausHistory(payload.ip, env);
   return withHistory(payload, history);
 }
 
