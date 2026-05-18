@@ -691,6 +691,14 @@ async function fetchSpamhausSiaToken(env) {
     };
   }
 
+  const configuredToken = normalizeSecretValue(env?.SPAMHAUS_SIA_TOKEN);
+  if (configuredToken) {
+    return {
+      token: configuredToken,
+      warning: "",
+    };
+  }
+
   const username = normalizeSecretValue(env?.SPAMHAUS_SIA_USERNAME);
   const password = normalizeSecretValue(env?.SPAMHAUS_SIA_PASSWORD);
 
@@ -702,39 +710,7 @@ async function fetchSpamhausSiaToken(env) {
   }
 
   if (!pendingSiaLogin) {
-    pendingSiaLogin = fetchJson(
-      SPAMHAUS_SIA_LOGIN_URL,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-history-login",
-        },
-        body: JSON.stringify({
-          username,
-          password,
-          realm: "intel",
-        }),
-      },
-      9000,
-    )
-      .then(({ response, body }) => {
-        if (!response.ok || body?.code !== 200 || !body?.token) {
-          return {
-            token: "",
-            warning: "Spamhaus historical intelligence login failed. Check SPAMHAUS_SIA_USERNAME and SPAMHAUS_SIA_PASSWORD.",
-          };
-        }
-
-        cachedSiaToken = normalizeSecretValue(body.token);
-        cachedSiaTokenExpiresAt = numberOrNull(body.expires) || nowSeconds + CACHE_TTL_SECONDS;
-
-        return {
-          token: cachedSiaToken,
-          warning: "",
-        };
-      })
+    pendingSiaLogin = loginSpamhausSia(username, password, nowSeconds)
       .catch((error) => ({
         token: "",
         warning: `Spamhaus historical intelligence login failed: ${messageFromError(error, "request failed")}.`,
@@ -745,6 +721,62 @@ async function fetchSpamhausSiaToken(env) {
   }
 
   return pendingSiaLogin;
+}
+
+async function loginSpamhausSia(username, password, nowSeconds) {
+  const body = JSON.stringify({
+    username,
+    password,
+    realm: "intel",
+  });
+  const attempts = [
+    {
+      label: "json",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-history-login",
+      },
+    },
+    {
+      label: "documented curl",
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-history-login",
+      },
+    },
+  ];
+  const failures = [];
+
+  for (const attempt of attempts) {
+    const { response, body: responseBody } = await fetchJson(
+      SPAMHAUS_SIA_LOGIN_URL,
+      {
+        method: "POST",
+        headers: attempt.headers,
+        body,
+      },
+      9000,
+    );
+
+    if (response.ok && responseBody?.code === 200 && responseBody?.token) {
+      cachedSiaToken = normalizeSecretValue(responseBody.token);
+      cachedSiaTokenExpiresAt = numberOrNull(responseBody.expires) || nowSeconds + CACHE_TTL_SECONDS;
+
+      return {
+        token: cachedSiaToken,
+        warning: "",
+      };
+    }
+
+    const providerMessage = cleanString(responseBody?.message || responseBody?.error || "", "", 140);
+    failures.push(`${attempt.label} login returned ${response.status}${providerMessage ? `: ${providerMessage}` : ""}`);
+  }
+
+  return {
+    token: "",
+    warning: `Spamhaus historical intelligence login failed (${failures.join("; ")}). Check SPAMHAUS_SIA_USERNAME and SPAMHAUS_SIA_PASSWORD.`,
+  };
 }
 
 async function fetchSpamhausHistory(ip, env) {
