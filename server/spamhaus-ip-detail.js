@@ -324,6 +324,32 @@ async function writeCachedDetail(payload) {
   await Promise.all([writeEdgeCache(payload), writeLocalCache(payload)]);
 }
 
+function detailSummary(payload) {
+  if (!payload) {
+    return null;
+  }
+
+  return {
+    status: payload.status,
+    listing_count: payload.listing_count || 0,
+    codes: Array.isArray(payload.codes) ? payload.codes : [],
+    datasets: Array.isArray(payload.datasets)
+      ? payload.datasets.map((dataset) => ({
+          code: dataset.code,
+          dataset: dataset.dataset,
+          label: dataset.label,
+        }))
+      : [],
+    generated_at: payload.generated_at,
+    cache_status: payload.cache_status || "cached",
+  };
+}
+
+async function readCachedDetailSummary(ip) {
+  const cached = await readCachedDetail(ip);
+  return detailSummary(cached);
+}
+
 function statusPayload(ip, status, warnings = []) {
   const expiresAt = expiresAtFromNow();
   return {
@@ -688,6 +714,89 @@ async function buildSpamhausDetailPayload(ip, env) {
   return pending;
 }
 
+function uniqueIpsFromPoints(points) {
+  const unique = new Set();
+
+  for (const point of Array.isArray(points) ? points : []) {
+    const ip = normalizeIp(point?.ip);
+    if (isIpAddress(ip)) {
+      unique.add(ip);
+    }
+  }
+
+  return [...unique];
+}
+
+async function runLimited(items, concurrency, timeoutMs, worker) {
+  const startedAt = Date.now();
+  let index = 0;
+  let attempted = 0;
+  let cached = 0;
+
+  async function runWorker() {
+    while (index < items.length && Date.now() - startedAt < timeoutMs) {
+      const item = items[index];
+      index += 1;
+      attempted += 1;
+
+      try {
+        const result = await worker(item);
+        if (isResolvedSpamhausPayload(result)) {
+          cached += 1;
+        }
+      } catch {
+        // Prewarm is opportunistic; selected-IP lookup can retry later.
+      }
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: workerCount }, runWorker));
+
+  return {
+    attempted,
+    cached,
+    skipped: Math.max(0, items.length - attempted),
+  };
+}
+
+export async function prewarmSpamhausDetails(points, env = {}, options = {}) {
+  const apiKey = normalizeSecretValue(env?.SPAMHAUS_DQS_KEY);
+  const ips = uniqueIpsFromPoints(points);
+
+  if (!apiKey || !ips.length) {
+    return {
+      attempted: 0,
+      cached: 0,
+      skipped: ips.length,
+    };
+  }
+
+  const concurrency = Number.isFinite(Number(options.concurrency)) ? Number(options.concurrency) : 3;
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : 25000;
+
+  return runLimited(ips, concurrency, timeoutMs, (ip) => buildSpamhausDetailPayload(ip, env));
+}
+
+export async function addSpamhausSummariesToPoints(points) {
+  if (!Array.isArray(points) || !points.length) {
+    return [];
+  }
+
+  const summaries = await Promise.all(
+    points.map(async (point) => {
+      const ip = normalizeIp(point?.ip);
+      return isIpAddress(ip) ? readCachedDetailSummary(ip) : null;
+    }),
+  );
+
+  return points.map((point, index) => {
+    const { ip_intelligence: _ipIntelligence, ...cleanPoint } = point;
+    const summary = summaries[index];
+    return summary ? { ...cleanPoint, ip_intelligence: summary } : cleanPoint;
+  });
+}
+
 export async function handleSpamhausIpDetailRequest(request, env = {}) {
   if (request.method !== "GET") {
     return json({ message: "Method not allowed" }, 405, { Allow: "GET" });
@@ -701,8 +810,13 @@ export async function handleSpamhausIpDetailRequest(request, env = {}) {
   }
 
   try {
+    const cached = await readCachedDetail(ip);
+    if (cached) {
+      return json(cached);
+    }
+
     if (!(await isLiveThreatMapIp(ip))) {
-      return json(statusPayload(ip, "unavailable", ["Spamhaus detail is only available for IPs in the current live daily AbuseIPDB map."]));
+      return json(statusPayload(ip, "unavailable", ["IP Intelligence is only available for IPs from the current or recent Daily Top 50 map. Reload the map to refresh the selected source."]));
     }
 
     return json(await buildSpamhausDetailPayload(ip, env));

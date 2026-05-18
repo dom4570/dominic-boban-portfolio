@@ -33,6 +33,7 @@ type ThreatPoint = {
   proxy: boolean;
   mobile: boolean;
   source: string;
+  ip_intelligence?: IpIntelligenceSummary;
 };
 
 type ThreatOriginResponse = {
@@ -52,6 +53,15 @@ type SpamhausDataset = {
   label: string;
   explanation: string;
   url: string;
+};
+
+type IpIntelligenceSummary = {
+  status: SpamhausDetail["status"];
+  listing_count: number;
+  codes: number[];
+  datasets: Array<Pick<SpamhausDataset, "code" | "dataset" | "label">>;
+  generated_at: string;
+  cache_status: SpamhausDetail["cache_status"];
 };
 
 type SpamhausDetail = {
@@ -124,6 +134,51 @@ function heatIntensity(rank: number) {
   return 1 - ((safeRank - 1) / (MAX_DAILY_POINTS - 1)) * 0.65;
 }
 
+function IntelligenceSummary({
+  ip,
+  loadingFull,
+  summary,
+}: {
+  ip: string;
+  loadingFull: boolean;
+  summary: IpIntelligenceSummary;
+}) {
+  if (summary.status === "listed") {
+    return (
+      <div>
+        <p className="text-sm font-semibold text-white">
+          {ip} has {summary.listing_count} intelligence {summary.listing_count === 1 ? "listing" : "listings"}.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {summary.datasets.map((dataset) => (
+            <span
+              key={`${dataset.code}-${dataset.dataset}`}
+              className="rounded-md border border-signal/30 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal"
+            >
+              {dataset.dataset} / Code {dataset.code}
+            </span>
+          ))}
+        </div>
+        {loadingFull ? <p className="mt-3 text-xs leading-5 text-haze">Loading full dataset context...</p> : null}
+      </div>
+    );
+  }
+
+  if (summary.status === "not_listed") {
+    return (
+      <p className="text-sm leading-6 text-haze">
+        No IP Data listing found for this IP.{loadingFull ? " Verifying full detail..." : ""}
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-sm leading-6 text-haze">
+      {summary.status === "not_configured" ? "IP intelligence is not configured yet." : "IP intelligence is unavailable right now."}
+    </p>
+  );
+}
+
 function StatBlock({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-white/10 bg-black/25 p-4">
@@ -157,31 +212,46 @@ function IpIntelligence({
   detail,
   error,
   loading,
+  selectedIp,
+  summary,
 }: {
   detail: SpamhausDetail | null;
   error: string;
   loading: boolean;
+  selectedIp: string;
+  summary: IpIntelligenceSummary | null;
 }) {
   return (
     <div className="rounded-lg border border-white/10 bg-black/25 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="font-mono text-[11px] uppercase text-signal">IP Intelligence</p>
-        {detail?.cache_status ? (
+        {detail?.cache_status || summary?.cache_status ? (
           <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 font-mono text-[10px] uppercase text-haze">
-            {detail.cache_status}
+            {detail?.cache_status || summary?.cache_status}
           </span>
         ) : null}
       </div>
 
-      {loading ? (
+      {loading && summary ? (
+        <IntelligenceSummary ip={selectedIp} loadingFull summary={summary} />
+      ) : loading ? (
         <div className="flex items-center gap-2 text-sm text-haze">
           <Loader2 className="animate-spin text-signal" size={15} />
           Checking IP intelligence...
         </div>
+      ) : error && summary ? (
+        <div>
+          <IntelligenceSummary ip={selectedIp} loadingFull={false} summary={summary} />
+          <p className="mt-3 text-xs leading-5 text-trace">{error}</p>
+        </div>
       ) : error ? (
         <p className="text-sm leading-6 text-trace">{error}</p>
       ) : !detail ? (
-        <p className="text-sm leading-6 text-haze">Select a source to check IP intelligence.</p>
+        summary ? (
+          <IntelligenceSummary ip={selectedIp} loadingFull={false} summary={summary} />
+        ) : (
+          <p className="text-sm leading-6 text-haze">Select a source to check IP intelligence.</p>
+        )
       ) : detail.status === "listed" ? (
         <div>
           <p className="text-sm font-semibold text-white">
@@ -244,6 +314,7 @@ export function LiveThreatMapPage() {
     setError("");
 
     fetch("/api/abuse-origin-map", {
+      cache: "no-store",
       headers: {
         Accept: "application/json",
       },
@@ -581,7 +652,13 @@ export function LiveThreatMapPage() {
             </aside>
           </div>
 
-          <IpIntelligence detail={spamhausDetail} error={spamhausError} loading={spamhausLoading} />
+          <IpIntelligence
+            detail={spamhausDetail}
+            error={spamhausError}
+            loading={spamhausLoading}
+            selectedIp={selectedPoint?.ip || ""}
+            summary={selectedPoint?.ip_intelligence || null}
+          />
 
           <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
