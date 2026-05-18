@@ -153,14 +153,24 @@ function rankTone(rank: number) {
 }
 
 function markerSize(rank: number) {
-  if (rank <= 10) return 28;
-  if (rank <= 25) return 22;
-  return 18;
+  if (rank <= 10) return 20;
+  if (rank <= 25) return 16;
+  return 13;
 }
 
-function heatIntensity(rank: number) {
-  const safeRank = Math.max(1, Math.min(MAX_DAILY_POINTS, rank || MAX_DAILY_POINTS));
-  return 1 - ((safeRank - 1) / (MAX_DAILY_POINTS - 1)) * 0.65;
+const NO_INTELLIGENCE_DATA = "No additional intelligence data is available at the moment.";
+
+function createThreatMarkerIcon(point: ThreatPoint, selected: boolean) {
+  const color = rankTone(point.rank || MAX_DAILY_POINTS);
+  const sizeValue = markerSize(point.rank || MAX_DAILY_POINTS);
+  const selectedClass = selected ? " threat-pulse-marker--selected" : "";
+
+  return L.divIcon({
+    className: "",
+    html: `<span class="threat-pulse-marker${selectedClass}" style="--marker-color:${color};--marker-size:${sizeValue}px"></span>`,
+    iconAnchor: [sizeValue / 2, sizeValue / 2],
+    iconSize: [sizeValue, sizeValue],
+  });
 }
 
 function IntelligenceSummary({
@@ -196,7 +206,7 @@ function IntelligenceSummary({
   if (summary.status === "not_listed") {
     return (
       <p className="text-sm leading-6 text-haze">
-        No current IP Data listing found.{loadingFull ? " Verifying full detail..." : " Historical listing details require Spamhaus Intelligence API access."}
+        {loadingFull ? "No current IP Data listing found. Checking additional context..." : NO_INTELLIGENCE_DATA}
       </p>
     );
   }
@@ -323,7 +333,7 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
     return (
       <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
         <p className="font-mono text-[10px] uppercase text-haze">Historical listings</p>
-        <p className="mt-2 text-xs leading-5 text-haze">No historical listing event was returned by Spamhaus Intelligence API.</p>
+        <p className="mt-2 text-xs leading-5 text-haze">{NO_INTELLIGENCE_DATA}</p>
       </div>
     );
   }
@@ -345,7 +355,7 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
     return (
       <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
         <p className="font-mono text-[10px] uppercase text-haze">Historical listings</p>
-        <p className="mt-2 text-xs leading-5 text-haze">No historical listing event was returned by Spamhaus Intelligence API.</p>
+        <p className="mt-2 text-xs leading-5 text-haze">{NO_INTELLIGENCE_DATA}</p>
       </div>
     );
   }
@@ -436,12 +446,19 @@ function IpIntelligence({
           <HistoricalListing history={detail.history} />
         </div>
       ) : detail.status === "not_listed" ? (
-        <div>
-          <p className="text-sm leading-6 text-haze">
-            No current IP Data listing found. Historical listing details require Spamhaus Intelligence API access.
-          </p>
-          <HistoricalListing history={detail.history} />
-        </div>
+        detail.history?.status === "found" ? (
+          <div>
+            <p className="text-sm leading-6 text-haze">No current IP Data listing found.</p>
+            <HistoricalListing history={detail.history} />
+          </div>
+        ) : detail.history?.status === "unavailable" ? (
+          <div>
+            <p className="text-sm leading-6 text-haze">No current IP Data listing found.</p>
+            <HistoricalListing history={detail.history} />
+          </div>
+        ) : (
+          <p className="text-sm leading-6 text-haze">{NO_INTELLIGENCE_DATA}</p>
+        )
       ) : (
         <p className="text-sm leading-6 text-haze">
           {detail.status === "not_configured" ? "IP intelligence is not configured yet." : "IP intelligence is unavailable right now."}
@@ -458,9 +475,9 @@ function IpIntelligence({
 export function LiveThreatMapPage() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const heatLayerRef = useRef<L.HeatLayer | null>(null);
-  const clickLayerRef = useRef<L.LayerGroup | null>(null);
-  const selectedMarkerRef = useRef<L.Marker | null>(null);
+  const markerLayerRef = useRef<L.LayerGroup | null>(null);
+  const markerRefs = useRef(new Map<string, L.Marker>());
+  const fittedPointsSignatureRef = useRef("");
   const spamhausCacheRef = useRef(new Map<string, SpamhausDetail>());
   const [data, setData] = useState<ThreatOriginResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -567,60 +584,35 @@ export function LiveThreatMapPage() {
   }, [data?.mode, selectedPoint?.ip]);
 
   useEffect(() => {
-    let cancelled = false;
     let createdMap: L.Map | null = null;
 
-    const mountMap = async () => {
-      if (!mapContainerRef.current || mapRef.current) return;
+    if (!mapContainerRef.current || mapRef.current) return undefined;
 
-      (globalThis as typeof globalThis & { L?: typeof L }).L = L;
-      await import("leaflet.heat");
+    const map = L.map(mapContainerRef.current, {
+      attributionControl: true,
+      minZoom: 2,
+      maxZoom: 8,
+      scrollWheelZoom: true,
+      worldCopyJump: true,
+      zoomControl: false,
+    }).setView([20, 0], 2);
+    createdMap = map;
 
-      if (cancelled || !mapContainerRef.current || mapRef.current) return;
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      maxZoom: 8,
+      subdomains: "abcd",
+    }).addTo(map);
+    L.control.zoom({ position: "bottomright" }).addTo(map);
 
-      const map = L.map(mapContainerRef.current, {
-        attributionControl: true,
-        minZoom: 2,
-        maxZoom: 8,
-        scrollWheelZoom: true,
-        worldCopyJump: true,
-        zoomControl: false,
-      }).setView([20, 0], 2);
-      createdMap = map;
-
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        maxZoom: 8,
-        subdomains: "abcd",
-      }).addTo(map);
-      L.control.zoom({ position: "bottomright" }).addTo(map);
-
-      heatLayerRef.current = L.heatLayer([], {
-        radius: 26,
-        blur: 18,
-        maxZoom: 6,
-        minOpacity: 0.22,
-        gradient: {
-          0.08: "rgba(34, 211, 238, 0)",
-          0.24: "#22d3ee",
-          0.54: "#fcee0a",
-          0.78: "#ff7a18",
-          1: "#ff2a6d",
-        },
-      }).addTo(map);
-      clickLayerRef.current = L.layerGroup().addTo(map);
-      mapRef.current = map;
-      setMapReady(true);
-      window.setTimeout(() => map.invalidateSize(), 80);
-    };
-
-    void mountMap();
+    markerLayerRef.current = L.layerGroup().addTo(map);
+    mapRef.current = map;
+    setMapReady(true);
+    window.setTimeout(() => map.invalidateSize(), 80);
 
     return () => {
-      cancelled = true;
-      selectedMarkerRef.current = null;
-      heatLayerRef.current = null;
-      clickLayerRef.current = null;
+      markerRefs.current.clear();
+      markerLayerRef.current = null;
       const map = mapRef.current || createdMap;
       mapRef.current = null;
       map?.remove();
@@ -629,79 +621,69 @@ export function LiveThreatMapPage() {
 
   useEffect(() => {
     const map = mapRef.current;
-    const heatLayer = heatLayerRef.current;
-    const clickLayer = clickLayerRef.current;
-    if (!mapReady || !map || !heatLayer || !clickLayer) return;
+    const markerLayer = markerLayerRef.current;
+    if (!mapReady || !map || !markerLayer) return;
 
-    clickLayer.clearLayers();
+    markerLayer.clearLayers();
+    markerRefs.current.clear();
 
     if (!points.length) {
-      heatLayer.setLatLngs([]);
-      selectedMarkerRef.current?.remove();
-      selectedMarkerRef.current = null;
+      fittedPointsSignatureRef.current = "";
       return;
     }
 
     const bounds = L.latLngBounds([]);
-    const heatPoints: L.HeatLatLngTuple[] = points.map((point) => [
-      point.latitude,
-      point.longitude,
-      heatIntensity(point.rank || MAX_DAILY_POINTS),
-    ]);
+    const pointsSignature = points.map((point) => `${point.id}:${point.latitude}:${point.longitude}`).join("|");
 
     points.forEach((point) => {
-      const clickTarget = L.circleMarker([point.latitude, point.longitude], {
-        radius: 18,
-        opacity: 0,
-        fillOpacity: 0,
-        interactive: true,
+      const tooltip = document.createElement("div");
+      tooltip.className = "threat-map-tooltip__content";
+
+      const tooltipIp = document.createElement("div");
+      tooltipIp.className = "threat-map-tooltip__ip";
+      tooltipIp.textContent = point.ip;
+
+      const tooltipLocation = document.createElement("div");
+      tooltipLocation.className = "threat-map-tooltip__location";
+      tooltipLocation.textContent = formatLocation(point);
+
+      const tooltipMeta = document.createElement("div");
+      tooltipMeta.className = "threat-map-tooltip__grid";
+      tooltipMeta.append(
+        Object.assign(document.createElement("span"), { textContent: "Daily rank" }),
+        Object.assign(document.createElement("strong"), { textContent: `#${point.rank || "?"}` }),
+        Object.assign(document.createElement("span"), { textContent: "Last report" }),
+        Object.assign(document.createElement("strong"), { textContent: formatDate(point.last_reported_at) }),
+      );
+
+      tooltip.append(tooltipIp, tooltipLocation, tooltipMeta);
+
+      const marker = L.marker([point.latitude, point.longitude], {
+        icon: createThreatMarkerIcon(point, selectedPoint?.id === point.id),
+        title: `${point.ip} / ${formatLocation(point)}`,
+        zIndexOffset: selectedPoint?.id === point.id ? 1000 : point.rank ? MAX_DAILY_POINTS - point.rank : 0,
       })
         .on("click", () => setSelectedId(point.id));
 
-      clickTarget.addTo(clickLayer);
+      marker.bindTooltip(tooltip, {
+        className: "threat-map-tooltip",
+        direction: "top",
+        offset: [0, -8],
+      });
+
+      marker.addTo(markerLayer);
+      markerRefs.current.set(point.id, marker);
       bounds.extend([point.latitude, point.longitude]);
     });
 
-    heatLayer.setLatLngs(heatPoints);
-
-    if (bounds.isValid()) {
+    if (bounds.isValid() && fittedPointsSignatureRef.current !== pointsSignature) {
       map.fitBounds(bounds.pad(0.18), {
         animate: false,
         maxZoom: points.length === 1 ? 4 : 3,
       });
+      fittedPointsSignatureRef.current = pointsSignature;
     }
-  }, [mapReady, points]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!mapReady || !map) return;
-
-    if (!selectedPoint) {
-      selectedMarkerRef.current?.remove();
-      selectedMarkerRef.current = null;
-      return;
-    }
-
-    selectedMarkerRef.current?.remove();
-
-    const color = rankTone(selectedPoint.rank || MAX_DAILY_POINTS);
-    const sizeValue = markerSize(selectedPoint.rank || MAX_DAILY_POINTS);
-    const size = `${sizeValue}px`;
-    const icon = L.divIcon({
-      className: "",
-      html: `<span class="threat-pulse-marker threat-pulse-marker--selected" style="--marker-color:${color};--marker-size:${size}"></span>`,
-      iconAnchor: [sizeValue / 2, sizeValue / 2],
-      iconSize: [sizeValue, sizeValue],
-    });
-
-    selectedMarkerRef.current = L.marker([selectedPoint.latitude, selectedPoint.longitude], {
-      icon,
-      title: `${selectedPoint.ip} / ${formatLocation(selectedPoint)}`,
-      zIndexOffset: 1000,
-    })
-      .on("click", () => setSelectedId(selectedPoint.id))
-      .addTo(map);
-  }, [mapReady, selectedPoint]);
+  }, [mapReady, points, selectedPoint?.id]);
 
   const focusPoint = (point: ThreatPoint) => {
     setSelectedId(point.id);
@@ -732,7 +714,7 @@ export function LiveThreatMapPage() {
                 Daily Top 50 Threat Origin Map.
               </h1>
               <p className="mt-4 max-w-3xl text-base leading-8 text-haze">
-                The heat layer shows approximate geo-IP density from the daily cached AbuseIPDB blacklist snapshot. It represents reported abusive source locations, not live attack volume.
+                Smaller source markers show approximate geo-IP locations from the daily cached AbuseIPDB blacklist snapshot. It represents reported abusive source locations, not live attack volume.
               </p>
             </div>
             <div className={`rounded-lg border p-4 ${data?.mode === "live" ? "border-signal/35 bg-signal/10" : "border-volt/35 bg-volt/10"}`}>
@@ -766,7 +748,7 @@ export function LiveThreatMapPage() {
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
                   <div className="flex items-center gap-2 font-mono text-xs uppercase text-signal">
                     <Globe2 size={16} />
-                    Daily source density layer
+                    Daily source marker layer
                   </div>
                   <button
                     type="button"
