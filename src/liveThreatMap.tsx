@@ -64,6 +64,24 @@ type IpIntelligenceSummary = {
   cache_status: SpamhausDetail["cache_status"];
 };
 
+type SpamhausHistory = {
+  status: "found" | "not_found" | "unavailable";
+  dataset?: string;
+  listed_at?: string;
+  removed_at?: string;
+  valid_until_at?: string;
+  seen_at?: string;
+  detection?: string;
+  heuristic?: string;
+  botname?: string;
+  source_ip?: string;
+  source_port?: number | null;
+  destination_ip?: string;
+  destination_port?: number | null;
+  protocol?: string;
+  warnings: string[];
+};
+
 type SpamhausDetail = {
   ip: string;
   status: "listed" | "not_listed" | "unavailable" | "not_configured";
@@ -74,6 +92,7 @@ type SpamhausDetail = {
   cache_status: "fresh" | "cached";
   cache_expires_at: string;
   warnings: string[];
+  history?: SpamhausHistory | null;
 };
 
 const MAX_DAILY_POINTS = 50;
@@ -107,6 +126,12 @@ function formatLocation(point: ThreatPoint) {
   const country = point.country || point.country_code || "Unknown";
 
   return [city, country].filter(Boolean).join(", ");
+}
+
+function formatEndpoint(ip: string | undefined, port: number | null | undefined) {
+  if (!ip && !port) return "";
+  if (!ip && port) return `port ${port}`;
+  return [ip, port ? `:${port}` : ""].filter(Boolean).join("");
 }
 
 function cacheStatusLabel(status: ThreatOriginResponse["cache_status"] | undefined) {
@@ -167,7 +192,7 @@ function IntelligenceSummary({
   if (summary.status === "not_listed") {
     return (
       <p className="text-sm leading-6 text-haze">
-        No IP Data listing found for this IP.{loadingFull ? " Verifying full detail..." : ""}
+        No current IP Data listing found.{loadingFull ? " Verifying full detail..." : " Historical listing details require Spamhaus Intelligence API access."}
       </p>
     );
   }
@@ -204,6 +229,76 @@ function EmptyMapState({ loading, error }: { loading: boolean; error: string }) 
           <p className="mt-2 max-w-sm text-sm leading-6 text-haze">{error || "No usable coordinates were returned."}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function HistoricalListing({ history }: { history: SpamhausHistory | null | undefined }) {
+  if (!history) return null;
+
+  if (history.status === "not_found") {
+    return (
+      <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
+        <p className="font-mono text-[10px] uppercase text-haze">Historical listing</p>
+        <p className="mt-2 text-xs leading-5 text-haze">No historical listing event was returned by Spamhaus Intelligence API.</p>
+      </div>
+    );
+  }
+
+  if (history.status === "unavailable") {
+    return (
+      <div className="mt-4 rounded-md border border-volt/20 bg-volt/10 p-3">
+        <p className="font-mono text-[10px] uppercase text-volt">Historical listing unavailable</p>
+        {history.warnings?.length ? <p className="mt-2 text-xs leading-5 text-haze">{history.warnings.join(" ")}</p> : null}
+      </div>
+    );
+  }
+
+  const connection = [
+    formatEndpoint(history.source_ip, history.source_port),
+    formatEndpoint(history.destination_ip, history.destination_port),
+  ].filter(Boolean);
+
+  return (
+    <div className="mt-4 rounded-md border border-white/10 bg-white/[0.04] p-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[10px] uppercase text-haze">Latest historical listing</span>
+        {history.dataset ? (
+          <span className="rounded-md bg-signal px-2 py-1 font-mono text-[10px] font-semibold uppercase text-obsidian">
+            {history.dataset}
+          </span>
+        ) : null}
+      </div>
+      <div className="grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
+        {history.listed_at ? (
+          <p>
+            <span className="text-white">Date listed:</span> {formatDate(history.listed_at)}
+          </p>
+        ) : null}
+        {history.removed_at || history.valid_until_at ? (
+          <p>
+            <span className="text-white">{history.removed_at ? "Date removed:" : "Valid until:"}</span>{" "}
+            {formatDate(history.removed_at || history.valid_until_at)}
+          </p>
+        ) : null}
+        {history.seen_at ? (
+          <p>
+            <span className="text-white">Most recent detection:</span> {formatDate(history.seen_at)}
+          </p>
+        ) : null}
+        {connection.length ? (
+          <p>
+            <span className="text-white">Connection:</span> {connection.join(" -> ")}
+            {history.protocol ? ` (${history.protocol})` : ""}
+          </p>
+        ) : null}
+      </div>
+      {history.detection ? <p className="mt-3 text-sm leading-6 text-white">{history.detection}</p> : null}
+      {history.botname || history.heuristic ? (
+        <p className="mt-2 text-xs leading-5 text-haze">
+          {[history.botname ? `Bot: ${history.botname}` : "", history.heuristic ? `Heuristic: ${history.heuristic}` : ""].filter(Boolean).join(" / ")}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -271,9 +366,15 @@ function IpIntelligence({
               </div>
             ))}
           </div>
+          <HistoricalListing history={detail.history} />
         </div>
       ) : detail.status === "not_listed" ? (
-        <p className="text-sm leading-6 text-haze">No IP Data listing found for this IP.</p>
+        <div>
+          <p className="text-sm leading-6 text-haze">
+            No current IP Data listing found. Historical listing details require Spamhaus Intelligence API access.
+          </p>
+          <HistoricalListing history={detail.history} />
+        </div>
       ) : (
         <p className="text-sm leading-6 text-haze">
           {detail.status === "not_configured" ? "IP intelligence is not configured yet." : "IP intelligence is unavailable right now."}
