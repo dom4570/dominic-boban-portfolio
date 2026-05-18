@@ -125,6 +125,7 @@ To run this platform locally or deploy to production, verify the following confi
 | `SPAMHAUS_DQS_KEY` | Spamhaus Edge DQS | 26-character bare customer code token |
 | `SPAMHAUS_SIA_USERNAME` | Spamhaus Intelligence API | Optional API username for historical IP listing context |
 | `SPAMHAUS_SIA_PASSWORD` | Spamhaus Intelligence API | Optional API password for historical IP listing context |
+| `SPAMHAUS_SIA_TOKEN` | Spamhaus Intelligence API | Optional short-lived bearer token fallback for historical IP listing context |
 
 ### Local Infrastructure Testing
 
