@@ -1,6 +1,7 @@
 import { isLiveThreatMapIp } from "./abuse-origin-map.js";
 
 const SPAMHAUS_WQS_URL = "https://apibl.spamhaus.net/lookup/v1/zen";
+const SPAMHAUS_SIA_CIDR_URL = "https://api.spamhaus.org/api/intel/v1/byobject/cidr";
 const DNS_JSON_PROVIDERS = [
   { name: "Cloudflare DNS", url: "https://cloudflare-dns.com/dns-query" },
   { name: "Google DNS", url: "https://dns.google/resolve" },
@@ -9,7 +10,7 @@ const DNS_JSON_PROVIDERS = [
 const DQS_IP_ZONES = ["sbl", "xbl", "pbl", "authbl"];
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_SECONDS = Math.floor(CACHE_TTL_MS / 1000);
-const CACHE_SCHEMA_VERSION = 1;
+const CACHE_SCHEMA_VERSION = 2;
 const LOCAL_CACHE_FILE = ".cache/spamhaus-ip-detail.json";
 const EDGE_CACHE_PREFIX = "https://portfolio-cache.local/spamhaus-ip-detail/";
 
@@ -147,6 +148,20 @@ function messageFromError(error, fallback) {
 
 function normalizeIp(value) {
   return cleanString(value, "", 80);
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function isoFromUnixSeconds(value) {
+  const seconds = numberOrNull(value);
+  if (!seconds || seconds <= 0) {
+    return "";
+  }
+
+  return new Date(seconds * 1000).toISOString();
 }
 
 function isIpAddress(value) {
@@ -363,6 +378,17 @@ function statusPayload(ip, status, warnings = []) {
     cache_status: "fresh",
     cache_expires_at: expiresAt,
     warnings,
+  };
+}
+
+function withHistory(payload, history) {
+  if (!history) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    history,
   };
 }
 
@@ -610,6 +636,115 @@ function hasSpamhausKeyProblem(payload) {
   return payload?.warnings?.some((warning) => warning.includes("SPAMHAUS_DQS_KEY")) || false;
 }
 
+function historyEventFromRecord(record) {
+  const sourceIp = normalizeIp(record?.srcip || record?.ipaddress);
+  const destinationIp = normalizeIp(record?.dstip);
+
+  return {
+    status: "found",
+    dataset: cleanString(record?.dataset, "", 32),
+    listed_at: isoFromUnixSeconds(record?.listed),
+    removed_at: isoFromUnixSeconds(record?.remove_timestamp),
+    valid_until_at: isoFromUnixSeconds(record?.valid_until),
+    seen_at: isoFromUnixSeconds(record?.seen),
+    detection: cleanString(record?.detection, "", 260),
+    heuristic: cleanString(record?.heuristic, "", 120),
+    botname: cleanString(record?.botname, "", 120),
+    source_ip: sourceIp,
+    source_port: numberOrNull(record?.srcport),
+    destination_ip: destinationIp,
+    destination_port: numberOrNull(record?.dstport),
+    protocol: cleanString(record?.protocol, "", 20).toUpperCase(),
+    warnings: [],
+  };
+}
+
+function latestHistoryRecord(records) {
+  return [...records].sort((left, right) => {
+    const leftTime = numberOrNull(left?.seen) || numberOrNull(left?.listed) || 0;
+    const rightTime = numberOrNull(right?.seen) || numberOrNull(right?.listed) || 0;
+    return rightTime - leftTime;
+  })[0] || null;
+}
+
+async function fetchSpamhausHistory(ip, siaToken) {
+  const token = normalizeSecretValue(siaToken);
+  if (!token) {
+    return null;
+  }
+
+  const url = new URL(`${SPAMHAUS_SIA_CIDR_URL}/ALL/listed/history/${encodeURIComponent(ip)}`);
+  url.searchParams.set("limit", "1");
+
+  try {
+    const { response, body } = await fetchJson(
+      url.toString(),
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+          "User-Agent": "DominicBobanPortfolio/1.0 spamhaus-history",
+        },
+      },
+      9000,
+    );
+
+    if (response.status === 404 || body?.code === 404) {
+      return {
+        status: "not_found",
+        warnings: [],
+      };
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      return {
+        status: "unavailable",
+        warnings: ["Spamhaus historical intelligence authorization failed. Check the SPAMHAUS_SIA_TOKEN secret."],
+      };
+    }
+
+    if (response.status === 429) {
+      return {
+        status: "unavailable",
+        warnings: ["Spamhaus historical intelligence is rate limited right now."],
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        status: "unavailable",
+        warnings: [`Spamhaus historical intelligence returned status ${response.status}.`],
+      };
+    }
+
+    const records = Array.isArray(body?.results) ? body.results : [];
+    const latest = latestHistoryRecord(records);
+
+    if (!latest) {
+      return {
+        status: "not_found",
+        warnings: [],
+      };
+    }
+
+    return historyEventFromRecord(latest);
+  } catch (error) {
+    return {
+      status: "unavailable",
+      warnings: [`Spamhaus historical intelligence failed: ${messageFromError(error, "request failed")}.`],
+    };
+  }
+}
+
+async function addHistoricalDetail(payload, env) {
+  if (!isResolvedSpamhausPayload(payload) || payload.history) {
+    return payload;
+  }
+
+  const history = await fetchSpamhausHistory(payload.ip, env?.SPAMHAUS_SIA_TOKEN);
+  return withHistory(payload, history);
+}
+
 async function fetchSpamhausDetail(ip, apiKey) {
   const dqsPayload = await fetchSpamhausDqsDetail(ip, apiKey);
   if (isResolvedSpamhausPayload(dqsPayload) || hasSpamhausKeyProblem(dqsPayload)) {
@@ -688,9 +823,18 @@ async function fetchSpamhausDetail(ip, apiKey) {
   };
 }
 
-async function buildSpamhausDetailPayload(ip, env) {
+async function buildSpamhausDetailPayload(ip, env, options = {}) {
   const cached = await readCachedDetail(ip);
   if (cached) {
+    if (options.includeHistory) {
+      const enriched = await addHistoricalDetail(cached, env);
+      if (enriched !== cached) {
+        await writeCachedDetail(enriched);
+      }
+
+      return enriched;
+    }
+
     return cached;
   }
 
@@ -700,10 +844,23 @@ async function buildSpamhausDetailPayload(ip, env) {
   }
 
   if (pendingDetails.has(ip)) {
-    return pendingDetails.get(ip);
+    const pending = pendingDetails.get(ip);
+    if (options.includeHistory) {
+      return pending.then(async (payload) => {
+        const enriched = await addHistoricalDetail(payload, env);
+        if (enriched !== payload) {
+          await writeCachedDetail(enriched);
+        }
+
+        return enriched;
+      });
+    }
+
+    return pending;
   }
 
   const pending = fetchSpamhausDetail(ip, apiKey)
+    .then((payload) => (options.includeHistory ? addHistoricalDetail(payload, env) : payload))
     .then(async (payload) => {
       await writeCachedDetail(payload);
       return payload;
@@ -812,14 +969,19 @@ export async function handleSpamhausIpDetailRequest(request, env = {}) {
   try {
     const cached = await readCachedDetail(ip);
     if (cached) {
-      return json(cached);
+      const enriched = await addHistoricalDetail(cached, env);
+      if (enriched !== cached) {
+        await writeCachedDetail(enriched);
+      }
+
+      return json(enriched);
     }
 
     if (!(await isLiveThreatMapIp(ip))) {
       return json(statusPayload(ip, "unavailable", ["IP Intelligence is only available for IPs from the current or recent Daily Top 50 map. Reload the map to refresh the selected source."]));
     }
 
-    return json(await buildSpamhausDetailPayload(ip, env));
+    return json(await buildSpamhausDetailPayload(ip, env, { includeHistory: true }));
   } catch (error) {
     return json(statusPayload(ip, "unavailable", [messageFromError(error, "Spamhaus detail is temporarily unavailable.")]));
   }
