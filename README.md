@@ -123,6 +123,7 @@ To run this platform locally or deploy to production, verify the following confi
 | `CLOUDFLARE_RADAR_TOKEN` | Cloudflare Radar API | Account → Radar → Read Permissions |
 | `ABUSEIPDB_API_KEY` | AbuseIPDB Engine | Inbound blacklist extraction key |
 | `SPAMHAUS_DQS_KEY` | Spamhaus Edge DQS | 26-character bare customer code token |
+| `SPAMHAUS_SIA_TOKEN` | Spamhaus Intelligence API | Optional bearer token for historical IP listing context |
 
 ### Local Infrastructure Testing
 
@@ -132,6 +133,7 @@ Pass environment variables through your terminal before launching the local prev
 export ABUSEIPDB_API_KEY="your_key_here"
 export CLOUDFLARE_RADAR_TOKEN="your_token_here"
 export SPAMHAUS_DQS_KEY="your_key_here"
+export SPAMHAUS_SIA_TOKEN="your_optional_sia_token_here"
 npm run dev
 ```
 

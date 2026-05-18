@@ -25,3 +25,21 @@ export type SpamhausSummary = {
   generated_at: string;
   cache_status: "fresh" | "cached";
 };
+
+export type SpamhausHistory = {
+  status: "found" | "not_found" | "unavailable";
+  dataset?: string;
+  listed_at?: string;
+  removed_at?: string;
+  valid_until_at?: string;
+  seen_at?: string;
+  detection?: string;
+  heuristic?: string;
+  botname?: string;
+  source_ip?: string;
+  source_port?: number | null;
+  destination_ip?: string;
+  destination_port?: number | null;
+  protocol?: string;
+  warnings: string[];
+};
