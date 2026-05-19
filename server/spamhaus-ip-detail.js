@@ -11,7 +11,8 @@ const DNS_JSON_PROVIDERS = [
 const DQS_IP_ZONES = ["sbl", "xbl", "pbl", "authbl"];
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_SECONDS = Math.floor(CACHE_TTL_MS / 1000);
-const CACHE_SCHEMA_VERSION = 2;
+const CACHE_SCHEMA_VERSION = 3;
+const SPAMHAUS_HISTORY_LIMIT = 10;
 const LOCAL_CACHE_FILE = ".cache/spamhaus-ip-detail.json";
 const EDGE_CACHE_PREFIX = "https://portfolio-cache.local/spamhaus-ip-detail/";
 
@@ -656,7 +657,6 @@ function historyEventFromRecord(record) {
   const destinationIp = normalizeIp(record?.dstip);
 
   return {
-    status: "found",
     dataset: cleanString(record?.dataset, "", 32),
     listed_at: isoFromUnixSeconds(record?.listed),
     removed_at: isoFromUnixSeconds(record?.remove_timestamp),
@@ -670,16 +670,15 @@ function historyEventFromRecord(record) {
     destination_ip: destinationIp,
     destination_port: numberOrNull(record?.dstport),
     protocol: cleanString(record?.protocol, "", 20).toUpperCase(),
-    warnings: [],
   };
 }
 
-function latestHistoryRecord(records) {
+function historyEventsFromRecords(records, limit = SPAMHAUS_HISTORY_LIMIT) {
   return [...records].sort((left, right) => {
     const leftTime = numberOrNull(left?.seen) || numberOrNull(left?.listed) || 0;
     const rightTime = numberOrNull(right?.seen) || numberOrNull(right?.listed) || 0;
     return rightTime - leftTime;
-  })[0] || null;
+  }).slice(0, limit).map(historyEventFromRecord);
 }
 
 async function fetchSpamhausSiaToken(env) {
@@ -793,7 +792,7 @@ async function fetchSpamhausHistory(ip, env) {
   }
 
   const url = new URL(`${SPAMHAUS_SIA_CIDR_URL}/ALL/listed/history/${encodeURIComponent(ip)}`);
-  url.searchParams.set("limit", "1");
+  url.searchParams.set("limit", String(SPAMHAUS_HISTORY_LIMIT));
 
   try {
     const { response, body } = await fetchJson(
@@ -840,16 +839,20 @@ async function fetchSpamhausHistory(ip, env) {
     }
 
     const records = Array.isArray(body?.results) ? body.results : [];
-    const latest = latestHistoryRecord(records);
+    const events = historyEventsFromRecords(records);
 
-    if (!latest) {
+    if (!events.length) {
       return {
         status: "not_found",
         warnings: [],
       };
     }
 
-    return historyEventFromRecord(latest);
+    return {
+      status: "found",
+      events,
+      warnings: [],
+    };
   } catch (error) {
     return {
       status: "unavailable",
