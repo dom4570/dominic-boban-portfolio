@@ -299,9 +299,15 @@ section {
   border-radius: 999px;
   background: var(--marker-color);
   box-shadow:
-    0 0 10px var(--marker-color),
-    0 0 24px color-mix(in srgb, var(--marker-color) 42%, transparent);
+    0 0 8px var(--marker-color),
+    0 0 16px color-mix(in srgb, var(--marker-color) 36%, transparent);
   transform: translate(-50%, -50%);
+}
+
+.threat-pulse-marker--selected {
+  box-shadow:
+    0 0 10px var(--marker-color),
+    0 0 24px color-mix(in srgb, var(--marker-color) 48%, transparent);
 }
 
 .threat-pulse-marker::before,
@@ -313,10 +319,15 @@ section {
 }
 
 .threat-pulse-marker::before {
-  inset: -12px;
+  inset: -7px;
   border: 1px solid var(--marker-color);
-  opacity: 0.78;
+  opacity: 0.58;
   animation: threat-marker-pulse 1.9s ease-out infinite;
+}
+
+.threat-pulse-marker--selected::before {
+  inset: -9px;
+  opacity: 0.7;
 }
 
 .threat-pulse-marker::after {
@@ -389,16 +400,16 @@ section {
 
 @keyframes threat-marker-pulse {
   0% {
-    opacity: 0.82;
+    opacity: 0.72;
     transform: scale(0.45);
   }
   70% {
     opacity: 0;
-    transform: scale(1.75);
+    transform: scale(1.35);
   }
   100% {
     opacity: 0;
-    transform: scale(1.9);
+    transform: scale(1.5);
   }
 }
 
