@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import { handleAbuseOriginMapRequest } from "./server/abuse-origin-map.js";
+import { handleAbuseIpdbIpDetailRequest } from "./server/abuseipdb-ip-detail.js";
 import { handleSpamhausIpDetailRequest } from "./server/spamhaus-ip-detail.js";
 
 declare const process: {
@@ -93,6 +94,43 @@ function localAbuseOriginMapApi(): Plugin {
           devRes.statusCode = 500;
           devRes.setHeader("Content-Type", "application/json; charset=utf-8");
           const message = error instanceof Error ? error.message : "Local Spamhaus detail API failed.";
+          devRes.end(JSON.stringify({ message }));
+        }
+      });
+
+      server.middlewares.use("/api/abuseipdb-ip-detail", async (req, res) => {
+        const devReq = req as unknown as DevRequest;
+        const devRes = res as unknown as DevResponse;
+        const rawHost = devReq.headers.host;
+        const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) || "127.0.0.1:5173";
+        const headers = new Headers();
+
+        for (const [key, value] of Object.entries(devReq.headers)) {
+          if (Array.isArray(value)) {
+            value.forEach((entry) => headers.append(key, entry));
+          } else if (value) {
+            headers.set(key, value);
+          }
+        }
+
+        try {
+          const url = new URL(`/api/abuseipdb-ip-detail${devReq.url || ""}`, `http://${host}`);
+          const response = await handleAbuseIpdbIpDetailRequest(
+            new Request(url, {
+              method: devReq.method || "GET",
+              headers,
+            }),
+            process.env,
+          );
+          const body = new Uint8Array(await response.arrayBuffer());
+
+          devRes.statusCode = response.status;
+          response.headers.forEach((value, key) => devRes.setHeader(key, value));
+          devRes.end(body);
+        } catch (error) {
+          devRes.statusCode = 500;
+          devRes.setHeader("Content-Type", "application/json; charset=utf-8");
+          const message = error instanceof Error ? error.message : "Local AbuseIPDB detail API failed.";
           devRes.end(JSON.stringify({ message }));
         }
       });

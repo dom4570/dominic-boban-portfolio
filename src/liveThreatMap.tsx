@@ -11,7 +11,7 @@ import {
   RotateCcw,
   ShieldAlert,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type ThreatPoint = {
   id: string;
@@ -34,6 +34,7 @@ type ThreatPoint = {
   mobile: boolean;
   source: string;
   ip_intelligence?: IpIntelligenceSummary;
+  abuseipdb_intelligence?: AbuseIpdbSummary;
 };
 
 type ThreatOriginResponse = {
@@ -62,6 +63,40 @@ type IpIntelligenceSummary = {
   datasets: Array<Pick<SpamhausDataset, "code" | "dataset" | "label">>;
   generated_at: string;
   cache_status: SpamhausDetail["cache_status"];
+};
+
+type AbuseIpdbCategory = {
+  id: number;
+  label: string;
+  count?: number;
+};
+
+type AbuseIpdbReport = {
+  reported_at: string;
+  reporter_country_code: string;
+  reporter_country_name: string;
+  comment: string;
+  categories: AbuseIpdbCategory[];
+};
+
+type AbuseIpdbSummary = {
+  provider: "abuseipdb";
+  status: "reported" | "not_reported" | "unavailable" | "not_configured";
+  abuse_confidence_score: number;
+  total_reports: number;
+  num_distinct_users: number;
+  max_age_in_days: number;
+  usage_type: string;
+  isp: string;
+  domain: string;
+  country_code: string;
+  country_name: string;
+  is_tor: boolean;
+  is_whitelisted: boolean | null;
+  last_reported_at: string;
+  top_categories: AbuseIpdbCategory[];
+  generated_at: string;
+  cache_status: "fresh" | "cached";
 };
 
 type SpamhausHistory = {
@@ -99,6 +134,16 @@ type SpamhausDetail = {
   history?: SpamhausHistory | null;
 };
 
+type AbuseIpdbDetail = AbuseIpdbSummary & {
+  ip: string;
+  recent_report_total: number;
+  recent_reports: AbuseIpdbReport[];
+  report_window_days: number;
+  reports_status: "not_loaded" | "found" | "not_found" | "unavailable";
+  cache_expires_at: string;
+  warnings: string[];
+};
+
 const MAX_DAILY_POINTS = 50;
 
 function readJson<T>(response: Response): Promise<T> {
@@ -123,6 +168,10 @@ function formatDate(value: string | null | undefined) {
     minute: "2-digit",
     timeZoneName: "short",
   }).format(date);
+}
+
+function formatNumber(value: number | null | undefined) {
+  return new Intl.NumberFormat("en-GB").format(Math.max(0, Number(value) || 0));
 }
 
 function formatLocation(point: ThreatPoint) {
@@ -380,94 +429,271 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
   );
 }
 
+function ProviderPanel({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <div className="rounded-md border border-white/10 bg-white/[0.035] p-3">
+      <p className="font-mono text-[10px] uppercase text-signal">{title}</p>
+      <div className="mt-3">{children}</div>
+    </div>
+  );
+}
+
+function AbuseCategoryBadges({ categories }: { categories: AbuseIpdbCategory[] }) {
+  if (!categories.length) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {categories.map((category) => (
+        <span
+          key={`${category.id}-${category.label}`}
+          className="rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 font-mono text-[10px] uppercase text-cyan-100"
+        >
+          {category.label}
+          {category.count ? ` x${category.count}` : ""}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AbuseIpdbIntelligence({
+  detail,
+  loading,
+  selectedIp,
+  summary,
+}: {
+  detail: AbuseIpdbDetail | null;
+  loading: boolean;
+  selectedIp: string;
+  summary: AbuseIpdbSummary | null;
+}) {
+  const payload = detail || summary;
+  if (!payload || payload.status !== "reported" || payload.total_reports <= 0) {
+    return null;
+  }
+
+  const reports = detail?.recent_reports || [];
+  const reportWindow = detail?.report_window_days || 7;
+  const topCategories = detail?.top_categories?.length ? detail.top_categories : payload.top_categories || [];
+
+  return (
+    <ProviderPanel title="AbuseIPDB reports">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-white">
+            {selectedIp} has {formatNumber(payload.total_reports)} reports from {formatNumber(payload.num_distinct_users)} distinct sources.
+          </p>
+          <p className="mt-1 text-xs leading-5 text-haze">
+            Third-party reports about this source IP over the last {payload.max_age_in_days} days, not direct telemetry from this portfolio.
+          </p>
+        </div>
+        <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 font-mono text-[10px] uppercase text-haze">
+          {payload.cache_status}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+          <p className="font-mono text-[10px] uppercase text-haze">Report count</p>
+          <p className="mt-1 text-lg font-semibold text-white">{formatNumber(payload.total_reports)}</p>
+        </div>
+        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+          <p className="font-mono text-[10px] uppercase text-haze">Reporters</p>
+          <p className="mt-1 text-lg font-semibold text-white">{formatNumber(payload.num_distinct_users)}</p>
+        </div>
+        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+          <p className="font-mono text-[10px] uppercase text-haze">Last report</p>
+          <p className="mt-1 text-sm font-semibold text-white">{formatDate(payload.last_reported_at)}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
+        {payload.usage_type ? (
+          <p>
+            <span className="text-white">Usage:</span> {payload.usage_type}
+          </p>
+        ) : null}
+        {payload.isp || payload.domain ? (
+          <p>
+            <span className="text-white">Network:</span> {[payload.isp, payload.domain].filter(Boolean).join(" / ")}
+          </p>
+        ) : null}
+        {payload.country_name || payload.country_code ? (
+          <p>
+            <span className="text-white">Country:</span> {payload.country_name || payload.country_code}
+          </p>
+        ) : null}
+        {payload.is_tor || payload.is_whitelisted !== null ? (
+          <p>
+            <span className="text-white">Flags:</span>{" "}
+            {[payload.is_tor ? "Tor" : "", payload.is_whitelisted === true ? "Whitelisted" : ""].filter(Boolean).join(", ") || "None returned"}
+          </p>
+        ) : null}
+      </div>
+
+      <AbuseCategoryBadges categories={topCategories} />
+
+      {loading && summary ? (
+        <div className="mt-4 flex items-center gap-2 text-xs text-haze">
+          <Loader2 className="animate-spin text-signal" size={14} />
+          Loading recent report examples...
+        </div>
+      ) : null}
+
+      {reports.length ? (
+        <div className="mt-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="font-mono text-[10px] uppercase text-haze">Recent report examples</p>
+            <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
+              Last {reportWindow} days
+            </span>
+          </div>
+          <div className="grid gap-2">
+            {reports.map((report, index) => (
+              <div key={`${report.reported_at}-${index}`} className="rounded-md border border-white/10 bg-black/20 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-haze">
+                  <span>{formatDate(report.reported_at)}</span>
+                  <span>{report.reporter_country_name || report.reporter_country_code || "Reporter country unknown"}</span>
+                </div>
+                {report.comment ? <p className="text-sm leading-6 text-white">{report.comment}</p> : null}
+                <AbuseCategoryBadges categories={report.categories} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : detail?.reports_status === "not_found" ? (
+        <p className="mt-4 text-xs leading-5 text-haze">No recent report examples were returned for the last {reportWindow} days.</p>
+      ) : null}
+    </ProviderPanel>
+  );
+}
+
+function SpamhausIntelligence({
+  detail,
+  loading,
+  selectedIp,
+  summary,
+}: {
+  detail: SpamhausDetail | null;
+  loading: boolean;
+  selectedIp: string;
+  summary: IpIntelligenceSummary | null;
+}) {
+  if (detail?.status === "listed") {
+    return (
+      <ProviderPanel title="Spamhaus listings">
+        <p className="text-sm font-semibold text-white">
+          {detail.ip} has {detail.listing_count} intelligence {detail.listing_count === 1 ? "listing" : "listings"}.
+        </p>
+        <div className="mt-3 grid gap-2 lg:grid-cols-3">
+          {detail.datasets.map((dataset) => (
+            <div key={`${dataset.code}-${dataset.dataset}`} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-md bg-signal px-2 py-1 font-mono text-[10px] font-semibold uppercase text-obsidian">
+                  {dataset.dataset}
+                </span>
+                <span className="font-mono text-[10px] uppercase text-haze">Code {dataset.code}</span>
+              </div>
+              <p className="text-sm font-semibold text-white">{dataset.label}</p>
+              <p className="mt-1 text-xs leading-5 text-haze">{dataset.explanation}</p>
+            </div>
+          ))}
+        </div>
+        <HistoricalListing history={detail.history} />
+      </ProviderPanel>
+    );
+  }
+
+  if (detail?.status === "not_listed" && (detail.history?.status === "found" || detail.history?.status === "unavailable")) {
+    return (
+      <ProviderPanel title="Spamhaus listings">
+        <p className="text-sm leading-6 text-haze">No current IP Data listing found.</p>
+        <HistoricalListing history={detail.history} />
+      </ProviderPanel>
+    );
+  }
+
+  if (summary?.status === "listed") {
+    return (
+      <ProviderPanel title="Spamhaus listings">
+        <IntelligenceSummary ip={selectedIp} loadingFull={loading} summary={summary} />
+      </ProviderPanel>
+    );
+  }
+
+  return null;
+}
+
 function IpIntelligence({
+  abuseDetail,
+  abuseError,
+  abuseLoading,
+  abuseSummary,
   detail,
   error,
   loading,
   selectedIp,
   summary,
 }: {
+  abuseDetail: AbuseIpdbDetail | null;
+  abuseError: string;
+  abuseLoading: boolean;
+  abuseSummary: AbuseIpdbSummary | null;
   detail: SpamhausDetail | null;
   error: string;
   loading: boolean;
   selectedIp: string;
   summary: IpIntelligenceSummary | null;
 }) {
+  const spamhausContent = (
+    <SpamhausIntelligence detail={detail} loading={loading} selectedIp={selectedIp} summary={summary} />
+  );
+  const abuseContent = (
+    <AbuseIpdbIntelligence detail={abuseDetail} loading={abuseLoading} selectedIp={selectedIp} summary={abuseSummary} />
+  );
+  const hasSpamhausContent = Boolean(
+    detail?.status === "listed" ||
+      summary?.status === "listed" ||
+      (detail?.status === "not_listed" && (detail.history?.status === "found" || detail.history?.status === "unavailable")),
+  );
+  const hasAbuseContent = Boolean((abuseDetail || abuseSummary)?.status === "reported" && (abuseDetail || abuseSummary)?.total_reports);
+  const isChecking = loading || abuseLoading;
+
   return (
     <div className="rounded-lg border border-white/10 bg-black/25 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="font-mono text-[11px] uppercase text-signal">IP Intelligence</p>
-        {detail?.cache_status || summary?.cache_status ? (
+        {detail?.cache_status || summary?.cache_status || abuseDetail?.cache_status || abuseSummary?.cache_status ? (
           <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 font-mono text-[10px] uppercase text-haze">
-            {detail?.cache_status || summary?.cache_status}
+            {detail?.cache_status || summary?.cache_status || abuseDetail?.cache_status || abuseSummary?.cache_status}
           </span>
         ) : null}
       </div>
 
-      {loading && summary ? (
-        <IntelligenceSummary ip={selectedIp} loadingFull summary={summary} />
-      ) : loading ? (
+      {!selectedIp ? (
+        <p className="text-sm leading-6 text-haze">Select a source to check IP intelligence.</p>
+      ) : hasSpamhausContent || hasAbuseContent ? (
+        <div className="grid gap-3">
+          {spamhausContent}
+          {abuseContent}
+        </div>
+      ) : isChecking ? (
         <div className="flex items-center gap-2 text-sm text-haze">
           <Loader2 className="animate-spin text-signal" size={15} />
           Checking IP intelligence...
         </div>
-      ) : error && summary ? (
-        <div>
-          <IntelligenceSummary ip={selectedIp} loadingFull={false} summary={summary} />
-          <p className="mt-3 text-xs leading-5 text-trace">{error}</p>
-        </div>
-      ) : error ? (
-        <p className="text-sm leading-6 text-trace">{error}</p>
-      ) : !detail ? (
-        summary ? (
-          <IntelligenceSummary ip={selectedIp} loadingFull={false} summary={summary} />
-        ) : (
-          <p className="text-sm leading-6 text-haze">Select a source to check IP intelligence.</p>
-        )
-      ) : detail.status === "listed" ? (
-        <div>
-          <p className="text-sm font-semibold text-white">
-            {detail.ip} has {detail.listing_count} intelligence {detail.listing_count === 1 ? "listing" : "listings"}.
-          </p>
-          <div className="mt-3 grid gap-2 lg:grid-cols-3">
-            {detail.datasets.map((dataset) => (
-              <div key={`${dataset.code}-${dataset.dataset}`} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-md bg-signal px-2 py-1 font-mono text-[10px] font-semibold uppercase text-obsidian">
-                    {dataset.dataset}
-                  </span>
-                  <span className="font-mono text-[10px] uppercase text-haze">Code {dataset.code}</span>
-                </div>
-                <p className="text-sm font-semibold text-white">{dataset.label}</p>
-                <p className="mt-1 text-xs leading-5 text-haze">{dataset.explanation}</p>
-              </div>
-            ))}
-          </div>
-          <HistoricalListing history={detail.history} />
-        </div>
-      ) : detail.status === "not_listed" ? (
-        detail.history?.status === "found" ? (
-          <div>
-            <p className="text-sm leading-6 text-haze">No current IP Data listing found.</p>
-            <HistoricalListing history={detail.history} />
-          </div>
-        ) : detail.history?.status === "unavailable" ? (
-          <div>
-            <p className="text-sm leading-6 text-haze">No current IP Data listing found.</p>
-            <HistoricalListing history={detail.history} />
-          </div>
-        ) : (
-          <p className="text-sm leading-6 text-haze">{NO_INTELLIGENCE_DATA}</p>
-        )
       ) : (
-        <p className="text-sm leading-6 text-haze">
-          {detail.status === "not_configured" ? "IP intelligence is not configured yet." : "IP intelligence is unavailable right now."}
-        </p>
+        <p className="text-sm leading-6 text-haze">{NO_INTELLIGENCE_DATA}</p>
       )}
 
       {detail?.warnings?.length ? (
         <p className="mt-3 text-xs leading-5 text-volt">{detail.warnings.join(" ")}</p>
       ) : null}
+      {error && !hasSpamhausContent ? <p className="mt-3 text-xs leading-5 text-trace">{error}</p> : null}
+      {abuseDetail?.warnings?.length ? (
+        <p className="mt-3 text-xs leading-5 text-volt">{abuseDetail.warnings.join(" ")}</p>
+      ) : null}
+      {abuseError && !hasAbuseContent ? <p className="mt-3 text-xs leading-5 text-trace">{abuseError}</p> : null}
     </div>
   );
 }
@@ -479,6 +705,7 @@ export function LiveThreatMapPage() {
   const markerRefs = useRef(new Map<string, L.Marker>());
   const fittedPointsSignatureRef = useRef("");
   const spamhausCacheRef = useRef(new Map<string, SpamhausDetail>());
+  const abuseIpdbCacheRef = useRef(new Map<string, AbuseIpdbDetail>());
   const [data, setData] = useState<ThreatOriginResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -486,6 +713,9 @@ export function LiveThreatMapPage() {
   const [spamhausDetail, setSpamhausDetail] = useState<SpamhausDetail | null>(null);
   const [spamhausLoading, setSpamhausLoading] = useState(false);
   const [spamhausError, setSpamhausError] = useState("");
+  const [abuseIpdbDetail, setAbuseIpdbDetail] = useState<AbuseIpdbDetail | null>(null);
+  const [abuseIpdbLoading, setAbuseIpdbLoading] = useState(false);
+  const [abuseIpdbError, setAbuseIpdbError] = useState("");
   const [mapReady, setMapReady] = useState(false);
 
   const points = data?.points || [];
@@ -577,6 +807,58 @@ export function LiveThreatMapPage() {
       .finally(() => {
         if (!controller.signal.aborted) {
           setSpamhausLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [data?.mode, selectedPoint?.ip]);
+
+  useEffect(() => {
+    if (!selectedPoint?.ip) {
+      setAbuseIpdbDetail(null);
+      setAbuseIpdbError("");
+      setAbuseIpdbLoading(false);
+      return;
+    }
+
+    if (data?.mode !== "live") {
+      setAbuseIpdbDetail(null);
+      setAbuseIpdbError("");
+      setAbuseIpdbLoading(false);
+      return;
+    }
+
+    const cachedDetail = abuseIpdbCacheRef.current.get(selectedPoint.ip);
+    if (cachedDetail) {
+      setAbuseIpdbDetail(cachedDetail);
+      setAbuseIpdbError("");
+      setAbuseIpdbLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setAbuseIpdbLoading(true);
+    setAbuseIpdbError("");
+    setAbuseIpdbDetail(null);
+
+    fetch(`/api/abuseipdb-ip-detail?ip=${encodeURIComponent(selectedPoint.ip)}`, {
+      headers: {
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    })
+      .then((response) => readJson<AbuseIpdbDetail>(response))
+      .then((payload) => {
+        abuseIpdbCacheRef.current.set(selectedPoint.ip, payload);
+        setAbuseIpdbDetail(payload);
+      })
+      .catch((loadError) => {
+        if (loadError instanceof DOMException && loadError.name === "AbortError") return;
+        setAbuseIpdbError(loadError instanceof Error ? loadError.message : "AbuseIPDB intelligence is temporarily unavailable.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setAbuseIpdbLoading(false);
         }
       });
 
@@ -803,6 +1085,10 @@ export function LiveThreatMapPage() {
           </div>
 
           <IpIntelligence
+            abuseDetail={abuseIpdbDetail}
+            abuseError={abuseIpdbError}
+            abuseLoading={abuseIpdbLoading}
+            abuseSummary={selectedPoint?.abuseipdb_intelligence || null}
             detail={spamhausDetail}
             error={spamhausError}
             loading={spamhausLoading}
