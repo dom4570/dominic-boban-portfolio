@@ -694,6 +694,6 @@ export async function handleAbuseIpdbIpDetailRequest(request, env = {}) {
 
     return json(await buildAbuseIpdbDetailPayload(ip, env, { includeReports: true }));
   } catch (error) {
-    return json(statusPayload(ip, "unavailable", [messageFromError(error, "AbuseIPDB detail is temporarily unavailable.")]));
+    return json(statusPayload(ip, "unavailable", ["AbuseIPDB detail is temporarily unavailable."]));
   }
 }
