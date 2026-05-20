@@ -2,6 +2,8 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { handleAbuseOriginMapRequest } from "./server/abuse-origin-map.js";
+import { handleAbuseIpdbIpDetailRequest } from "./server/abuseipdb-ip-detail.js";
+import { handleSpamhausIpDetailRequest } from "./server/spamhaus-ip-detail.js";
 
 const dist = path.join(process.cwd(), "dist");
 const mimeTypes = new Map([
@@ -29,6 +31,30 @@ http
 
       if (url.pathname === "/api/abuse-origin-map") {
         const apiResponse = await handleAbuseOriginMapRequest(
+          new Request(url, { method: request.method || "GET" }),
+          process.env,
+        );
+        const body = Buffer.from(await apiResponse.arrayBuffer());
+
+        response.writeHead(apiResponse.status, Object.fromEntries(apiResponse.headers.entries()));
+        response.end(body);
+        return;
+      }
+
+      if (url.pathname === "/api/spamhaus-ip-detail") {
+        const apiResponse = await handleSpamhausIpDetailRequest(
+          new Request(url, { method: request.method || "GET" }),
+          process.env,
+        );
+        const body = Buffer.from(await apiResponse.arrayBuffer());
+
+        response.writeHead(apiResponse.status, Object.fromEntries(apiResponse.headers.entries()));
+        response.end(body);
+        return;
+      }
+
+      if (url.pathname === "/api/abuseipdb-ip-detail") {
+        const apiResponse = await handleAbuseIpdbIpDetailRequest(
           new Request(url, { method: request.method || "GET" }),
           process.env,
         );
