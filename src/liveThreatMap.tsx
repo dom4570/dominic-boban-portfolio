@@ -350,31 +350,6 @@ function HistoricalEventDetail({ event }: { event: SpamhausHistoryEvent }) {
   );
 }
 
-function HistoricalEventRow({ event, index }: { event: SpamhausHistoryEvent; index: number }) {
-  const connection = historyConnection(event);
-
-  return (
-    <div className="grid gap-2 border-t border-white/10 py-3 text-xs leading-5 text-haze md:grid-cols-[96px_1fr]">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[10px] uppercase text-haze">#{index + 2}</span>
-        {event.dataset ? (
-          <span className="rounded-md border border-signal/30 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal">
-            {event.dataset}
-          </span>
-        ) : null}
-      </div>
-      <div>
-        <p className="text-white">{event.detection || event.heuristic || "Historical listing event"}</p>
-        <p className="mt-1">
-          {[event.seen_at ? formatDate(event.seen_at) : "", connection.length ? connection.join(" -> ") : "", event.protocol || ""]
-            .filter(Boolean)
-            .join(" / ")}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function HistoricalListing({ history }: { history: SpamhausHistory | null | undefined }) {
   if (!history) return null;
 
@@ -398,7 +373,6 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
 
   const events = history.events || [];
   const newest = events[0];
-  const olderEvents = events.slice(1);
 
   if (!newest) {
     return (
@@ -418,13 +392,6 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
         </span>
       </div>
       <HistoricalEventDetail event={newest} />
-      {olderEvents.length ? (
-        <div className="mt-3">
-          {olderEvents.map((event, index) => (
-            <HistoricalEventRow key={`${event.dataset || "event"}-${event.seen_at || event.listed_at || index}`} event={event} index={index} />
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -472,8 +439,6 @@ function AbuseIpdbIntelligence({
     return null;
   }
 
-  const reports = detail?.recent_reports || [];
-  const reportWindow = detail?.report_window_days || 7;
   const topCategories = detail?.top_categories?.length ? detail.top_categories : payload.top_categories || [];
 
   return (
@@ -533,37 +498,6 @@ function AbuseIpdbIntelligence({
 
       <AbuseCategoryBadges categories={topCategories} />
 
-      {loading && summary ? (
-        <div className="mt-4 flex items-center gap-2 text-xs text-haze">
-          <Loader2 className="animate-spin text-signal" size={14} />
-          Loading recent report examples...
-        </div>
-      ) : null}
-
-      {reports.length ? (
-        <div className="mt-4">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="font-mono text-[10px] uppercase text-haze">Recent report examples</p>
-            <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
-              Last {reportWindow} days
-            </span>
-          </div>
-          <div className="grid gap-2">
-            {reports.map((report, index) => (
-              <div key={`${report.reported_at}-${index}`} className="rounded-md border border-white/10 bg-black/20 p-3">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-haze">
-                  <span>{formatDate(report.reported_at)}</span>
-                  <span>{report.reporter_country_name || report.reporter_country_code || "Reporter country unknown"}</span>
-                </div>
-                {report.comment ? <p className="text-sm leading-6 text-white">{report.comment}</p> : null}
-                <AbuseCategoryBadges categories={report.categories} />
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : detail?.reports_status === "not_found" ? (
-        <p className="mt-4 text-xs leading-5 text-haze">No recent report examples were returned for the last {reportWindow} days.</p>
-      ) : null}
     </ProviderPanel>
   );
 }
@@ -674,8 +608,8 @@ function IpIntelligence({
         <p className="text-sm leading-6 text-haze">Select a source to check IP intelligence.</p>
       ) : hasSpamhausContent || hasAbuseContent ? (
         <div className="grid gap-3">
-          {spamhausContent}
           {abuseContent}
+          {spamhausContent}
         </div>
       ) : isChecking ? (
         <div className="flex items-center gap-2 text-sm text-haze">
