@@ -35,6 +35,7 @@ type ThreatPoint = {
   source: string;
   ip_intelligence?: IpIntelligenceSummary;
   abuseipdb_intelligence?: AbuseIpdbSummary;
+  virustotal_intelligence?: VirusTotalSummary;
 };
 
 type ThreatOriginResponse = {
@@ -144,6 +145,33 @@ type AbuseIpdbDetail = AbuseIpdbSummary & {
   warnings: string[];
 };
 
+type VirusTotalSummary = {
+  provider: "virustotal";
+  status: "found" | "not_found" | "unavailable" | "not_configured";
+  vendor_malicious: number;
+  vendor_suspicious: number;
+  vendor_harmless: number;
+  vendor_undetected: number;
+  vendor_timeout: number;
+  vendor_total: number;
+  reputation: number;
+  community_harmless: number;
+  community_malicious: number;
+  asn: string;
+  as_owner: string;
+  country: string;
+  last_analysis_date: string;
+  permalink: string;
+  generated_at: string;
+  cache_status: "fresh" | "cached";
+};
+
+type VirusTotalDetail = VirusTotalSummary & {
+  ip: string;
+  cache_expires_at: string;
+  warnings: string[];
+};
+
 const MAX_DAILY_POINTS = 50;
 
 function readJson<T>(response: Response): Promise<T> {
@@ -172,6 +200,11 @@ function formatDate(value: string | null | undefined) {
 
 function formatNumber(value: number | null | undefined) {
   return new Intl.NumberFormat("en-GB").format(Math.max(0, Number(value) || 0));
+}
+
+function formatSignedNumber(value: number | null | undefined) {
+  const number = Number(value);
+  return new Intl.NumberFormat("en-GB").format(Number.isFinite(number) ? number : 0);
 }
 
 function formatLocation(point: ThreatPoint) {
@@ -420,6 +453,20 @@ function newestHistoryEvent(detail: SpamhausDetail | null) {
   return detail?.history?.status === "found" ? detail.history.events?.[0] || null : null;
 }
 
+function virusTotalPayload(detail: VirusTotalDetail | null, summary: VirusTotalSummary | null) {
+  const payload = detail || summary;
+  return payload?.status === "found" ? payload : null;
+}
+
+function virusTotalRatio(payload: VirusTotalSummary | VirusTotalDetail | null) {
+  if (!payload || payload.vendor_total <= 0) return "";
+  return `${formatNumber(payload.vendor_malicious)}/${formatNumber(payload.vendor_total)}`;
+}
+
+function hasVirusTotalDetections(payload: VirusTotalSummary | VirusTotalDetail | null) {
+  return Boolean(payload && (payload.vendor_malicious > 0 || payload.vendor_suspicious > 0));
+}
+
 function hasDataset(datasets: EvidenceDataset[], names: string[]) {
   return datasets.some((dataset) => names.some((name) => dataset.dataset.toLowerCase().includes(name.toLowerCase())));
 }
@@ -431,8 +478,12 @@ function hasSshBruteforceHistory(event: SpamhausHistoryEvent | null) {
   return usesPort22 && (text.includes("bruteforce") || text.includes("brute force") || text.includes("ssh"));
 }
 
-function latestSeen(abuse: AbuseIpdbSummary | AbuseIpdbDetail | null, event: SpamhausHistoryEvent | null) {
-  const candidates = [abuse?.last_reported_at, event?.seen_at, event?.listed_at].filter(Boolean) as string[];
+function latestSeen(
+  abuse: AbuseIpdbSummary | AbuseIpdbDetail | null,
+  event: SpamhausHistoryEvent | null,
+  virusTotal: VirusTotalSummary | VirusTotalDetail | null,
+) {
+  const candidates = [abuse?.last_reported_at, event?.seen_at, event?.listed_at, virusTotal?.last_analysis_date].filter(Boolean) as string[];
   const latest = candidates
     .map((value) => ({ value, time: new Date(value).getTime() }))
     .filter((entry) => Number.isFinite(entry.time))
@@ -447,16 +498,20 @@ function deriveAssessment({
   datasets,
   historyEvent,
   listingCount,
+  virusTotal,
 }: {
   abuse: AbuseIpdbSummary | AbuseIpdbDetail | null;
   categories: AbuseIpdbCategory[];
   datasets: EvidenceDataset[];
   historyEvent: SpamhausHistoryEvent | null;
   listingCount: number;
+  virusTotal: VirusTotalSummary | VirusTotalDetail | null;
 }): IntelligenceAssessment {
   const labels = categorySet(categories);
   const hasAbuseReports = Boolean(abuse?.total_reports);
   const hasSpamhausListings = listingCount > 0;
+  const hasVirusTotalSignal = hasVirusTotalDetections(virusTotal);
+  const hasVirusTotalData = Boolean(virusTotal);
   const hasBruteforceSsh = (labels.has("brute-force") && labels.has("ssh")) || hasSshBruteforceHistory(historyEvent);
   const hasPortScan = labels.has("port scan");
   const hasXbl = hasDataset(datasets, ["XBL", "CBL"]);
@@ -486,32 +541,44 @@ function deriveAssessment({
   } else if (hasSpamhausListings) {
     activity = "Spamhaus-listed source";
     conclusion = "Spamhaus lists this source IP in abuse reputation datasets.";
+  } else if (hasVirusTotalSignal) {
+    activity = "Vendor-flagged suspicious source";
+    conclusion = "VirusTotal vendor reputation flags this source IP, but no dominant activity is available from AbuseIPDB or Spamhaus.";
   }
 
   if (hasPortScan && activity !== "Port scanning source") secondarySignals.push("Port scanning also reported");
   if (hasXbl && activity !== "Possible exploited or infected host") secondarySignals.push("Possible exploited or infected host");
   if (hasAbusiveInfrastructure && activity !== "Known abusive infrastructure") secondarySignals.push("Known abusive infrastructure/listed netblock");
   if (hasPolicyContext) secondarySignals.push("Policy/listing context also present");
+  if (hasVirusTotalSignal && activity !== "Vendor-flagged suspicious source") secondarySignals.push("VirusTotal vendor detections present");
 
   if (hasSpamhausListings && hasAbuseReports && !conclusion.includes("Spamhaus")) {
     conclusion = `${conclusion.replace(/\.$/, "")}, with Spamhaus listings indicating broader abuse reputation.`;
   }
 
+  const corroborationSources = [
+    hasAbuseReports ? "AbuseIPDB reports" : "",
+    hasSpamhausListings ? "Spamhaus listings" : "",
+    hasVirusTotalSignal ? "VirusTotal vendor reputation" : "",
+  ].filter(Boolean);
+  const freshness = latestSeen(abuse, historyEvent, virusTotal);
+
   return {
     activity,
     conclusion,
-    corroboration: hasAbuseReports && hasSpamhausListings
-      ? "Confirmed by AbuseIPDB reports and Spamhaus listings."
-      : hasAbuseReports
-        ? "Supported by AbuseIPDB community reports."
-        : "Supported by Spamhaus listing data.",
-    freshness: latestSeen(abuse, historyEvent),
+    corroboration: corroborationSources.length > 1
+      ? `Confirmed by ${corroborationSources.join(", ").replace(/, ([^,]*)$/, " and $1")}.`
+      : corroborationSources.length === 1
+        ? `Supported by ${corroborationSources[0]}.`
+        : "Supported by third-party reputation data.",
+    freshness,
     scope: "Reported source IP activity, not traffic against this portfolio.",
     chips: [
       hasAbuseReports ? `${formatNumber(abuse?.total_reports)} reports` : "",
       hasAbuseReports ? `${formatNumber(abuse?.num_distinct_users)} reporters` : "",
       hasSpamhausListings ? `${listingCount} Spamhaus ${listingCount === 1 ? "listing" : "listings"}` : "",
-      `Last seen ${latestSeen(abuse, historyEvent)}`,
+      hasVirusTotalData && virusTotalRatio(virusTotal) ? `${virusTotalRatio(virusTotal)} VT vendors` : "",
+      `Last seen ${freshness}`,
     ].filter(Boolean),
     secondarySignals,
   };
@@ -602,6 +669,68 @@ function AbuseEvidenceCard({ detail, summary }: { detail: AbuseIpdbDetail | null
   );
 }
 
+function VirusTotalEvidenceCard({ detail, summary }: { detail: VirusTotalDetail | null; summary: VirusTotalSummary | null }) {
+  const payload = virusTotalPayload(detail, summary);
+  if (!payload) return null;
+
+  return (
+    <ProviderPanel title="VirusTotal evidence">
+      <p className="text-sm font-semibold text-white">VirusTotal vendor reputation for this source IP.</p>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+          <p className="font-mono text-[10px] uppercase text-haze">Vendor detections</p>
+          <p className="mt-1 text-lg font-semibold text-white">{virusTotalRatio(payload) || "None returned"}</p>
+        </div>
+        <div className="rounded-md border border-white/10 bg-black/20 p-3">
+          <p className="font-mono text-[10px] uppercase text-haze">Last analysis</p>
+          <p className="mt-1 text-sm font-semibold text-white">{formatDate(payload.last_analysis_date)}</p>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
+        <p>
+          <span className="text-white">Malicious:</span> {formatNumber(payload.vendor_malicious)}
+        </p>
+        <p>
+          <span className="text-white">Suspicious:</span> {formatNumber(payload.vendor_suspicious)}
+        </p>
+        <p>
+          <span className="text-white">Harmless:</span> {formatNumber(payload.vendor_harmless)}
+        </p>
+        <p>
+          <span className="text-white">Undetected:</span> {formatNumber(payload.vendor_undetected)}
+        </p>
+        <p>
+          <span className="text-white">Reputation:</span> {formatSignedNumber(payload.reputation)}
+        </p>
+        <p>
+          <span className="text-white">Community:</span>{" "}
+          {formatNumber(payload.community_malicious)} malicious / {formatNumber(payload.community_harmless)} harmless votes
+        </p>
+        {payload.asn || payload.as_owner ? (
+          <p>
+            <span className="text-white">Network:</span> {[payload.asn ? `AS${payload.asn}` : "", payload.as_owner].filter(Boolean).join(" / ")}
+          </p>
+        ) : null}
+        {payload.country ? (
+          <p>
+            <span className="text-white">Country:</span> {payload.country}
+          </p>
+        ) : null}
+      </div>
+      {payload.permalink ? (
+        <a
+          className="mt-3 inline-flex rounded-md border border-signal/25 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal transition hover:border-signal/60"
+          href={payload.permalink}
+          target="_blank"
+          rel="noreferrer"
+        >
+          View VirusTotal IP report
+        </a>
+      ) : null}
+    </ProviderPanel>
+  );
+}
+
 function SpamhausEvidenceCard({
   detail,
   summary,
@@ -652,6 +781,10 @@ function IpIntelligence({
   loading,
   selectedIp,
   summary,
+  virusTotalDetail,
+  virusTotalError,
+  virusTotalLoading,
+  virusTotalSummary,
 }: {
   abuseDetail: AbuseIpdbDetail | null;
   abuseError: string;
@@ -662,6 +795,10 @@ function IpIntelligence({
   loading: boolean;
   selectedIp: string;
   summary: IpIntelligenceSummary | null;
+  virusTotalDetail: VirusTotalDetail | null;
+  virusTotalError: string;
+  virusTotalLoading: boolean;
+  virusTotalSummary: VirusTotalSummary | null;
 }) {
   const abuse = abusePayload(abuseDetail, abuseSummary);
   const categories = abuseCategories(abuseDetail, abuseSummary);
@@ -669,24 +806,26 @@ function IpIntelligence({
   const listingCount = spamhausListingCount(detail, summary);
   const history = detail?.history;
   const historyEvent = newestHistoryEvent(detail);
+  const virusTotal = virusTotalPayload(virusTotalDetail, virusTotalSummary);
   const hasSpamhausContent = Boolean(
     listingCount ||
       history?.status === "found" ||
       history?.status === "unavailable",
   );
   const hasAbuseContent = Boolean(abuse);
-  const assessment = hasSpamhausContent || hasAbuseContent
-    ? deriveAssessment({ abuse, categories, datasets, historyEvent, listingCount })
+  const hasVirusTotalContent = Boolean(virusTotal);
+  const assessment = hasSpamhausContent || hasAbuseContent || hasVirusTotalContent
+    ? deriveAssessment({ abuse, categories, datasets, historyEvent, listingCount, virusTotal })
     : null;
-  const isChecking = loading || abuseLoading;
+  const isChecking = loading || abuseLoading || virusTotalLoading;
 
   return (
     <div className="rounded-lg border border-white/10 bg-black/25 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="font-mono text-[11px] uppercase text-signal">IP Intelligence</p>
-        {detail?.cache_status || summary?.cache_status || abuseDetail?.cache_status || abuseSummary?.cache_status ? (
+        {detail?.cache_status || summary?.cache_status || abuseDetail?.cache_status || abuseSummary?.cache_status || virusTotalDetail?.cache_status || virusTotalSummary?.cache_status ? (
           <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 font-mono text-[10px] uppercase text-haze">
-            {detail?.cache_status || summary?.cache_status || abuseDetail?.cache_status || abuseSummary?.cache_status}
+            {detail?.cache_status || summary?.cache_status || abuseDetail?.cache_status || abuseSummary?.cache_status || virusTotalDetail?.cache_status || virusTotalSummary?.cache_status}
           </span>
         ) : null}
       </div>
@@ -696,8 +835,9 @@ function IpIntelligence({
       ) : assessment ? (
         <div className="grid gap-3">
           <AssessmentPanel assessment={assessment} />
-          <div className="grid gap-3 xl:grid-cols-2">
+          <div className="grid gap-3 xl:grid-cols-3">
             <AbuseEvidenceCard detail={abuseDetail} summary={abuseSummary} />
+            <VirusTotalEvidenceCard detail={virusTotalDetail} summary={virusTotalSummary} />
             <SpamhausEvidenceCard detail={detail} summary={summary} />
           </div>
         </div>
@@ -718,6 +858,10 @@ function IpIntelligence({
         <p className="mt-3 text-xs leading-5 text-volt">{abuseDetail.warnings.join(" ")}</p>
       ) : null}
       {abuseError && !hasAbuseContent ? <p className="mt-3 text-xs leading-5 text-trace">{abuseError}</p> : null}
+      {virusTotalDetail?.warnings?.length ? (
+        <p className="mt-3 text-xs leading-5 text-volt">{virusTotalDetail.warnings.join(" ")}</p>
+      ) : null}
+      {virusTotalError && !hasVirusTotalContent ? <p className="mt-3 text-xs leading-5 text-trace">{virusTotalError}</p> : null}
     </div>
   );
 }
@@ -730,6 +874,7 @@ export function LiveThreatMapPage() {
   const fittedPointsSignatureRef = useRef("");
   const spamhausCacheRef = useRef(new Map<string, SpamhausDetail>());
   const abuseIpdbCacheRef = useRef(new Map<string, AbuseIpdbDetail>());
+  const virusTotalCacheRef = useRef(new Map<string, VirusTotalDetail>());
   const [data, setData] = useState<ThreatOriginResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -740,6 +885,9 @@ export function LiveThreatMapPage() {
   const [abuseIpdbDetail, setAbuseIpdbDetail] = useState<AbuseIpdbDetail | null>(null);
   const [abuseIpdbLoading, setAbuseIpdbLoading] = useState(false);
   const [abuseIpdbError, setAbuseIpdbError] = useState("");
+  const [virusTotalDetail, setVirusTotalDetail] = useState<VirusTotalDetail | null>(null);
+  const [virusTotalLoading, setVirusTotalLoading] = useState(false);
+  const [virusTotalError, setVirusTotalError] = useState("");
   const [mapReady, setMapReady] = useState(false);
 
   const points = data?.points || [];
@@ -888,6 +1036,93 @@ export function LiveThreatMapPage() {
 
     return () => controller.abort();
   }, [data?.mode, selectedPoint?.ip]);
+
+  useEffect(() => {
+    if (!selectedPoint?.ip) {
+      setVirusTotalDetail(null);
+      setVirusTotalError("");
+      setVirusTotalLoading(false);
+      return;
+    }
+
+    if (data?.mode !== "live") {
+      setVirusTotalDetail(null);
+      setVirusTotalError("");
+      setVirusTotalLoading(false);
+      return;
+    }
+
+    const cachedDetail = virusTotalCacheRef.current.get(selectedPoint.ip);
+    if (cachedDetail) {
+      setVirusTotalDetail(cachedDetail);
+      setVirusTotalError("");
+      setVirusTotalLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setVirusTotalLoading(true);
+    setVirusTotalError("");
+    setVirusTotalDetail(null);
+
+    fetch(`/api/virustotal-ip-detail?ip=${encodeURIComponent(selectedPoint.ip)}`, {
+      headers: {
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    })
+      .then((response) => readJson<VirusTotalDetail>(response))
+      .then((payload) => {
+        virusTotalCacheRef.current.set(selectedPoint.ip, payload);
+        setVirusTotalDetail(payload);
+      })
+      .catch((loadError) => {
+        if (loadError instanceof DOMException && loadError.name === "AbortError") return;
+        setVirusTotalError(loadError instanceof Error ? loadError.message : "VirusTotal intelligence is temporarily unavailable.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setVirusTotalLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [data?.mode, selectedPoint?.ip]);
+
+  useEffect(() => {
+    if (data?.mode !== "live" || !points.length) {
+      return;
+    }
+
+    let stopped = false;
+    let intervalId = 0;
+
+    const warmVirusTotalCache = () => {
+      fetch("/api/virustotal-prewarm", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+        },
+      })
+        .then((response) => readJson<{ status: string; remaining: number }>(response))
+        .then((payload) => {
+          if (!stopped && (payload.remaining <= 0 || payload.status === "complete" || payload.status === "empty" || payload.status === "not_configured")) {
+            window.clearInterval(intervalId);
+          }
+        })
+        .catch(() => {
+          // Silent best-effort warmup; selected-IP lookup can still retry and show warnings.
+        });
+    };
+
+    warmVirusTotalCache();
+    intervalId = window.setInterval(warmVirusTotalCache, 60_000);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(intervalId);
+    };
+  }, [data?.generated_at, data?.mode, points.length]);
 
   useEffect(() => {
     let createdMap: L.Map | null = null;
@@ -1118,6 +1353,10 @@ export function LiveThreatMapPage() {
             loading={spamhausLoading}
             selectedIp={selectedPoint?.ip || ""}
             summary={selectedPoint?.ip_intelligence || null}
+            virusTotalDetail={virusTotalDetail}
+            virusTotalError={virusTotalError}
+            virusTotalLoading={virusTotalLoading}
+            virusTotalSummary={selectedPoint?.virustotal_intelligence || null}
           />
 
           <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">

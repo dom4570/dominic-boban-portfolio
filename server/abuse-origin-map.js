@@ -422,6 +422,13 @@ async function withIpIntelligenceSummaries(payload) {
     // Summary enrichment is best-effort; selected-IP detail can retry later.
   }
 
+  try {
+    const { addVirusTotalSummariesToPoints } = await import("./virustotal-ip-detail.js");
+    points = await addVirusTotalSummariesToPoints(points);
+  } catch {
+    // VirusTotal summary enrichment is best-effort and rate-limit aware.
+  }
+
   return {
     ...payload,
     points,
@@ -462,6 +469,23 @@ function scheduleAbuseIpdbPrewarm(points, env, context) {
         timeoutMs: ABUSEIPDB_PREWARM_TIMEOUT_MS,
       }),
     )
+    .catch(() => null);
+
+  if (typeof context?.waitUntil === "function") {
+    context.waitUntil(task);
+    return;
+  }
+
+  void task;
+}
+
+function scheduleVirusTotalQueue(points, context) {
+  if (!Array.isArray(points) || !points.length) {
+    return;
+  }
+
+  const task = import("./virustotal-ip-detail.js")
+    .then(({ storeVirusTotalPrewarmQueue }) => storeVirusTotalPrewarmQueue(points))
     .catch(() => null);
 
   if (typeof context?.waitUntil === "function") {
@@ -655,6 +679,7 @@ async function refreshLivePayload(apiKey, now, env, context) {
   await writePersistentCache(cacheablePayload(payload));
   scheduleSpamhausPrewarm(points, env, context);
   scheduleAbuseIpdbPrewarm(points, env, context);
+  scheduleVirusTotalQueue(points, context);
 
   return payload;
 }

@@ -4,8 +4,10 @@ import path from "node:path";
 import { handleAbuseOriginMapRequest } from "./server/abuse-origin-map.js";
 import { handleAbuseIpdbIpDetailRequest } from "./server/abuseipdb-ip-detail.js";
 import { handleSpamhausIpDetailRequest } from "./server/spamhaus-ip-detail.js";
+import { handleVirusTotalIpDetailRequest, handleVirusTotalPrewarmRequest } from "./server/virustotal-ip-detail.js";
 
 const dist = path.join(process.cwd(), "dist");
+const port = Number(process.env.PORT) || 5173;
 const mimeTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
@@ -27,7 +29,7 @@ function send(response, status, body, contentType = "text/plain; charset=utf-8")
 http
   .createServer(async (request, response) => {
     try {
-      const url = new URL(request.url || "/", "http://127.0.0.1:5173");
+      const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
 
       if (url.pathname === "/api/abuse-origin-map") {
         const apiResponse = await handleAbuseOriginMapRequest(
@@ -65,6 +67,30 @@ http
         return;
       }
 
+      if (url.pathname === "/api/virustotal-ip-detail") {
+        const apiResponse = await handleVirusTotalIpDetailRequest(
+          new Request(url, { method: request.method || "GET" }),
+          process.env,
+        );
+        const body = Buffer.from(await apiResponse.arrayBuffer());
+
+        response.writeHead(apiResponse.status, Object.fromEntries(apiResponse.headers.entries()));
+        response.end(body);
+        return;
+      }
+
+      if (url.pathname === "/api/virustotal-prewarm") {
+        const apiResponse = await handleVirusTotalPrewarmRequest(
+          new Request(url, { method: request.method || "POST" }),
+          process.env,
+        );
+        const body = Buffer.from(await apiResponse.arrayBuffer());
+
+        response.writeHead(apiResponse.status, Object.fromEntries(apiResponse.headers.entries()));
+        response.end(body);
+        return;
+      }
+
       let pathname = decodeURIComponent(url.pathname);
       if (pathname === "/" || !path.extname(pathname)) {
         pathname = "/index.html";
@@ -82,4 +108,4 @@ http
       send(response, 500, "Local server error");
     }
   })
-  .listen(5173, "127.0.0.1");
+  .listen(port, "127.0.0.1");
