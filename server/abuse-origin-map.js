@@ -9,6 +9,8 @@ const LOCAL_CACHE_FILE = ".cache/abuse-origin-map.json";
 const EDGE_CACHE_URL = "https://portfolio-cache.local/abuse-origin-map/daily-top-50";
 const SPAMHAUS_PREWARM_CONCURRENCY = 3;
 const SPAMHAUS_PREWARM_TIMEOUT_MS = 25000;
+const ABUSEIPDB_PREWARM_CONCURRENCY = 3;
+const ABUSEIPDB_PREWARM_TIMEOUT_MS = 25000;
 
 let cachedPayload = null;
 let cachedUntil = 0;
@@ -404,15 +406,26 @@ async function withIpIntelligenceSummaries(payload) {
     return payload;
   }
 
+  let points = payload.points;
+
   try {
     const { addSpamhausSummariesToPoints } = await import("./spamhaus-ip-detail.js");
-    return {
-      ...payload,
-      points: await addSpamhausSummariesToPoints(payload.points),
-    };
+    points = await addSpamhausSummariesToPoints(points);
   } catch {
-    return payload;
+    // Summary enrichment is best-effort; the map should still render.
   }
+
+  try {
+    const { addAbuseIpdbSummariesToPoints } = await import("./abuseipdb-ip-detail.js");
+    points = await addAbuseIpdbSummariesToPoints(points);
+  } catch {
+    // Summary enrichment is best-effort; selected-IP detail can retry later.
+  }
+
+  return {
+    ...payload,
+    points,
+  };
 }
 
 function scheduleSpamhausPrewarm(points, env, context) {
@@ -425,6 +438,28 @@ function scheduleSpamhausPrewarm(points, env, context) {
       prewarmSpamhausDetails(points, env, {
         concurrency: SPAMHAUS_PREWARM_CONCURRENCY,
         timeoutMs: SPAMHAUS_PREWARM_TIMEOUT_MS,
+      }),
+    )
+    .catch(() => null);
+
+  if (typeof context?.waitUntil === "function") {
+    context.waitUntil(task);
+    return;
+  }
+
+  void task;
+}
+
+function scheduleAbuseIpdbPrewarm(points, env, context) {
+  if (!Array.isArray(points) || !points.length) {
+    return;
+  }
+
+  const task = import("./abuseipdb-ip-detail.js")
+    .then(({ prewarmAbuseIpdbDetails }) =>
+      prewarmAbuseIpdbDetails(points, env, {
+        concurrency: ABUSEIPDB_PREWARM_CONCURRENCY,
+        timeoutMs: ABUSEIPDB_PREWARM_TIMEOUT_MS,
       }),
     )
     .catch(() => null);
@@ -619,6 +654,7 @@ async function refreshLivePayload(apiKey, now, env, context) {
   cachedPayload = payload;
   await writePersistentCache(cacheablePayload(payload));
   scheduleSpamhausPrewarm(points, env, context);
+  scheduleAbuseIpdbPrewarm(points, env, context);
 
   return payload;
 }
