@@ -222,51 +222,6 @@ function createThreatMarkerIcon(point: ThreatPoint, selected: boolean) {
   });
 }
 
-function IntelligenceSummary({
-  ip,
-  loadingFull,
-  summary,
-}: {
-  ip: string;
-  loadingFull: boolean;
-  summary: IpIntelligenceSummary;
-}) {
-  if (summary.status === "listed") {
-    return (
-      <div>
-        <p className="text-sm font-semibold text-white">
-          {ip} has {summary.listing_count} intelligence {summary.listing_count === 1 ? "listing" : "listings"}.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {summary.datasets.map((dataset) => (
-            <span
-              key={`${dataset.code}-${dataset.dataset}`}
-              className="rounded-md border border-signal/30 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal"
-            >
-              {dataset.dataset} / Code {dataset.code}
-            </span>
-          ))}
-        </div>
-        {loadingFull ? <p className="mt-3 text-xs leading-5 text-haze">Loading full dataset context...</p> : null}
-      </div>
-    );
-  }
-
-  if (summary.status === "not_listed") {
-    return (
-      <p className="text-sm leading-6 text-haze">
-        {loadingFull ? "No current IP Data listing found. Checking additional context..." : NO_INTELLIGENCE_DATA}
-      </p>
-    );
-  }
-
-  return (
-    <p className="text-sm leading-6 text-haze">
-      {summary.status === "not_configured" ? "IP intelligence is not configured yet." : "IP intelligence is unavailable right now."}
-    </p>
-  );
-}
-
 function StatBlock({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-white/10 bg-black/25 p-4">
@@ -423,43 +378,191 @@ function AbuseCategoryBadges({ categories }: { categories: AbuseIpdbCategory[] }
   );
 }
 
-function AbuseIpdbIntelligence({
-  detail,
-  loading,
-  selectedIp,
-  summary,
-}: {
-  detail: AbuseIpdbDetail | null;
-  loading: boolean;
-  selectedIp: string;
-  summary: AbuseIpdbSummary | null;
-}) {
+type EvidenceDataset = Pick<SpamhausDataset, "code" | "dataset" | "label">;
+
+type IntelligenceAssessment = {
+  activity: string;
+  conclusion: string;
+  corroboration: string;
+  freshness: string;
+  scope: string;
+  chips: string[];
+  secondarySignals: string[];
+};
+
+function abusePayload(detail: AbuseIpdbDetail | null, summary: AbuseIpdbSummary | null) {
   const payload = detail || summary;
-  if (!payload || payload.status !== "reported" || payload.total_reports <= 0) {
-    return null;
+  return payload?.status === "reported" && payload.total_reports > 0 ? payload : null;
+}
+
+function abuseCategories(detail: AbuseIpdbDetail | null, summary: AbuseIpdbSummary | null) {
+  const payload = abusePayload(detail, summary);
+  return detail?.top_categories?.length ? detail.top_categories : payload?.top_categories || [];
+}
+
+function categorySet(categories: AbuseIpdbCategory[]) {
+  return new Set(categories.map((category) => category.label.toLowerCase()));
+}
+
+function spamhausDatasets(detail: SpamhausDetail | null, summary: IpIntelligenceSummary | null): EvidenceDataset[] {
+  if (detail?.status === "listed") return detail.datasets;
+  if (summary?.status === "listed") return summary.datasets;
+  return [];
+}
+
+function spamhausListingCount(detail: SpamhausDetail | null, summary: IpIntelligenceSummary | null) {
+  if (detail?.status === "listed") return detail.listing_count;
+  if (summary?.status === "listed") return summary.listing_count;
+  return 0;
+}
+
+function newestHistoryEvent(detail: SpamhausDetail | null) {
+  return detail?.history?.status === "found" ? detail.history.events?.[0] || null : null;
+}
+
+function hasDataset(datasets: EvidenceDataset[], names: string[]) {
+  return datasets.some((dataset) => names.some((name) => dataset.dataset.toLowerCase().includes(name.toLowerCase())));
+}
+
+function hasSshBruteforceHistory(event: SpamhausHistoryEvent | null) {
+  if (!event) return false;
+  const text = [event.detection, event.heuristic, event.botname, event.protocol].filter(Boolean).join(" ").toLowerCase();
+  const usesPort22 = event.source_port === 22 || event.destination_port === 22;
+  return usesPort22 && (text.includes("bruteforce") || text.includes("brute force") || text.includes("ssh"));
+}
+
+function latestSeen(abuse: AbuseIpdbSummary | AbuseIpdbDetail | null, event: SpamhausHistoryEvent | null) {
+  const candidates = [abuse?.last_reported_at, event?.seen_at, event?.listed_at].filter(Boolean) as string[];
+  const latest = candidates
+    .map((value) => ({ value, time: new Date(value).getTime() }))
+    .filter((entry) => Number.isFinite(entry.time))
+    .sort((left, right) => right.time - left.time)[0]?.value;
+
+  return latest ? formatDate(latest) : "Unknown";
+}
+
+function deriveAssessment({
+  abuse,
+  categories,
+  datasets,
+  historyEvent,
+  listingCount,
+}: {
+  abuse: AbuseIpdbSummary | AbuseIpdbDetail | null;
+  categories: AbuseIpdbCategory[];
+  datasets: EvidenceDataset[];
+  historyEvent: SpamhausHistoryEvent | null;
+  listingCount: number;
+}): IntelligenceAssessment {
+  const labels = categorySet(categories);
+  const hasAbuseReports = Boolean(abuse?.total_reports);
+  const hasSpamhausListings = listingCount > 0;
+  const hasBruteforceSsh = (labels.has("brute-force") && labels.has("ssh")) || hasSshBruteforceHistory(historyEvent);
+  const hasPortScan = labels.has("port scan");
+  const hasXbl = hasDataset(datasets, ["XBL", "CBL"]);
+  const hasAbusiveInfrastructure = hasDataset(datasets, ["SBL", "DROP"]);
+  const hasPolicyContext = hasDataset(datasets, ["PBL"]);
+  const hostingContext = abuse?.usage_type && /data center|hosting|transit|cloud/i.test(abuse.usage_type) ? " from hosting infrastructure" : "";
+  const secondarySignals = [];
+
+  let activity = "Reported abusive source";
+  let conclusion = "This IP has third-party abuse intelligence, but the available evidence does not identify a single dominant activity.";
+
+  if (hasBruteforceSsh) {
+    activity = "SSH brute-force source";
+    conclusion = `This IP is most strongly associated with SSH brute-force activity${hostingContext}.`;
+  } else if (hasPortScan) {
+    activity = "Port scanning source";
+    conclusion = `This IP is most strongly associated with port scanning activity${hostingContext}.`;
+  } else if (hasXbl) {
+    activity = "Possible exploited or infected host";
+    conclusion = "Spamhaus evidence indicates this IP may be an exploited or infected host.";
+  } else if (hasAbusiveInfrastructure) {
+    activity = "Known abusive infrastructure";
+    conclusion = "Spamhaus evidence links this IP or netblock to abusive infrastructure.";
+  } else if (hasAbuseReports) {
+    activity = "Repeatedly reported abuse source";
+    conclusion = `AbuseIPDB community reporting indicates repeated abusive activity from this source IP${hostingContext}.`;
+  } else if (hasSpamhausListings) {
+    activity = "Spamhaus-listed source";
+    conclusion = "Spamhaus lists this source IP in abuse reputation datasets.";
   }
 
-  const topCategories = detail?.top_categories?.length ? detail.top_categories : payload.top_categories || [];
+  if (hasPortScan && activity !== "Port scanning source") secondarySignals.push("Port scanning also reported");
+  if (hasXbl && activity !== "Possible exploited or infected host") secondarySignals.push("Possible exploited or infected host");
+  if (hasAbusiveInfrastructure && activity !== "Known abusive infrastructure") secondarySignals.push("Known abusive infrastructure/listed netblock");
+  if (hasPolicyContext) secondarySignals.push("Policy/listing context also present");
 
+  if (hasSpamhausListings && hasAbuseReports && !conclusion.includes("Spamhaus")) {
+    conclusion = `${conclusion.replace(/\.$/, "")}, with Spamhaus listings indicating broader abuse reputation.`;
+  }
+
+  return {
+    activity,
+    conclusion,
+    corroboration: hasAbuseReports && hasSpamhausListings
+      ? "Confirmed by AbuseIPDB reports and Spamhaus listings."
+      : hasAbuseReports
+        ? "Supported by AbuseIPDB community reports."
+        : "Supported by Spamhaus listing data.",
+    freshness: latestSeen(abuse, historyEvent),
+    scope: "Reported source IP activity, not traffic against this portfolio.",
+    chips: [
+      hasAbuseReports ? `${formatNumber(abuse?.total_reports)} reports` : "",
+      hasAbuseReports ? `${formatNumber(abuse?.num_distinct_users)} reporters` : "",
+      hasSpamhausListings ? `${listingCount} Spamhaus ${listingCount === 1 ? "listing" : "listings"}` : "",
+      `Last seen ${latestSeen(abuse, historyEvent)}`,
+    ].filter(Boolean),
+    secondarySignals,
+  };
+}
+
+function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment }) {
   return (
-    <ProviderPanel title="AbuseIPDB reports">
+    <div className="rounded-md border border-signal/25 bg-signal/10 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-white">
-            {selectedIp} has {formatNumber(payload.total_reports)} reports from {formatNumber(payload.num_distinct_users)} distinct sources.
-          </p>
-          <p className="mt-1 text-xs leading-5 text-haze">
-            Third-party reports about this source IP over the last {payload.max_age_in_days} days, not direct telemetry from this portfolio.
-          </p>
+          <p className="font-mono text-[10px] uppercase text-signal">Assessment</p>
+          <h3 className="mt-2 text-xl font-semibold text-white">{assessment.activity}</h3>
         </div>
-        <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 font-mono text-[10px] uppercase text-haze">
-          {payload.cache_status}
+        <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
+          Freshness {assessment.freshness}
         </span>
       </div>
+      <p className="mt-3 text-sm leading-6 text-white">{assessment.conclusion}</p>
+      <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-3">
+        <p>
+          <span className="text-white">Corroboration:</span> {assessment.corroboration}
+        </p>
+        <p>
+          <span className="text-white">Scope:</span> {assessment.scope}
+        </p>
+        <p>
+          <span className="text-white">Secondary:</span> {assessment.secondarySignals.join(", ") || "No secondary signal highlighted"}
+        </p>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {assessment.chips.map((chip) => (
+          <span key={chip} className="rounded-md border border-signal/25 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-signal">
+            {chip}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-      <div className="mt-3 grid gap-2 md:grid-cols-3">
+function AbuseEvidenceCard({ detail, summary }: { detail: AbuseIpdbDetail | null; summary: AbuseIpdbSummary | null }) {
+  const payload = abusePayload(detail, summary);
+  if (!payload) return null;
+
+  const topCategories = abuseCategories(detail, summary);
+
+  return (
+    <ProviderPanel title="AbuseIPDB evidence">
+      <div className="grid gap-2 md:grid-cols-3">
         <div className="rounded-md border border-white/10 bg-black/20 p-3">
-          <p className="font-mono text-[10px] uppercase text-haze">Report count</p>
+          <p className="font-mono text-[10px] uppercase text-haze">Reports</p>
           <p className="mt-1 text-lg font-semibold text-white">{formatNumber(payload.total_reports)}</p>
         </div>
         <div className="rounded-md border border-white/10 bg-black/20 p-3">
@@ -471,7 +574,6 @@ function AbuseIpdbIntelligence({
           <p className="mt-1 text-sm font-semibold text-white">{formatDate(payload.last_reported_at)}</p>
         </div>
       </div>
-
       <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
         {payload.usage_type ? (
           <p>
@@ -495,67 +597,49 @@ function AbuseIpdbIntelligence({
           </p>
         ) : null}
       </div>
-
       <AbuseCategoryBadges categories={topCategories} />
-
     </ProviderPanel>
   );
 }
 
-function SpamhausIntelligence({
+function SpamhausEvidenceCard({
   detail,
-  loading,
-  selectedIp,
   summary,
 }: {
   detail: SpamhausDetail | null;
-  loading: boolean;
-  selectedIp: string;
   summary: IpIntelligenceSummary | null;
 }) {
-  if (detail?.status === "listed") {
-    return (
-      <ProviderPanel title="Spamhaus listings">
-        <p className="text-sm font-semibold text-white">
-          {detail.ip} has {detail.listing_count} intelligence {detail.listing_count === 1 ? "listing" : "listings"}.
-        </p>
-        <div className="mt-3 grid gap-2 lg:grid-cols-3">
-          {detail.datasets.map((dataset) => (
-            <div key={`${dataset.code}-${dataset.dataset}`} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="rounded-md bg-signal px-2 py-1 font-mono text-[10px] font-semibold uppercase text-obsidian">
-                  {dataset.dataset}
-                </span>
-                <span className="font-mono text-[10px] uppercase text-haze">Code {dataset.code}</span>
-              </div>
-              <p className="text-sm font-semibold text-white">{dataset.label}</p>
-              <p className="mt-1 text-xs leading-5 text-haze">{dataset.explanation}</p>
-            </div>
-          ))}
+  const datasets = spamhausDatasets(detail, summary);
+  const listingCount = spamhausListingCount(detail, summary);
+  const history = detail?.history?.status === "found" || detail?.history?.status === "unavailable" ? detail.history : null;
+
+  if (!listingCount && !history) return null;
+
+  return (
+    <ProviderPanel title="Spamhaus evidence">
+      {listingCount ? (
+        <div>
+          <p className="text-sm font-semibold text-white">
+            {listingCount} current Spamhaus {listingCount === 1 ? "listing" : "listings"}.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {datasets.map((dataset) => (
+              <span
+                key={`${dataset.code}-${dataset.dataset}`}
+                className="rounded-md border border-signal/30 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal"
+                title={dataset.label}
+              >
+                {dataset.dataset} / Code {dataset.code}
+              </span>
+            ))}
+          </div>
         </div>
-        <HistoricalListing history={detail.history} />
-      </ProviderPanel>
-    );
-  }
-
-  if (detail?.status === "not_listed" && (detail.history?.status === "found" || detail.history?.status === "unavailable")) {
-    return (
-      <ProviderPanel title="Spamhaus listings">
-        <p className="text-sm leading-6 text-haze">No current IP Data listing found.</p>
-        <HistoricalListing history={detail.history} />
-      </ProviderPanel>
-    );
-  }
-
-  if (summary?.status === "listed") {
-    return (
-      <ProviderPanel title="Spamhaus listings">
-        <IntelligenceSummary ip={selectedIp} loadingFull={loading} summary={summary} />
-      </ProviderPanel>
-    );
-  }
-
-  return null;
+      ) : (
+        <p className="text-sm leading-6 text-haze">No current Spamhaus listing found.</p>
+      )}
+      <HistoricalListing history={history} />
+    </ProviderPanel>
+  );
 }
 
 function IpIntelligence({
@@ -579,18 +663,21 @@ function IpIntelligence({
   selectedIp: string;
   summary: IpIntelligenceSummary | null;
 }) {
-  const spamhausContent = (
-    <SpamhausIntelligence detail={detail} loading={loading} selectedIp={selectedIp} summary={summary} />
-  );
-  const abuseContent = (
-    <AbuseIpdbIntelligence detail={abuseDetail} loading={abuseLoading} selectedIp={selectedIp} summary={abuseSummary} />
-  );
+  const abuse = abusePayload(abuseDetail, abuseSummary);
+  const categories = abuseCategories(abuseDetail, abuseSummary);
+  const datasets = spamhausDatasets(detail, summary);
+  const listingCount = spamhausListingCount(detail, summary);
+  const history = detail?.history;
+  const historyEvent = newestHistoryEvent(detail);
   const hasSpamhausContent = Boolean(
-    detail?.status === "listed" ||
-      summary?.status === "listed" ||
-      (detail?.status === "not_listed" && (detail.history?.status === "found" || detail.history?.status === "unavailable")),
+    listingCount ||
+      history?.status === "found" ||
+      history?.status === "unavailable",
   );
-  const hasAbuseContent = Boolean((abuseDetail || abuseSummary)?.status === "reported" && (abuseDetail || abuseSummary)?.total_reports);
+  const hasAbuseContent = Boolean(abuse);
+  const assessment = hasSpamhausContent || hasAbuseContent
+    ? deriveAssessment({ abuse, categories, datasets, historyEvent, listingCount })
+    : null;
   const isChecking = loading || abuseLoading;
 
   return (
@@ -606,10 +693,13 @@ function IpIntelligence({
 
       {!selectedIp ? (
         <p className="text-sm leading-6 text-haze">Select a source to check IP intelligence.</p>
-      ) : hasSpamhausContent || hasAbuseContent ? (
+      ) : assessment ? (
         <div className="grid gap-3">
-          {abuseContent}
-          {spamhausContent}
+          <AssessmentPanel assessment={assessment} />
+          <div className="grid gap-3 xl:grid-cols-2">
+            <AbuseEvidenceCard detail={abuseDetail} summary={abuseSummary} />
+            <SpamhausEvidenceCard detail={detail} summary={summary} />
+          </div>
         </div>
       ) : isChecking ? (
         <div className="flex items-center gap-2 text-sm text-haze">
