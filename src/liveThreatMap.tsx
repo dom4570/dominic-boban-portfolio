@@ -384,11 +384,44 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
   );
 }
 
-function ProviderPanel({ children, title }: { children: ReactNode; title: string }) {
+function SourceBadge({ label, title }: { label: string; title: string }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.035] p-3">
-      <p className="font-mono text-[10px] uppercase text-signal">{title}</p>
-      <div className="mt-3">{children}</div>
+    <span
+      className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze"
+      title={title}
+    >
+      {label}
+    </span>
+  );
+}
+
+function SignalSection({
+  children,
+  source,
+  sourceTitle,
+  title,
+}: {
+  children: ReactNode;
+  source: string;
+  sourceTitle: string;
+  title: string;
+}) {
+  return (
+    <section className="border-t border-white/10 py-4 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-[10px] uppercase text-signal">{title}</p>
+        <SourceBadge label={source} title={sourceTitle} />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function SignalMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-l border-white/10 pl-3">
+      <p className="font-mono text-[10px] uppercase text-haze">{label}</p>
+      <p className="mt-1 break-words text-lg font-semibold leading-tight text-white">{value}</p>
     </div>
   );
 }
@@ -421,6 +454,11 @@ type IntelligenceAssessment = {
   scope: string;
   chips: string[];
   secondarySignals: string[];
+};
+
+type IntelScore = {
+  score: number;
+  severity: "Low" | "Elevated" | "High" | "Critical";
 };
 
 function abusePayload(detail: AbuseIpdbDetail | null, summary: AbuseIpdbSummary | null) {
@@ -469,6 +507,62 @@ function hasVirusTotalDetections(payload: VirusTotalSummary | VirusTotalDetail |
 
 function hasDataset(datasets: EvidenceDataset[], names: string[]) {
   return datasets.some((dataset) => names.some((name) => dataset.dataset.toLowerCase().includes(name.toLowerCase())));
+}
+
+function datasetScore(datasets: EvidenceDataset[]) {
+  return Math.min(
+    20,
+    datasets.reduce((score, dataset) => {
+      const label = dataset.dataset.toUpperCase();
+      if (label.includes("PBL")) return score;
+      if (label.includes("DROP") || label.includes("SBL")) return score + 8;
+      if (label.includes("XBL") || label.includes("CBL")) return score + 7;
+      if (label.includes("CSS") || label.includes("AUTHBL")) return score + 5;
+      return score + 3;
+    }, 0),
+  );
+}
+
+function freshnessScore(abuse: AbuseIpdbSummary | AbuseIpdbDetail | null, event: SpamhausHistoryEvent | null, virusTotal: VirusTotalSummary | VirusTotalDetail | null) {
+  const dates = [abuse?.last_reported_at, event?.seen_at, event?.listed_at, virusTotal?.last_analysis_date]
+    .map((value) => new Date(value || 0).getTime())
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (!dates.length) return 0;
+
+  const ageDays = (Date.now() - Math.max(...dates)) / (24 * 60 * 60 * 1000);
+  if (ageDays <= 1) return 10;
+  if (ageDays <= 3) return 8;
+  if (ageDays <= 7) return 6;
+  if (ageDays <= 30) return 3;
+  return 1;
+}
+
+function deriveIntelScore({
+  abuse,
+  datasets,
+  historyEvent,
+  virusTotal,
+}: {
+  abuse: AbuseIpdbSummary | AbuseIpdbDetail | null;
+  datasets: EvidenceDataset[];
+  historyEvent: SpamhausHistoryEvent | null;
+  virusTotal: VirusTotalSummary | VirusTotalDetail | null;
+}): IntelScore {
+  const reportScore = abuse?.total_reports ? Math.min(25, (Math.log10(abuse.total_reports + 1) / 5) * 25) : 0;
+  const reporterScore = abuse?.num_distinct_users ? Math.min(20, (Math.log10(abuse.num_distinct_users + 1) / 3) * 20) : 0;
+  const vendorRatio = virusTotal?.vendor_total
+    ? (virusTotal.vendor_malicious + virusTotal.vendor_suspicious * 0.5) / virusTotal.vendor_total
+    : 0;
+  const vendorScore = Math.min(25, (vendorRatio / 0.3) * 25);
+  const score = Math.round(
+    Math.min(100, reportScore + reporterScore + vendorScore + datasetScore(datasets) + freshnessScore(abuse, historyEvent, virusTotal)),
+  );
+
+  return {
+    score,
+    severity: score >= 80 ? "Critical" : score >= 60 ? "High" : score >= 30 ? "Elevated" : "Low",
+  };
 }
 
 function hasSshBruteforceHistory(event: SpamhausHistoryEvent | null) {
@@ -531,35 +625,35 @@ function deriveAssessment({
     conclusion = `This IP is most strongly associated with port scanning activity${hostingContext}.`;
   } else if (hasXbl) {
     activity = "Possible exploited or infected host";
-    conclusion = "Spamhaus evidence indicates this IP may be an exploited or infected host.";
+    conclusion = "Listing data indicates this IP may be an exploited or infected host.";
   } else if (hasAbusiveInfrastructure) {
     activity = "Known abusive infrastructure";
-    conclusion = "Spamhaus evidence links this IP or netblock to abusive infrastructure.";
+    conclusion = "Listing data links this IP or netblock to abusive infrastructure.";
   } else if (hasAbuseReports) {
     activity = "Repeatedly reported abuse source";
-    conclusion = `AbuseIPDB community reporting indicates repeated abusive activity from this source IP${hostingContext}.`;
+    conclusion = `Activity reporting indicates repeated abusive activity from this source IP${hostingContext}.`;
   } else if (hasSpamhausListings) {
-    activity = "Spamhaus-listed source";
-    conclusion = "Spamhaus lists this source IP in abuse reputation datasets.";
+    activity = "Listed abuse source";
+    conclusion = "This source IP appears in abuse reputation datasets.";
   } else if (hasVirusTotalSignal) {
     activity = "Vendor-flagged suspicious source";
-    conclusion = "VirusTotal vendor reputation flags this source IP, but no dominant activity is available from AbuseIPDB or Spamhaus.";
+    conclusion = "Vendor reputation flags this source IP, but no dominant activity signal is available.";
   }
 
   if (hasPortScan && activity !== "Port scanning source") secondarySignals.push("Port scanning also reported");
   if (hasXbl && activity !== "Possible exploited or infected host") secondarySignals.push("Possible exploited or infected host");
   if (hasAbusiveInfrastructure && activity !== "Known abusive infrastructure") secondarySignals.push("Known abusive infrastructure/listed netblock");
   if (hasPolicyContext) secondarySignals.push("Policy/listing context also present");
-  if (hasVirusTotalSignal && activity !== "Vendor-flagged suspicious source") secondarySignals.push("VirusTotal vendor detections present");
+  if (hasVirusTotalSignal && activity !== "Vendor-flagged suspicious source") secondarySignals.push("Vendor detections present");
 
-  if (hasSpamhausListings && hasAbuseReports && !conclusion.includes("Spamhaus")) {
-    conclusion = `${conclusion.replace(/\.$/, "")}, with Spamhaus listings indicating broader abuse reputation.`;
+  if (hasSpamhausListings && hasAbuseReports && !conclusion.includes("listing data")) {
+    conclusion = `${conclusion.replace(/\.$/, "")}, with listing data indicating broader abuse reputation.`;
   }
 
   const corroborationSources = [
-    hasAbuseReports ? "AbuseIPDB reports" : "",
-    hasSpamhausListings ? "Spamhaus listings" : "",
-    hasVirusTotalSignal ? "VirusTotal vendor reputation" : "",
+    hasAbuseReports ? "activity reports" : "",
+    hasSpamhausListings ? "listing data" : "",
+    hasVirusTotalSignal ? "vendor reputation" : "",
   ].filter(Boolean);
   const freshness = latestSeen(abuse, historyEvent, virusTotal);
 
@@ -576,8 +670,8 @@ function deriveAssessment({
     chips: [
       hasAbuseReports ? `${formatNumber(abuse?.total_reports)} reports` : "",
       hasAbuseReports ? `${formatNumber(abuse?.num_distinct_users)} reporters` : "",
-      hasSpamhausListings ? `${listingCount} Spamhaus ${listingCount === 1 ? "listing" : "listings"}` : "",
-      hasVirusTotalData && virusTotalRatio(virusTotal) ? `${virusTotalRatio(virusTotal)} VT vendors` : "",
+      hasSpamhausListings ? `${listingCount} ${listingCount === 1 ? "listing" : "listings"}` : "",
+      hasVirusTotalData && virusTotalRatio(virusTotal) ? `${virusTotalRatio(virusTotal)} vendors` : "",
       `Last seen ${freshness}`,
     ].filter(Boolean),
     secondarySignals,
@@ -619,155 +713,158 @@ function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment })
   );
 }
 
-function AbuseEvidenceCard({ detail, summary }: { detail: AbuseIpdbDetail | null; summary: AbuseIpdbSummary | null }) {
-  const payload = abusePayload(detail, summary);
-  if (!payload) return null;
-
-  const topCategories = abuseCategories(detail, summary);
-
-  return (
-    <ProviderPanel title="AbuseIPDB evidence">
-      <div className="grid gap-2 md:grid-cols-3">
-        <div className="rounded-md border border-white/10 bg-black/20 p-3">
-          <p className="font-mono text-[10px] uppercase text-haze">Reports</p>
-          <p className="mt-1 text-lg font-semibold text-white">{formatNumber(payload.total_reports)}</p>
-        </div>
-        <div className="rounded-md border border-white/10 bg-black/20 p-3">
-          <p className="font-mono text-[10px] uppercase text-haze">Reporters</p>
-          <p className="mt-1 text-lg font-semibold text-white">{formatNumber(payload.num_distinct_users)}</p>
-        </div>
-        <div className="rounded-md border border-white/10 bg-black/20 p-3">
-          <p className="font-mono text-[10px] uppercase text-haze">Last report</p>
-          <p className="mt-1 text-sm font-semibold text-white">{formatDate(payload.last_reported_at)}</p>
-        </div>
-      </div>
-      <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
-        {payload.usage_type ? (
-          <p>
-            <span className="text-white">Usage:</span> {payload.usage_type}
-          </p>
-        ) : null}
-        {payload.isp || payload.domain ? (
-          <p>
-            <span className="text-white">Network:</span> {[payload.isp, payload.domain].filter(Boolean).join(" / ")}
-          </p>
-        ) : null}
-        {payload.country_name || payload.country_code ? (
-          <p>
-            <span className="text-white">Country:</span> {payload.country_name || payload.country_code}
-          </p>
-        ) : null}
-        {payload.is_tor || payload.is_whitelisted !== null ? (
-          <p>
-            <span className="text-white">Flags:</span>{" "}
-            {[payload.is_tor ? "Tor" : "", payload.is_whitelisted === true ? "Whitelisted" : ""].filter(Boolean).join(", ") || "None returned"}
-          </p>
-        ) : null}
-      </div>
-      <AbuseCategoryBadges categories={topCategories} />
-    </ProviderPanel>
-  );
-}
-
-function VirusTotalEvidenceCard({ detail, summary }: { detail: VirusTotalDetail | null; summary: VirusTotalSummary | null }) {
-  const payload = virusTotalPayload(detail, summary);
-  if (!payload) return null;
-
-  return (
-    <ProviderPanel title="VirusTotal evidence">
-      <p className="text-sm font-semibold text-white">VirusTotal vendor reputation for this source IP.</p>
-      <div className="mt-3 grid gap-2 md:grid-cols-2">
-        <div className="rounded-md border border-white/10 bg-black/20 p-3">
-          <p className="font-mono text-[10px] uppercase text-haze">Vendor detections</p>
-          <p className="mt-1 text-lg font-semibold text-white">{virusTotalRatio(payload) || "None returned"}</p>
-        </div>
-        <div className="rounded-md border border-white/10 bg-black/20 p-3">
-          <p className="font-mono text-[10px] uppercase text-haze">Last analysis</p>
-          <p className="mt-1 text-sm font-semibold text-white">{formatDate(payload.last_analysis_date)}</p>
-        </div>
-      </div>
-      <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
-        <p>
-          <span className="text-white">Malicious:</span> {formatNumber(payload.vendor_malicious)}
-        </p>
-        <p>
-          <span className="text-white">Suspicious:</span> {formatNumber(payload.vendor_suspicious)}
-        </p>
-        <p>
-          <span className="text-white">Harmless:</span> {formatNumber(payload.vendor_harmless)}
-        </p>
-        <p>
-          <span className="text-white">Undetected:</span> {formatNumber(payload.vendor_undetected)}
-        </p>
-        <p>
-          <span className="text-white">Reputation:</span> {formatSignedNumber(payload.reputation)}
-        </p>
-        <p>
-          <span className="text-white">Community:</span>{" "}
-          {formatNumber(payload.community_malicious)} malicious / {formatNumber(payload.community_harmless)} harmless votes
-        </p>
-        {payload.asn || payload.as_owner ? (
-          <p>
-            <span className="text-white">Network:</span> {[payload.asn ? `AS${payload.asn}` : "", payload.as_owner].filter(Boolean).join(" / ")}
-          </p>
-        ) : null}
-        {payload.country ? (
-          <p>
-            <span className="text-white">Country:</span> {payload.country}
-          </p>
-        ) : null}
-      </div>
-      {payload.permalink ? (
-        <a
-          className="mt-3 inline-flex rounded-md border border-signal/25 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal transition hover:border-signal/60"
-          href={payload.permalink}
-          target="_blank"
-          rel="noreferrer"
-        >
-          View VirusTotal IP report
-        </a>
-      ) : null}
-    </ProviderPanel>
-  );
-}
-
-function SpamhausEvidenceCard({
-  detail,
-  summary,
+function IntelligenceSignalsPanel({
+  abuse,
+  categories,
+  datasets,
+  history,
+  historyEvent,
+  listingCount,
+  virusTotal,
 }: {
-  detail: SpamhausDetail | null;
-  summary: IpIntelligenceSummary | null;
+  abuse: AbuseIpdbSummary | AbuseIpdbDetail | null;
+  categories: AbuseIpdbCategory[];
+  datasets: EvidenceDataset[];
+  history: SpamhausHistory | null | undefined;
+  historyEvent: SpamhausHistoryEvent | null;
+  listingCount: number;
+  virusTotal: VirusTotalSummary | VirusTotalDetail | null;
 }) {
-  const datasets = spamhausDatasets(detail, summary);
-  const listingCount = spamhausListingCount(detail, summary);
-  const history = detail?.history?.status === "found" || detail?.history?.status === "unavailable" ? detail.history : null;
+  const hasListingSignals = Boolean(listingCount || history?.status === "found" || history?.status === "unavailable");
+  const score = deriveIntelScore({ abuse, datasets, historyEvent, virusTotal });
 
-  if (!listingCount && !history) return null;
+  if (!abuse && !virusTotal && !hasListingSignals) return null;
 
   return (
-    <ProviderPanel title="Spamhaus evidence">
-      {listingCount ? (
+    <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-white">
-            {listingCount} current Spamhaus {listingCount === 1 ? "listing" : "listings"}.
+          <p className="font-mono text-[10px] uppercase text-signal">Intelligence Signals</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-haze">
+            Intel Score reflects combined third-party reputation, activity, listing, and freshness signals for this source IP.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {datasets.map((dataset) => (
-              <span
-                key={`${dataset.code}-${dataset.dataset}`}
-                className="rounded-md border border-signal/30 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal"
-                title={dataset.label}
-              >
-                {dataset.dataset} / Code {dataset.code}
-              </span>
-            ))}
-          </div>
         </div>
-      ) : (
-        <p className="text-sm leading-6 text-haze">No current Spamhaus listing found.</p>
-      )}
-      <HistoricalListing history={history} />
-    </ProviderPanel>
+        <div className="min-w-[150px] text-right">
+          <p className="font-mono text-[10px] uppercase text-haze">Intel Score</p>
+          <p className="mt-1 text-3xl font-semibold leading-none text-white">{score.score}/100</p>
+          <span className="mt-2 inline-flex rounded-md border border-signal/25 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal">
+            {score.severity}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        {abuse ? (
+          <SignalSection source="Activity data" sourceTitle="Source: AbuseIPDB reports" title="Activity Signals">
+            <div className="grid gap-3 md:grid-cols-3">
+              <SignalMetric label="Reports" value={formatNumber(abuse.total_reports)} />
+              <SignalMetric label="Reporters" value={formatNumber(abuse.num_distinct_users)} />
+              <SignalMetric label="Latest report" value={formatDate(abuse.last_reported_at)} />
+            </div>
+            <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
+              {abuse.usage_type ? (
+                <p>
+                  <span className="text-white">Usage:</span> {abuse.usage_type}
+                </p>
+              ) : null}
+              {abuse.isp || abuse.domain ? (
+                <p>
+                  <span className="text-white">Network:</span> {[abuse.isp, abuse.domain].filter(Boolean).join(" / ")}
+                </p>
+              ) : null}
+              {abuse.country_name || abuse.country_code ? (
+                <p>
+                  <span className="text-white">Country:</span> {abuse.country_name || abuse.country_code}
+                </p>
+              ) : null}
+              {abuse.is_tor || abuse.is_whitelisted !== null ? (
+                <p>
+                  <span className="text-white">Flags:</span>{" "}
+                  {[abuse.is_tor ? "Tor" : "", abuse.is_whitelisted === true ? "Whitelisted" : ""].filter(Boolean).join(", ") || "None returned"}
+                </p>
+              ) : null}
+            </div>
+            <AbuseCategoryBadges categories={categories} />
+          </SignalSection>
+        ) : null}
+
+        {virusTotal ? (
+          <SignalSection source="Reputation data" sourceTitle="Source: VirusTotal vendor reputation" title="Reputation Signals">
+            <div className="grid gap-3 md:grid-cols-2">
+              <SignalMetric label="Vendor detections" value={virusTotalRatio(virusTotal) || "None returned"} />
+              <SignalMetric label="Latest analysis" value={formatDate(virusTotal.last_analysis_date)} />
+            </div>
+            <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
+              <p>
+                <span className="text-white">Malicious:</span> {formatNumber(virusTotal.vendor_malicious)}
+              </p>
+              <p>
+                <span className="text-white">Suspicious:</span> {formatNumber(virusTotal.vendor_suspicious)}
+              </p>
+              <p>
+                <span className="text-white">Harmless:</span> {formatNumber(virusTotal.vendor_harmless)}
+              </p>
+              <p>
+                <span className="text-white">Undetected:</span> {formatNumber(virusTotal.vendor_undetected)}
+              </p>
+              <p>
+                <span className="text-white">Reputation:</span> {formatSignedNumber(virusTotal.reputation)}
+              </p>
+              <p>
+                <span className="text-white">Community:</span>{" "}
+                {formatNumber(virusTotal.community_malicious)} malicious / {formatNumber(virusTotal.community_harmless)} harmless votes
+              </p>
+              {virusTotal.asn || virusTotal.as_owner ? (
+                <p>
+                  <span className="text-white">Network:</span> {[virusTotal.asn ? `AS${virusTotal.asn}` : "", virusTotal.as_owner].filter(Boolean).join(" / ")}
+                </p>
+              ) : null}
+              {virusTotal.country ? (
+                <p>
+                  <span className="text-white">Country:</span> {virusTotal.country}
+                </p>
+              ) : null}
+            </div>
+            {virusTotal.permalink ? (
+              <a
+                className="mt-3 inline-flex rounded-md border border-signal/25 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal transition hover:border-signal/60"
+                href={virusTotal.permalink}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View external reputation report
+              </a>
+            ) : null}
+          </SignalSection>
+        ) : null}
+
+        {hasListingSignals ? (
+          <SignalSection source="Listing data" sourceTitle="Source: Spamhaus listings and historical intelligence" title="Listing Signals">
+            {listingCount ? (
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  {listingCount} current reputation {listingCount === 1 ? "listing" : "listings"}.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {datasets.map((dataset) => (
+                    <span
+                      key={`${dataset.code}-${dataset.dataset}`}
+                      className="rounded-md border border-signal/30 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal"
+                      title={dataset.label}
+                    >
+                      {dataset.dataset} / Code {dataset.code}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm leading-6 text-haze">No current reputation listing found.</p>
+            )}
+            <HistoricalListing history={history} />
+          </SignalSection>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -835,11 +932,15 @@ function IpIntelligence({
       ) : assessment ? (
         <div className="grid gap-3">
           <AssessmentPanel assessment={assessment} />
-          <div className="grid gap-3 xl:grid-cols-3">
-            <AbuseEvidenceCard detail={abuseDetail} summary={abuseSummary} />
-            <VirusTotalEvidenceCard detail={virusTotalDetail} summary={virusTotalSummary} />
-            <SpamhausEvidenceCard detail={detail} summary={summary} />
-          </div>
+          <IntelligenceSignalsPanel
+            abuse={abuse}
+            categories={categories}
+            datasets={datasets}
+            history={history}
+            historyEvent={historyEvent}
+            listingCount={listingCount}
+            virusTotal={virusTotal}
+          />
         </div>
       ) : isChecking ? (
         <div className="flex items-center gap-2 text-sm text-haze">
