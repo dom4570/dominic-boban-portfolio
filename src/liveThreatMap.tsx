@@ -387,17 +387,19 @@ function SourceBadge({ label, title }: { label: string; title: string }) {
 
 function SignalSection({
   children,
+  className = "",
   source,
   sourceTitle,
   title,
 }: {
   children: ReactNode;
+  className?: string;
   source: string;
   sourceTitle: string;
   title: string;
 }) {
   return (
-    <section className="border-t border-white/10 py-3 first:border-t-0 first:pt-0 last:pb-0">
+    <section className={`rounded-lg border border-white/10 bg-black/20 p-3 ${className}`}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-[10px] uppercase text-signal">{title}</p>
         <SourceBadge label={source} title={sourceTitle} />
@@ -409,7 +411,7 @@ function SignalSection({
 
 function SignalMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-[142px] rounded-md border border-white/10 bg-black/20 px-3 py-2">
+    <div className="min-w-[132px] flex-1 rounded-md border border-white/10 bg-white/[0.035] px-3 py-2">
       <p className="font-mono text-[10px] uppercase text-haze">{label}</p>
       <p className="mt-1 break-words text-lg font-semibold leading-tight text-white">{value}</p>
     </div>
@@ -449,9 +451,7 @@ type IntelligenceAssessment = {
   activity: string;
   conclusion: string;
   corroboration: string;
-  freshness: string;
   scope: string;
-  chips: string[];
   secondarySignals: string[];
 };
 
@@ -599,20 +599,6 @@ function hasSshBruteforceHistory(event: SpamhausHistoryEvent | null) {
   return usesPort22 && (text.includes("bruteforce") || text.includes("brute force") || text.includes("ssh"));
 }
 
-function latestSeen(
-  abuse: AbuseIpdbSummary | AbuseIpdbDetail | null,
-  event: SpamhausHistoryEvent | null,
-  virusTotal: VirusTotalSummary | VirusTotalDetail | null,
-) {
-  const candidates = [abuse?.last_reported_at, event?.seen_at, event?.listed_at, virusTotal?.last_analysis_date].filter(Boolean) as string[];
-  const latest = candidates
-    .map((value) => ({ value, time: new Date(value).getTime() }))
-    .filter((entry) => Number.isFinite(entry.time))
-    .sort((left, right) => right.time - left.time)[0]?.value;
-
-  return latest ? formatDate(latest) : "Unknown";
-}
-
 function deriveAssessment({
   abuse,
   categories,
@@ -632,7 +618,6 @@ function deriveAssessment({
   const hasAbuseReports = Boolean(abuse?.total_reports);
   const hasSpamhausListings = listingCount > 0;
   const hasVirusTotalSignal = hasVirusTotalDetections(virusTotal);
-  const hasVirusTotalData = Boolean(virusTotal);
   const hasBruteforceSsh = (labels.has("brute-force") && labels.has("ssh")) || hasSshBruteforceHistory(historyEvent);
   const hasPortScan = labels.has("port scan");
   const hasXbl = hasDataset(datasets, ["XBL", "CBL"]);
@@ -682,8 +667,6 @@ function deriveAssessment({
     hasSpamhausListings ? "listing data" : "",
     hasVirusTotalSignal ? "vendor reputation" : "",
   ].filter(Boolean);
-  const freshness = latestSeen(abuse, historyEvent, virusTotal);
-
   return {
     activity,
     conclusion,
@@ -692,33 +675,18 @@ function deriveAssessment({
       : corroborationSources.length === 1
         ? `Supported by ${corroborationSources[0]}.`
         : "Supported by third-party reputation data.",
-    freshness,
     scope: "Reported source IP activity, not traffic against this portfolio.",
-    chips: [
-      hasAbuseReports ? `${formatNumber(abuse?.total_reports)} reports` : "",
-      hasAbuseReports ? `${formatNumber(abuse?.num_distinct_users)} reporters` : "",
-      hasSpamhausListings ? `${listingCount} ${listingCount === 1 ? "listing" : "listings"}` : "",
-      hasVirusTotalData && virusTotalRatio(virusTotal) ? `${virusTotalRatio(virusTotal)} vendors` : "",
-      `Last seen ${freshness}`,
-    ].filter(Boolean),
     secondarySignals,
   };
 }
 
 function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment }) {
   return (
-    <div className="rounded-md border border-signal/25 bg-signal/10 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-[10px] uppercase text-signal">Assessment</p>
-          <h3 className="mt-2 text-xl font-semibold text-white">{assessment.activity}</h3>
-        </div>
-        <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
-          Freshness {assessment.freshness}
-        </span>
-      </div>
-      <p className="mt-3 text-sm leading-6 text-white">{assessment.conclusion}</p>
-      <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-3">
+    <div className="rounded-md border border-signal/25 bg-signal/10 p-3">
+      <p className="font-mono text-[10px] uppercase text-signal">Assessment</p>
+      <h3 className="mt-1.5 text-xl font-semibold text-white">{assessment.activity}</h3>
+      <p className="mt-2 text-sm leading-6 text-white">{assessment.conclusion}</p>
+      <div className="mt-2 grid gap-2 text-xs leading-5 text-haze md:grid-cols-3">
         <p>
           <span className="text-white">Corroboration:</span> {assessment.corroboration}
         </p>
@@ -728,13 +696,6 @@ function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment })
         <p>
           <span className="text-white">Secondary:</span> {assessment.secondarySignals.join(", ") || "No secondary signal highlighted"}
         </p>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {assessment.chips.map((chip) => (
-          <span key={chip} className="rounded-md border border-signal/25 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-signal">
-            {chip}
-          </span>
-        ))}
       </div>
     </div>
   );
@@ -765,26 +726,32 @@ function IntelligenceSignalsPanel({
 
   return (
     <div className="rounded-md border border-white/10 bg-white/[0.035] p-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-[10px] uppercase text-signal">Intelligence Signals</p>
-          <p className="mt-1.5 max-w-3xl text-sm leading-6 text-haze">
-            Intel Score reflects combined third-party reputation, activity, listing, and freshness signals for this source IP.
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-[10px] uppercase text-signal">Intelligence Signals</p>
+        <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
+          Evidence dashboard
+        </span>
+      </div>
+
+      <div className={`mt-2 rounded-lg border px-3 py-2.5 ${severityClasses.card}`}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[10px] uppercase">Intel Score</span>
+            <span className="text-2xl font-semibold leading-none text-white tabular-nums">
+              {score.score}
+              <span className="text-lg text-haze">/100</span>
+            </span>
+            <span className={`inline-flex rounded-md border px-3 py-1.5 font-mono text-[10px] font-semibold uppercase ${severityClasses.pill}`}>
+              {score.severity}
+            </span>
+          </div>
+          <p className="max-w-2xl text-xs leading-5 text-haze sm:text-right">
+            Combined third-party reputation, activity, listing, and freshness signals for this source IP.
           </p>
-        </div>
-        <div className={`w-full rounded-lg border p-3 text-center sm:w-[158px] ${severityClasses.card}`}>
-          <p className="font-mono text-[10px] uppercase">Intel Score</p>
-          <p className="mt-1 text-3xl font-semibold leading-none text-white tabular-nums">
-            {score.score}
-            <span className="text-xl text-haze">/100</span>
-          </p>
-          <span className={`mt-2 inline-flex rounded-md border px-3 py-1.5 font-mono text-[10px] font-semibold uppercase ${severityClasses.pill}`}>
-            {score.severity}
-          </span>
         </div>
       </div>
 
-      <div className="mt-3">
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">
         {abuse ? (
           <SignalSection source="Activity data" sourceTitle="Source: AbuseIPDB reports" title="Activity Signals">
             <div className="flex flex-wrap gap-2">
@@ -850,7 +817,7 @@ function IntelligenceSignalsPanel({
         ) : null}
 
         {hasListingSignals ? (
-          <SignalSection source="Listing data" sourceTitle="Source: Spamhaus listings and historical intelligence" title="Listing Signals">
+          <SignalSection className="xl:col-span-2" source="Listing data" sourceTitle="Source: Spamhaus listings and historical intelligence" title="Listing Signals">
             {listingCount ? (
               <div>
                 <p className="text-sm font-semibold text-white">
