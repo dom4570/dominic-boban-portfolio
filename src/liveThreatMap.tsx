@@ -295,8 +295,8 @@ function HistoricalEventDetail({ event }: { event: SpamhausHistoryEvent }) {
   const connection = historyConnection(event);
 
   return (
-    <div className="mt-3 rounded-md border border-white/10 bg-white/[0.04] p-3">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+    <div className="mt-2 rounded-md border border-white/10 bg-white/[0.04] p-2.5">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="font-mono text-[10px] uppercase text-haze">Newest event</span>
         {event.dataset ? (
           <span className="rounded-md bg-signal px-2 py-1 font-mono text-[10px] font-semibold uppercase text-obsidian">
@@ -304,31 +304,21 @@ function HistoricalEventDetail({ event }: { event: SpamhausHistoryEvent }) {
           </span>
         ) : null}
       </div>
-      <div className="grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
+      <div className="flex flex-wrap gap-2">
         {event.listed_at ? (
-          <p>
-            <span className="text-white">Date listed:</span> {formatDate(event.listed_at)}
-          </p>
+          <SignalFact label="Date listed" value={formatDate(event.listed_at)} />
         ) : null}
         {event.removed_at || event.valid_until_at ? (
-          <p>
-            <span className="text-white">{event.removed_at ? "Date removed:" : "Valid until:"}</span>{" "}
-            {formatDate(event.removed_at || event.valid_until_at)}
-          </p>
+          <SignalFact label={event.removed_at ? "Date removed" : "Valid until"} value={formatDate(event.removed_at || event.valid_until_at)} />
         ) : null}
         {event.seen_at ? (
-          <p>
-            <span className="text-white">Most recent detection:</span> {formatDate(event.seen_at)}
-          </p>
+          <SignalFact label="Most recent detection" value={formatDate(event.seen_at)} />
         ) : null}
         {connection.length ? (
-          <p>
-            <span className="text-white">Connection:</span> {connection.join(" -> ")}
-            {event.protocol ? ` (${event.protocol})` : ""}
-          </p>
+          <SignalFact label="Connection" value={`${connection.join(" -> ")}${event.protocol ? ` (${event.protocol})` : ""}`} />
         ) : null}
       </div>
-      {event.detection ? <p className="mt-3 text-sm leading-6 text-white">{event.detection}</p> : null}
+      {event.detection ? <p className="mt-2 text-sm leading-6 text-white">{event.detection}</p> : null}
       {event.botname || event.heuristic ? (
         <p className="mt-2 text-xs leading-5 text-haze">
           {[event.botname ? `Bot: ${event.botname}` : "", event.heuristic ? `Heuristic: ${event.heuristic}` : ""].filter(Boolean).join(" / ")}
@@ -343,7 +333,7 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
 
   if (history.status === "not_found") {
     return (
-      <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
+      <div className="mt-3 rounded-md border border-white/10 bg-white/[0.03] p-2.5">
         <p className="font-mono text-[10px] uppercase text-haze">Historical listings</p>
         <p className="mt-2 text-xs leading-5 text-haze">{NO_INTELLIGENCE_DATA}</p>
       </div>
@@ -352,7 +342,7 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
 
   if (history.status === "unavailable") {
     return (
-      <div className="mt-4 rounded-md border border-volt/20 bg-volt/10 p-3">
+      <div className="mt-3 rounded-md border border-volt/20 bg-volt/10 p-2.5">
         <p className="font-mono text-[10px] uppercase text-volt">Historical listings unavailable</p>
         {history.warnings?.length ? <p className="mt-2 text-xs leading-5 text-haze">{history.warnings.join(" ")}</p> : null}
       </div>
@@ -364,7 +354,7 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
 
   if (!newest) {
     return (
-      <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
+      <div className="mt-3 rounded-md border border-white/10 bg-white/[0.03] p-2.5">
         <p className="font-mono text-[10px] uppercase text-haze">Historical listings</p>
         <p className="mt-2 text-xs leading-5 text-haze">{NO_INTELLIGENCE_DATA}</p>
       </div>
@@ -372,7 +362,7 @@ function HistoricalListing({ history }: { history: SpamhausHistory | null | unde
   }
 
   return (
-    <div className="mt-4 rounded-md border border-white/10 bg-white/[0.03] p-3">
+    <div className="mt-3 rounded-md border border-white/10 bg-white/[0.03] p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-[10px] uppercase text-haze">Historical listings</p>
         <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
@@ -407,8 +397,8 @@ function SignalSection({
   title: string;
 }) {
   return (
-    <section className="border-t border-white/10 py-4 first:border-t-0 first:pt-0 last:pb-0">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <section className="border-t border-white/10 py-3 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-[10px] uppercase text-signal">{title}</p>
         <SourceBadge label={source} title={sourceTitle} />
       </div>
@@ -419,10 +409,19 @@ function SignalSection({
 
 function SignalMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-l border-white/10 pl-3">
+    <div className="min-w-[142px] rounded-md border border-white/10 bg-black/20 px-3 py-2">
       <p className="font-mono text-[10px] uppercase text-haze">{label}</p>
       <p className="mt-1 break-words text-lg font-semibold leading-tight text-white">{value}</p>
     </div>
+  );
+}
+
+function SignalFact({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs leading-5 text-haze">
+      <span className="shrink-0 text-white">{label}:</span>
+      <span className="min-w-0 break-words">{value}</span>
+    </span>
   );
 }
 
@@ -430,7 +429,7 @@ function AbuseCategoryBadges({ categories }: { categories: AbuseIpdbCategory[] }
   if (!categories.length) return null;
 
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
+    <div className="mt-2 flex flex-wrap gap-2">
       {categories.map((category) => (
         <span
           key={`${category.id}-${category.label}`}
@@ -765,55 +764,49 @@ function IntelligenceSignalsPanel({
   if (!abuse && !virusTotal && !hasListingSignals) return null;
 
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.035] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="rounded-md border border-white/10 bg-white/[0.035] p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-mono text-[10px] uppercase text-signal">Intelligence Signals</p>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-haze">
+          <p className="mt-1.5 max-w-3xl text-sm leading-6 text-haze">
             Intel Score reflects combined third-party reputation, activity, listing, and freshness signals for this source IP.
           </p>
         </div>
-        <div className={`w-full rounded-lg border p-4 text-center sm:w-[176px] ${severityClasses.card}`}>
+        <div className={`w-full rounded-lg border p-3 text-center sm:w-[158px] ${severityClasses.card}`}>
           <p className="font-mono text-[10px] uppercase">Intel Score</p>
-          <p className="mt-1 text-4xl font-semibold leading-none text-white tabular-nums">
+          <p className="mt-1 text-3xl font-semibold leading-none text-white tabular-nums">
             {score.score}
-            <span className="text-2xl text-haze">/100</span>
+            <span className="text-xl text-haze">/100</span>
           </p>
-          <span className={`mt-3 inline-flex rounded-md border px-3 py-1.5 font-mono text-[10px] font-semibold uppercase ${severityClasses.pill}`}>
+          <span className={`mt-2 inline-flex rounded-md border px-3 py-1.5 font-mono text-[10px] font-semibold uppercase ${severityClasses.pill}`}>
             {score.severity}
           </span>
         </div>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3">
         {abuse ? (
           <SignalSection source="Activity data" sourceTitle="Source: AbuseIPDB reports" title="Activity Signals">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="flex flex-wrap gap-2">
               <SignalMetric label="Reports" value={formatNumber(abuse.total_reports)} />
               <SignalMetric label="Reporters" value={formatNumber(abuse.num_distinct_users)} />
               <SignalMetric label="Latest report" value={formatDate(abuse.last_reported_at)} />
             </div>
-            <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
+            <div className="mt-2 flex flex-wrap gap-2">
               {abuse.usage_type ? (
-                <p>
-                  <span className="text-white">Usage:</span> {abuse.usage_type}
-                </p>
+                <SignalFact label="Usage" value={abuse.usage_type} />
               ) : null}
               {abuse.isp || abuse.domain ? (
-                <p>
-                  <span className="text-white">Network:</span> {[abuse.isp, abuse.domain].filter(Boolean).join(" / ")}
-                </p>
+                <SignalFact label="Network" value={[abuse.isp, abuse.domain].filter(Boolean).join(" / ")} />
               ) : null}
               {abuse.country_name || abuse.country_code ? (
-                <p>
-                  <span className="text-white">Country:</span> {abuse.country_name || abuse.country_code}
-                </p>
+                <SignalFact label="Country" value={abuse.country_name || abuse.country_code} />
               ) : null}
               {abuse.is_tor || abuse.is_whitelisted !== null ? (
-                <p>
-                  <span className="text-white">Flags:</span>{" "}
-                  {[abuse.is_tor ? "Tor" : "", abuse.is_whitelisted === true ? "Whitelisted" : ""].filter(Boolean).join(", ") || "None returned"}
-                </p>
+                <SignalFact
+                  label="Flags"
+                  value={[abuse.is_tor ? "Tor" : "", abuse.is_whitelisted === true ? "Whitelisted" : ""].filter(Boolean).join(", ") || "None returned"}
+                />
               ) : null}
             </div>
             <AbuseCategoryBadges categories={categories} />
@@ -822,44 +815,30 @@ function IntelligenceSignalsPanel({
 
         {virusTotal ? (
           <SignalSection source="Reputation data" sourceTitle="Source: VirusTotal vendor reputation" title="Reputation Signals">
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="flex flex-wrap gap-2">
               <SignalMetric label="Vendor detections" value={virusTotalRatio(virusTotal) || "None returned"} />
               <SignalMetric label="Latest analysis" value={formatDate(virusTotal.last_analysis_date)} />
             </div>
-            <div className="mt-3 grid gap-2 text-xs leading-5 text-haze md:grid-cols-2">
-              <p>
-                <span className="text-white">Malicious:</span> {formatNumber(virusTotal.vendor_malicious)}
-              </p>
-              <p>
-                <span className="text-white">Suspicious:</span> {formatNumber(virusTotal.vendor_suspicious)}
-              </p>
-              <p>
-                <span className="text-white">Harmless:</span> {formatNumber(virusTotal.vendor_harmless)}
-              </p>
-              <p>
-                <span className="text-white">Undetected:</span> {formatNumber(virusTotal.vendor_undetected)}
-              </p>
-              <p>
-                <span className="text-white">Reputation:</span> {formatSignedNumber(virusTotal.reputation)}
-              </p>
-              <p>
-                <span className="text-white">Community:</span>{" "}
-                {formatNumber(virusTotal.community_malicious)} malicious / {formatNumber(virusTotal.community_harmless)} harmless votes
-              </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <SignalFact label="Malicious" value={formatNumber(virusTotal.vendor_malicious)} />
+              <SignalFact label="Suspicious" value={formatNumber(virusTotal.vendor_suspicious)} />
+              <SignalFact label="Harmless" value={formatNumber(virusTotal.vendor_harmless)} />
+              <SignalFact label="Undetected" value={formatNumber(virusTotal.vendor_undetected)} />
+              <SignalFact label="Reputation" value={formatSignedNumber(virusTotal.reputation)} />
+              <SignalFact
+                label="Community"
+                value={`${formatNumber(virusTotal.community_malicious)} malicious / ${formatNumber(virusTotal.community_harmless)} harmless votes`}
+              />
               {virusTotal.asn || virusTotal.as_owner ? (
-                <p>
-                  <span className="text-white">Network:</span> {[virusTotal.asn ? `AS${virusTotal.asn}` : "", virusTotal.as_owner].filter(Boolean).join(" / ")}
-                </p>
+                <SignalFact label="Network" value={[virusTotal.asn ? `AS${virusTotal.asn}` : "", virusTotal.as_owner].filter(Boolean).join(" / ")} />
               ) : null}
               {virusTotal.country ? (
-                <p>
-                  <span className="text-white">Country:</span> {virusTotal.country}
-                </p>
+                <SignalFact label="Country" value={virusTotal.country} />
               ) : null}
             </div>
             {virusTotal.permalink ? (
               <a
-                className="mt-3 inline-flex rounded-md border border-signal/25 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal transition hover:border-signal/60"
+                className="mt-2 inline-flex rounded-md border border-signal/25 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal transition hover:border-signal/60"
                 href={virusTotal.permalink}
                 target="_blank"
                 rel="noreferrer"
@@ -877,7 +856,7 @@ function IntelligenceSignalsPanel({
                 <p className="text-sm font-semibold text-white">
                   {listingCount} current reputation {listingCount === 1 ? "listing" : "listings"}.
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   {datasets.map((dataset) => (
                     <span
                       key={`${dataset.code}-${dataset.dataset}`}
