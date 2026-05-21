@@ -751,7 +751,7 @@ function IntelligenceSignalsPanel({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
         {abuse ? (
           <SignalSection source="Activity data" sourceTitle="Source: AbuseIPDB reports" title="Activity Signals">
             <div className="flex flex-wrap gap-2">
@@ -817,7 +817,7 @@ function IntelligenceSignalsPanel({
         ) : null}
 
         {hasListingSignals ? (
-          <SignalSection className="xl:col-span-2" source="Listing data" sourceTitle="Source: Spamhaus listings and historical intelligence" title="Listing Signals">
+          <SignalSection className="lg:col-span-2" source="Listing data" sourceTitle="Source: Spamhaus listings and historical intelligence" title="Listing Signals">
             {listingCount ? (
               <div>
                 <p className="text-sm font-semibold text-white">
@@ -1362,7 +1362,7 @@ export function LiveThreatMapPage() {
         ) : null}
 
         <section className="grid gap-5">
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_420px]">
             <div>
               <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.04]">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
@@ -1446,7 +1446,7 @@ export function LiveThreatMapPage() {
               </span>
             </div>
             <div className="max-h-[360px] overflow-y-auto pr-1">
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {points
                   .slice()
                   .sort((left, right) => (left.rank || MAX_DAILY_POINTS) - (right.rank || MAX_DAILY_POINTS))
