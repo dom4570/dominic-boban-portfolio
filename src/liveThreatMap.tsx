@@ -565,6 +565,34 @@ function deriveIntelScore({
   };
 }
 
+function intelSeverityClasses(severity: IntelScore["severity"]) {
+  if (severity === "Critical") {
+    return {
+      card: "border-trace/50 bg-trace/10 text-trace shadow-trace",
+      pill: "border-trace/55 bg-trace/15 text-trace",
+    };
+  }
+
+  if (severity === "High") {
+    return {
+      card: "border-trace/40 bg-trace/10 text-trace",
+      pill: "border-trace/45 bg-trace/15 text-trace",
+    };
+  }
+
+  if (severity === "Elevated") {
+    return {
+      card: "border-volt/40 bg-volt/10 text-volt",
+      pill: "border-volt/45 bg-volt/15 text-volt",
+    };
+  }
+
+  return {
+    card: "border-cyan-300/35 bg-cyan-400/10 text-cyan-100",
+    pill: "border-cyan-300/45 bg-cyan-400/15 text-cyan-100",
+  };
+}
+
 function hasSshBruteforceHistory(event: SpamhausHistoryEvent | null) {
   if (!event) return false;
   const text = [event.detection, event.heuristic, event.botname, event.protocol].filter(Boolean).join(" ").toLowerCase();
@@ -732,6 +760,7 @@ function IntelligenceSignalsPanel({
 }) {
   const hasListingSignals = Boolean(listingCount || history?.status === "found" || history?.status === "unavailable");
   const score = deriveIntelScore({ abuse, datasets, historyEvent, virusTotal });
+  const severityClasses = intelSeverityClasses(score.severity);
 
   if (!abuse && !virusTotal && !hasListingSignals) return null;
 
@@ -744,10 +773,13 @@ function IntelligenceSignalsPanel({
             Intel Score reflects combined third-party reputation, activity, listing, and freshness signals for this source IP.
           </p>
         </div>
-        <div className="min-w-[150px] text-right">
-          <p className="font-mono text-[10px] uppercase text-haze">Intel Score</p>
-          <p className="mt-1 text-3xl font-semibold leading-none text-white">{score.score}/100</p>
-          <span className="mt-2 inline-flex rounded-md border border-signal/25 bg-signal/10 px-2 py-1 font-mono text-[10px] uppercase text-signal">
+        <div className={`w-full rounded-lg border p-4 text-center sm:w-[176px] ${severityClasses.card}`}>
+          <p className="font-mono text-[10px] uppercase">Intel Score</p>
+          <p className="mt-1 text-4xl font-semibold leading-none text-white tabular-nums">
+            {score.score}
+            <span className="text-2xl text-haze">/100</span>
+          </p>
+          <span className={`mt-3 inline-flex rounded-md border px-3 py-1.5 font-mono text-[10px] font-semibold uppercase ${severityClasses.pill}`}>
             {score.severity}
           </span>
         </div>
