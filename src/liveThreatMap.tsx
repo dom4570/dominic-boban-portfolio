@@ -122,6 +122,12 @@ type SpamhausHistoryEvent = {
   protocol?: string;
 };
 
+type MitreTechnique = {
+  id: string;
+  tactic: string;
+  technique: string;
+};
+
 type SpamhausDetail = {
   ip: string;
   status: "listed" | "not_listed" | "unavailable" | "not_configured";
@@ -132,6 +138,7 @@ type SpamhausDetail = {
   cache_status: "fresh" | "cached";
   cache_expires_at: string;
   warnings: string[];
+  mitre_techniques?: MitreTechnique[];
   history?: SpamhausHistory | null;
 };
 
@@ -143,6 +150,7 @@ type AbuseIpdbDetail = AbuseIpdbSummary & {
   reports_status: "not_loaded" | "found" | "not_found" | "unavailable";
   cache_expires_at: string;
   warnings: string[];
+  mitre_techniques?: MitreTechnique[];
 };
 
 type VirusTotalSummary = {
@@ -441,6 +449,47 @@ function AbuseCategoryBadges({ categories }: { categories: AbuseIpdbCategory[] }
           {category.count ? ` x${category.count}` : ""}
         </span>
       ))}
+    </div>
+  );
+}
+
+function mergeMitreTechniques(...groups: Array<MitreTechnique[] | null | undefined>) {
+  const deduped = new Map<string, MitreTechnique>();
+
+  groups.flatMap((group) => group || []).forEach((technique) => {
+    if (technique?.id && !deduped.has(technique.id)) {
+      deduped.set(technique.id, technique);
+    }
+  });
+
+  return [...deduped.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function MitreTechniquesPanel({ techniques }: { techniques: MitreTechnique[] }) {
+  if (!techniques.length) return null;
+
+  return (
+    <div className="rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-[10px] uppercase text-cyan-100">ATT&CK Techniques</p>
+        <SourceBadge label="Framework" title="Source: MITRE ATT&CK Enterprise technique catalog" />
+      </div>
+      <p className="mt-2 text-xs leading-5 text-haze">
+        Mapped from third-party source-IP evidence, not confirmed telemetry against this portfolio.
+      </p>
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {techniques.map((technique) => (
+          <div key={technique.id} className="rounded-md border border-cyan-300/20 bg-black/25 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 font-mono text-[10px] uppercase text-cyan-100">
+                {technique.id}
+              </span>
+              <span className="font-mono text-[10px] uppercase text-haze">{technique.tactic}</span>
+            </div>
+            <p className="mt-2 text-sm font-semibold text-white">{technique.technique}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -892,6 +941,7 @@ function IpIntelligence({
   const assessment = hasSpamhausContent || hasAbuseContent || hasVirusTotalContent
     ? deriveAssessment({ abuse, categories, datasets, historyEvent, listingCount, virusTotal })
     : null;
+  const mitreTechniques = mergeMitreTechniques(abuseDetail?.mitre_techniques, detail?.mitre_techniques);
   const isChecking = loading || abuseLoading || virusTotalLoading;
 
   return (
@@ -910,6 +960,7 @@ function IpIntelligence({
       ) : assessment ? (
         <div className="grid gap-3">
           <AssessmentPanel assessment={assessment} />
+          <MitreTechniquesPanel techniques={mitreTechniques} />
           <IntelligenceSignalsPanel
             abuse={abuse}
             categories={categories}
