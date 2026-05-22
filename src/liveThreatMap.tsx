@@ -674,7 +674,7 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
                     <p>
                       <span className="text-white">Evidence used:</span> {match.evidence_summary || match.evidence}
                     </p>
-                    {match.raw_evidence && match.raw_evidence !== match.evidence_summary ? (
+                    {match.raw_evidence && match.raw_evidence !== match.evidence_summary && !match.matched_field.includes("categories") ? (
                       <p className="break-words rounded-md border border-white/10 bg-black/20 p-2 font-mono text-[10px] leading-5 text-haze">
                         {match.raw_evidence}
                       </p>
