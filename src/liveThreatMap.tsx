@@ -132,6 +132,10 @@ type MitreMatch = {
   technique_id: string;
   source: "abuseipdb" | "spamhaus";
   evidence: string;
+  evidence_title?: string;
+  evidence_summary?: string;
+  raw_evidence?: string;
+  meaning?: string;
   matched_field: string;
   confidence: "high" | "medium";
   pattern_label: string;
@@ -522,14 +526,15 @@ function tacticOrder(tactic: string) {
 
 function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; techniques: MitreTechnique[] }) {
   const [selectedId, setSelectedId] = useState("");
-  const sortedTechniques = [...techniques].sort((left, right) => {
+  const explainableIds = new Set(matches.map((match) => match.technique_id).filter(Boolean));
+  const sortedTechniques = techniques.filter((technique) => explainableIds.has(technique.id)).sort((left, right) => {
     const order = tacticOrder(left.tactic) - tacticOrder(right.tactic);
     return order || left.id.localeCompare(right.id);
   });
 
-  if (!techniques.length) return null;
+  if (!sortedTechniques.length) return null;
 
-  const activeId = techniques.some((technique) => technique.id === selectedId) ? selectedId : sortedTechniques[0]?.id || "";
+  const activeId = sortedTechniques.some((technique) => technique.id === selectedId) ? selectedId : sortedTechniques[0]?.id || "";
   const activeTechnique = sortedTechniques.find((technique) => technique.id === activeId) || sortedTechniques[0];
   const matchesByTechnique = new Map<string, MitreMatch[]>();
 
@@ -630,7 +635,7 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
                   className="rounded-md border border-white/10 bg-white/[0.03] p-2.5"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[10px] uppercase text-signal">{match.pattern_label}</span>
+                    <span className="font-mono text-[10px] uppercase text-signal">{match.evidence_title || match.pattern_label}</span>
                     <SourceBadge
                       label={match.source === "abuseipdb" ? "Activity" : "Listing"}
                       title={match.source === "abuseipdb" ? "Source: AbuseIPDB evidence" : "Source: Spamhaus evidence"}
@@ -639,13 +644,25 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
                       {match.confidence}
                     </span>
                   </div>
-                  <p className="mt-2 break-words text-xs leading-5 text-haze">{match.evidence}</p>
+                  <div className="mt-2 grid gap-2 text-xs leading-5 text-haze">
+                    <p>
+                      <span className="text-white">Why this mapped:</span> {match.meaning || "This evidence matched a deterministic ATT&CK behavior rule."}
+                    </p>
+                    <p>
+                      <span className="text-white">Evidence used:</span> {match.evidence_summary || match.evidence}
+                    </p>
+                    {match.raw_evidence && match.raw_evidence !== match.evidence_summary ? (
+                      <p className="break-words rounded-md border border-white/10 bg-black/20 p-2 font-mono text-[10px] leading-5 text-haze">
+                        {match.raw_evidence}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
             <p className="mt-2 text-xs leading-5 text-haze">
-              Technique matched by normalized third-party source-IP evidence.
+              No explainable evidence was returned for this technique.
             </p>
           )}
         </div>

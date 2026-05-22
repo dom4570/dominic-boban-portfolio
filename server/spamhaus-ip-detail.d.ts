@@ -52,6 +52,10 @@ export type MitreMatch = {
   technique_id: string;
   source: "abuseipdb" | "spamhaus";
   evidence: string;
+  evidence_title: string;
+  evidence_summary: string;
+  raw_evidence: string;
+  meaning: string;
   matched_field: string;
   confidence: "high" | "medium";
   pattern_label: string;
