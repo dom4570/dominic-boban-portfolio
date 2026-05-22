@@ -130,7 +130,7 @@ type MitreTechnique = {
 
 type MitreMatch = {
   technique_id: string;
-  source: "abuseipdb" | "spamhaus";
+  source: "abuseipdb" | "spamhaus" | "virustotal";
   evidence: string;
   evidence_title?: string;
   evidence_summary?: string;
@@ -183,6 +183,9 @@ type VirusTotalSummary = {
   asn: string;
   as_owner: string;
   country: string;
+  tags?: string[];
+  threat_labels?: string[];
+  detection_names?: string[];
   last_analysis_date: string;
   permalink: string;
   generated_at: string;
@@ -193,6 +196,8 @@ type VirusTotalDetail = VirusTotalSummary & {
   ip: string;
   cache_expires_at: string;
   warnings: string[];
+  mitre_techniques?: MitreTechnique[];
+  mitre_matches?: MitreMatch[];
 };
 
 const MAX_DAILY_POINTS = 50;
@@ -524,6 +529,27 @@ function tacticOrder(tactic: string) {
   return index === -1 ? MITRE_TACTIC_ORDER.length : index;
 }
 
+function mitreSourceBadge(match: MitreMatch) {
+  if (match.source === "virustotal") {
+    return {
+      label: "Reputation",
+      title: "Source: VirusTotal cached reputation evidence",
+    };
+  }
+
+  if (match.source === "abuseipdb") {
+    return {
+      label: "Activity",
+      title: "Source: AbuseIPDB evidence",
+    };
+  }
+
+  return {
+    label: "Listing",
+    title: "Source: Spamhaus evidence",
+  };
+}
+
 function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; techniques: MitreTechnique[] }) {
   const [selectedId, setSelectedId] = useState("");
   const explainableIds = new Set(matches.map((match) => match.technique_id).filter(Boolean));
@@ -636,10 +662,7 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-[10px] uppercase text-signal">{match.evidence_title || match.pattern_label}</span>
-                    <SourceBadge
-                      label={match.source === "abuseipdb" ? "Activity" : "Listing"}
-                      title={match.source === "abuseipdb" ? "Source: AbuseIPDB evidence" : "Source: Spamhaus evidence"}
-                    />
+                    <SourceBadge {...mitreSourceBadge(match)} />
                     <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[10px] uppercase text-haze">
                       {match.confidence}
                     </span>
@@ -1118,8 +1141,8 @@ function IpIntelligence({
   const assessment = hasSpamhausContent || hasAbuseContent || hasVirusTotalContent
     ? deriveAssessment({ abuse, categories, datasets, historyEvent, listingCount, virusTotal })
     : null;
-  const mitreTechniques = mergeMitreTechniques(abuseDetail?.mitre_techniques, detail?.mitre_techniques);
-  const mitreMatches = mergeMitreMatches(abuseDetail?.mitre_matches, detail?.mitre_matches);
+  const mitreTechniques = mergeMitreTechniques(abuseDetail?.mitre_techniques, detail?.mitre_techniques, virusTotalDetail?.mitre_techniques);
+  const mitreMatches = mergeMitreMatches(abuseDetail?.mitre_matches, detail?.mitre_matches, virusTotalDetail?.mitre_matches);
   const isChecking = loading || abuseLoading || virusTotalLoading;
 
   return (
