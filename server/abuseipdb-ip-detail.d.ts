@@ -19,6 +19,15 @@ export type AbuseIpdbCategory = {
   count?: number;
 };
 
+export type MitreMatch = {
+  technique_id: string;
+  source: "abuseipdb" | "spamhaus";
+  evidence: string;
+  matched_field: string;
+  confidence: "high" | "medium";
+  pattern_label: string;
+};
+
 export type AbuseIpdbSummary = {
   provider: "abuseipdb";
   status: "reported" | "not_reported" | "unavailable" | "not_configured";
