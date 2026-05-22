@@ -43,8 +43,24 @@ export type VirusTotalSummary = {
   asn: string;
   as_owner: string;
   country: string;
+  tags: string[];
+  threat_labels: string[];
+  detection_names: string[];
   last_analysis_date: string;
   permalink: string;
   generated_at: string;
   cache_status: "fresh" | "cached";
+};
+
+export type MitreMatch = {
+  technique_id: string;
+  source: "abuseipdb" | "spamhaus" | "virustotal";
+  evidence: string;
+  evidence_title: string;
+  evidence_summary: string;
+  raw_evidence: string;
+  meaning: string;
+  matched_field: string;
+  confidence: "high" | "medium";
+  pattern_label: string;
 };

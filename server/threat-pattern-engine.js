@@ -7,7 +7,7 @@ const THREAT_PATTERNS = [
     techniqueId: "T1110",
     techniqueName: "Brute Force",
     tactic: "Credential Access",
-    sourceTypes: ["abuseipdb", "spamhaus"],
+    sourceTypes: ["abuseipdb", "spamhaus", "virustotal"],
     priority: 100,
     confidence: "high",
     evidenceLabel: "SSH brute-force signal",
@@ -20,7 +20,7 @@ const THREAT_PATTERNS = [
     techniqueId: "T1110",
     techniqueName: "Brute Force",
     tactic: "Credential Access",
-    sourceTypes: ["abuseipdb", "spamhaus"],
+    sourceTypes: ["abuseipdb", "spamhaus", "virustotal"],
     priority: 90,
     confidence: "high",
     evidenceLabel: "Brute-force signal",
@@ -33,7 +33,7 @@ const THREAT_PATTERNS = [
     techniqueId: "T1595",
     techniqueName: "Active Scanning",
     tactic: "Reconnaissance",
-    sourceTypes: ["abuseipdb", "spamhaus"],
+    sourceTypes: ["abuseipdb", "spamhaus", "virustotal"],
     priority: 80,
     confidence: "high",
     evidenceLabel: "Scanning signal",
@@ -46,7 +46,7 @@ const THREAT_PATTERNS = [
     techniqueId: "T1498",
     techniqueName: "Network Denial of Service",
     tactic: "Impact",
-    sourceTypes: ["abuseipdb", "spamhaus"],
+    sourceTypes: ["abuseipdb", "spamhaus", "virustotal"],
     priority: 75,
     confidence: "high",
     evidenceLabel: "Denial-of-service signal",
@@ -59,7 +59,7 @@ const THREAT_PATTERNS = [
     techniqueId: "T1190",
     techniqueName: "Exploit Public-Facing Application",
     tactic: "Initial Access",
-    sourceTypes: ["abuseipdb", "spamhaus"],
+    sourceTypes: ["abuseipdb", "spamhaus", "virustotal"],
     priority: 70,
     confidence: "high",
     evidenceLabel: "Public-facing application exploit signal",
@@ -72,12 +72,25 @@ const THREAT_PATTERNS = [
     techniqueId: "T1566",
     techniqueName: "Phishing",
     tactic: "Initial Access",
-    sourceTypes: ["abuseipdb", "spamhaus"],
+    sourceTypes: ["abuseipdb", "spamhaus", "virustotal"],
     priority: 65,
     confidence: "high",
     evidenceLabel: "Phishing signal",
     meaning: "This maps to Initial Access because the evidence references phishing behavior.",
     mergeKey: "phishing",
+  },
+  {
+    id: "command-and-control",
+    regex: /\b(?:c2|c&c|command[-\s]?and[-\s]?control|botnet controller)\b/i,
+    techniqueId: "T1071",
+    techniqueName: "Application Layer Protocol",
+    tactic: "Command and Control",
+    sourceTypes: ["spamhaus", "virustotal"],
+    priority: 60,
+    confidence: "medium",
+    evidenceLabel: "Command-and-control signal",
+    meaning: "This maps to Command and Control because the evidence explicitly references C2, command-and-control, or botnet controller behavior.",
+    mergeKey: "command-and-control",
   },
 ];
 
@@ -213,6 +226,36 @@ export function normalizeSpamhausEvidence(payload) {
   for (const event of Array.isArray(payload?.history?.events) ? payload.history.events : []) {
     const evidence = spamhausEventEvidence(event);
     addEvidence(fields, "spamhaus", "history.events", evidence.value, evidence);
+  }
+
+  return fields;
+}
+
+export function normalizeVirusTotalEvidence(payload) {
+  const fields = [];
+
+  for (const tag of Array.isArray(payload?.tags) ? payload.tags : []) {
+    addEvidence(fields, "virustotal", "tags", tag, {
+      title: "VirusTotal tag",
+      summary: "VirusTotal returned this IP tag in the cached reputation report.",
+      rawEvidence: tag,
+    });
+  }
+
+  for (const label of Array.isArray(payload?.threat_labels) ? payload.threat_labels : []) {
+    addEvidence(fields, "virustotal", "threat_labels", label, {
+      title: "VirusTotal threat label",
+      summary: "VirusTotal returned this behavior or threat label in the cached IP report.",
+      rawEvidence: label,
+    });
+  }
+
+  for (const detection of Array.isArray(payload?.detection_names) ? payload.detection_names : []) {
+    addEvidence(fields, "virustotal", "detection_names", detection, {
+      title: "Vendor detection text",
+      summary: "A VirusTotal vendor result included behavior text matching this ATT&CK mapping.",
+      rawEvidence: detection,
+    });
   }
 
   return fields;
