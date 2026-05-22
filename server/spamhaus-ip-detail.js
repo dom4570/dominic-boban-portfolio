@@ -1,5 +1,8 @@
 import { isLiveThreatMapIp } from "./abuse-origin-map.js";
-import { resolveMitreTechniques } from "./mitre-attack.js";
+import {
+  addMitrePatternAnalysis,
+  normalizeSpamhausEvidence,
+} from "./threat-pattern-engine.js";
 
 const SPAMHAUS_WQS_URL = "https://apibl.spamhaus.net/lookup/v1/zen";
 const SPAMHAUS_SIA_LOGIN_URL = "https://api.spamhaus.org/api/v1/login";
@@ -395,6 +398,7 @@ function statusPayload(ip, status, warnings = []) {
     cache_status: "fresh",
     cache_expires_at: expiresAt,
     mitre_techniques: [],
+    mitre_matches: [],
     warnings,
   };
 }
@@ -410,64 +414,8 @@ function withHistory(payload, history) {
   };
 }
 
-function mitreIdsFromSpamhausPayload(payload) {
-  const ids = [];
-  const evidence = [];
-
-  for (const dataset of Array.isArray(payload?.datasets) ? payload.datasets : []) {
-    evidence.push(dataset?.dataset, dataset?.label, dataset?.explanation);
-  }
-
-  for (const event of Array.isArray(payload?.history?.events) ? payload.history.events : []) {
-    evidence.push(event?.dataset, event?.detection, event?.heuristic, event?.botname, event?.protocol);
-
-    const eventText = [event?.dataset, event?.detection, event?.heuristic, event?.botname, event?.protocol]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    const usesSsh = event?.source_port === 22 || event?.destination_port === 22 || /\bssh\b|sshd/.test(eventText);
-
-    if (usesSsh && /bruteforce|brute force|failed password|\bssh\b|sshd/.test(eventText)) {
-      ids.push("T1110");
-    }
-
-    if (/\bscan(?:ning|ned)?\b|\bport scan\b|probe/.test(eventText)) {
-      ids.push("T1595");
-    }
-
-    if (/\bddos\b|denial of service|flood/.test(eventText)) {
-      ids.push("T1498");
-    }
-
-    if (/sql injection|web app|public-facing|public facing|\bexploit\b|\bcve-\d{4}-\d+|citrix|netscaler|rce/.test(eventText)) {
-      ids.push("T1190");
-    }
-
-    if (/\bphishing\b/.test(eventText)) {
-      ids.push("T1566");
-    }
-  }
-
-  const text = evidence.filter(Boolean).join(" ").toLowerCase();
-  if (/\bauthbl\b|authentication brute-force|stolen-credential|stolen credential/.test(text)) {
-    ids.push("T1110");
-  }
-
-  return ids;
-}
-
 async function addMitreTechniques(payload) {
-  try {
-    return {
-      ...payload,
-      mitre_techniques: await resolveMitreTechniques(mitreIdsFromSpamhausPayload(payload)),
-    };
-  } catch {
-    return {
-      ...payload,
-      mitre_techniques: [],
-    };
-  }
+  return addMitrePatternAnalysis(payload, "spamhaus", normalizeSpamhausEvidence);
 }
 
 function listedPayload(ip, codes, warnings = []) {
@@ -492,6 +440,7 @@ function listedPayload(ip, codes, warnings = []) {
     cache_status: "fresh",
     cache_expires_at: expiresAt,
     mitre_techniques: [],
+    mitre_matches: [],
     warnings,
   };
 }

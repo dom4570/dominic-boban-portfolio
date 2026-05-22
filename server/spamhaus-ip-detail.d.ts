@@ -47,3 +47,12 @@ export type SpamhausHistoryEvent = {
   destination_port?: number | null;
   protocol?: string;
 };
+
+export type MitreMatch = {
+  technique_id: string;
+  source: "abuseipdb" | "spamhaus";
+  evidence: string;
+  matched_field: string;
+  confidence: "high" | "medium";
+  pattern_label: string;
+};
