@@ -128,6 +128,15 @@ type MitreTechnique = {
   technique: string;
 };
 
+type MitreMatch = {
+  technique_id: string;
+  source: "abuseipdb" | "spamhaus";
+  evidence: string;
+  matched_field: string;
+  confidence: "high" | "medium";
+  pattern_label: string;
+};
+
 type SpamhausDetail = {
   ip: string;
   status: "listed" | "not_listed" | "unavailable" | "not_configured";
@@ -139,6 +148,7 @@ type SpamhausDetail = {
   cache_expires_at: string;
   warnings: string[];
   mitre_techniques?: MitreTechnique[];
+  mitre_matches?: MitreMatch[];
   history?: SpamhausHistory | null;
 };
 
@@ -151,6 +161,7 @@ type AbuseIpdbDetail = AbuseIpdbSummary & {
   cache_expires_at: string;
   warnings: string[];
   mitre_techniques?: MitreTechnique[];
+  mitre_matches?: MitreMatch[];
 };
 
 type VirusTotalSummary = {
@@ -465,31 +476,180 @@ function mergeMitreTechniques(...groups: Array<MitreTechnique[] | null | undefin
   return [...deduped.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function MitreTechniquesPanel({ techniques }: { techniques: MitreTechnique[] }) {
+function mergeMitreMatches(...groups: Array<MitreMatch[] | null | undefined>) {
+  const deduped = new Map<string, MitreMatch>();
+
+  groups.flatMap((group) => group || []).forEach((match) => {
+    if (!match?.technique_id) return;
+
+    const key = [
+      match.technique_id,
+      match.source,
+      match.matched_field,
+      match.pattern_label,
+      match.evidence,
+    ].join(":");
+
+    if (!deduped.has(key)) {
+      deduped.set(key, match);
+    }
+  });
+
+  return [...deduped.values()];
+}
+
+const MITRE_TACTIC_ORDER = [
+  "Reconnaissance",
+  "Resource Development",
+  "Initial Access",
+  "Execution",
+  "Persistence",
+  "Privilege Escalation",
+  "Defense Evasion",
+  "Credential Access",
+  "Discovery",
+  "Lateral Movement",
+  "Collection",
+  "Command and Control",
+  "Exfiltration",
+  "Impact",
+];
+
+function tacticOrder(tactic: string) {
+  const index = MITRE_TACTIC_ORDER.findIndex((item) => item.toLowerCase() === tactic.toLowerCase());
+  return index === -1 ? MITRE_TACTIC_ORDER.length : index;
+}
+
+function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; techniques: MitreTechnique[] }) {
+  const [selectedId, setSelectedId] = useState("");
+  const sortedTechniques = [...techniques].sort((left, right) => {
+    const order = tacticOrder(left.tactic) - tacticOrder(right.tactic);
+    return order || left.id.localeCompare(right.id);
+  });
+
   if (!techniques.length) return null;
+
+  const activeId = techniques.some((technique) => technique.id === selectedId) ? selectedId : sortedTechniques[0]?.id || "";
+  const activeTechnique = sortedTechniques.find((technique) => technique.id === activeId) || sortedTechniques[0];
+  const matchesByTechnique = new Map<string, MitreMatch[]>();
+
+  matches.forEach((match) => {
+    if (!match.technique_id) return;
+    matchesByTechnique.set(match.technique_id, [...(matchesByTechnique.get(match.technique_id) || []), match]);
+  });
+
+  const tacticGroups = sortedTechniques.reduce<Array<{ tactic: string; techniques: MitreTechnique[] }>>((groups, technique) => {
+    const existing = groups.find((group) => group.tactic === technique.tactic);
+    if (existing) {
+      existing.techniques.push(technique);
+    } else {
+      groups.push({ tactic: technique.tactic, techniques: [technique] });
+    }
+    return groups;
+  }, []);
+
+  const activeMatches = matchesByTechnique.get(activeTechnique?.id || "") || [];
 
   return (
     <div className="rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-[10px] uppercase text-cyan-100">ATT&CK Techniques</p>
+        <p className="font-mono text-[10px] uppercase text-cyan-100">ATT&CK Behavior Graph</p>
         <SourceBadge label="Framework" title="Source: MITRE ATT&CK Enterprise technique catalog" />
       </div>
       <p className="mt-2 text-xs leading-5 text-haze">
         Mapped from third-party source-IP evidence, not confirmed telemetry against this portfolio.
       </p>
-      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {techniques.map((technique) => (
-          <div key={technique.id} className="rounded-md border border-cyan-300/20 bg-black/25 p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 font-mono text-[10px] uppercase text-cyan-100">
-                {technique.id}
-              </span>
-              <span className="font-mono text-[10px] uppercase text-haze">{technique.tactic}</span>
-            </div>
-            <p className="mt-2 text-sm font-semibold text-white">{technique.technique}</p>
-          </div>
-        ))}
+
+      <div className="mt-3 overflow-x-auto pb-1">
+        <div className="flex min-w-max items-stretch gap-3">
+          {tacticGroups.map((group, groupIndex) => {
+            const visibleTechniques = group.techniques.slice(0, 2);
+            const hiddenCount = Math.max(0, group.techniques.length - visibleTechniques.length);
+
+            return (
+              <div key={group.tactic} className="relative min-w-[190px] rounded-lg border border-cyan-300/15 bg-black/25 p-2.5">
+                {groupIndex < tacticGroups.length - 1 ? (
+                  <span className="pointer-events-none absolute left-full top-1/2 hidden h-px w-3 bg-cyan-300/30 sm:block" />
+                ) : null}
+                <p className="mb-2 font-mono text-[10px] uppercase text-haze">{group.tactic}</p>
+                <div className="grid gap-2">
+                  {visibleTechniques.map((technique) => {
+                    const isActive = technique.id === activeId;
+                    const techniqueMatches = matchesByTechnique.get(technique.id) || [];
+
+                    return (
+                      <button
+                        key={technique.id}
+                        type="button"
+                        className={`rounded-md border px-2.5 py-2 text-left transition ${
+                          isActive
+                            ? "border-signal/60 bg-signal/15 shadow-[0_0_22px_rgba(250,255,0,0.12)]"
+                            : "border-cyan-300/15 bg-white/[0.03] hover:border-cyan-300/40 hover:bg-cyan-300/10"
+                        }`}
+                        onClick={() => setSelectedId(technique.id)}
+                      >
+                        <span className="font-mono text-[10px] uppercase text-cyan-100">{technique.id}</span>
+                        <span className="mt-1 block text-sm font-semibold leading-tight text-white">{technique.technique}</span>
+                        {techniqueMatches.length ? (
+                          <span className="mt-1 block font-mono text-[10px] uppercase text-haze">
+                            {techniqueMatches.length} evidence {techniqueMatches.length === 1 ? "match" : "matches"}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                  {hiddenCount ? (
+                    <span className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2 font-mono text-[10px] uppercase text-haze">
+                      +{hiddenCount} more
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {activeTechnique ? (
+        <div className="mt-3 rounded-md border border-white/10 bg-black/25 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 font-mono text-[10px] uppercase text-cyan-100">
+              {activeTechnique.id}
+            </span>
+            <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+              {activeTechnique.tactic}
+            </span>
+            <span className="text-sm font-semibold text-white">{activeTechnique.technique}</span>
+          </div>
+
+          {activeMatches.length ? (
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              {activeMatches.slice(0, 4).map((match, index) => (
+                <div
+                  key={`${match.technique_id}-${match.source}-${match.matched_field}-${index}`}
+                  className="rounded-md border border-white/10 bg-white/[0.03] p-2.5"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[10px] uppercase text-signal">{match.pattern_label}</span>
+                    <SourceBadge
+                      label={match.source === "abuseipdb" ? "Activity" : "Listing"}
+                      title={match.source === "abuseipdb" ? "Source: AbuseIPDB evidence" : "Source: Spamhaus evidence"}
+                    />
+                    <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[10px] uppercase text-haze">
+                      {match.confidence}
+                    </span>
+                  </div>
+                  <p className="mt-2 break-words text-xs leading-5 text-haze">{match.evidence}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs leading-5 text-haze">
+              Technique matched by normalized third-party source-IP evidence.
+            </p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -942,6 +1102,7 @@ function IpIntelligence({
     ? deriveAssessment({ abuse, categories, datasets, historyEvent, listingCount, virusTotal })
     : null;
   const mitreTechniques = mergeMitreTechniques(abuseDetail?.mitre_techniques, detail?.mitre_techniques);
+  const mitreMatches = mergeMitreMatches(abuseDetail?.mitre_matches, detail?.mitre_matches);
   const isChecking = loading || abuseLoading || virusTotalLoading;
 
   return (
@@ -960,7 +1121,7 @@ function IpIntelligence({
       ) : assessment ? (
         <div className="grid gap-3">
           <AssessmentPanel assessment={assessment} />
-          <MitreTechniquesPanel techniques={mitreTechniques} />
+          <MitreBehaviorGraph matches={mitreMatches} techniques={mitreTechniques} />
           <IntelligenceSignalsPanel
             abuse={abuse}
             categories={categories}
