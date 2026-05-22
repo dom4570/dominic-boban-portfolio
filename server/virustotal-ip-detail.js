@@ -1,9 +1,13 @@
 import { isLiveThreatMapIp } from "./abuse-origin-map.js";
+import {
+  addMitrePatternAnalysis,
+  normalizeVirusTotalEvidence,
+} from "./threat-pattern-engine.js";
 
 const VIRUSTOTAL_IP_URL = "https://www.virustotal.com/api/v3/ip_addresses";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_SECONDS = Math.floor(CACHE_TTL_MS / 1000);
-const CACHE_SCHEMA_VERSION = 1;
+const CACHE_SCHEMA_VERSION = 2;
 const PREWARM_SCHEMA_VERSION = 1;
 const PREWARM_LIMIT_PER_MINUTE = 4;
 const LOCAL_CACHE_FILE = ".cache/virustotal-ip-detail.json";
@@ -297,13 +301,56 @@ function statusPayload(ip, status, warnings = []) {
     asn: "",
     as_owner: "",
     country: "",
+    tags: [],
+    threat_labels: [],
+    detection_names: [],
     last_analysis_date: "",
     permalink: "",
     generated_at: new Date().toISOString(),
     cache_status: "fresh",
     cache_expires_at: expiresAtFromNow(),
+    mitre_techniques: [],
+    mitre_matches: [],
     warnings,
   };
+}
+
+function uniqueCleanStrings(values, limit = 16) {
+  const unique = new Set();
+
+  for (const value of Array.isArray(values) ? values : []) {
+    const cleaned = cleanString(value, "", 160);
+    if (cleaned) {
+      unique.add(cleaned);
+    }
+  }
+
+  return [...unique].slice(0, limit);
+}
+
+function threatLabelsFromAttributes(attributes) {
+  const classification = attributes?.popular_threat_classification || {};
+  const labels = [
+    classification.suggested_threat_label,
+    ...(Array.isArray(classification.popular_threat_category)
+      ? classification.popular_threat_category.map((item) => item?.value)
+      : []),
+    ...(Array.isArray(classification.popular_threat_name)
+      ? classification.popular_threat_name.map((item) => item?.value)
+      : []),
+  ];
+
+  return uniqueCleanStrings(labels, 12);
+}
+
+function detectionNamesFromAttributes(attributes) {
+  const behaviorPattern = /\b(?:ssh|sshd|brute[-\s]?force|port scan|scan(?:ning|ned)?|phishing|ddos|denial of service|sql injection|web app|public[-\s]?facing|exploit|cve-\d{4}-\d+|citrix|netscaler|rce|botnet|c2|command and control)\b/i;
+  const results = Object.values(attributes?.last_analysis_results || {})
+    .filter((result) => result?.category === "malicious" || result?.category === "suspicious")
+    .flatMap((result) => [result?.result, result?.method, result?.engine_name])
+    .filter((value) => behaviorPattern.test(String(value || "")));
+
+  return uniqueCleanStrings(results, 12);
 }
 
 function normalizeVirusTotalPayload(ip, body) {
@@ -330,9 +377,16 @@ function normalizeVirusTotalPayload(ip, body) {
     asn: cleanString(attributes.asn, "", 40),
     as_owner: cleanString(attributes.as_owner, "", 160),
     country: cleanString(attributes.country, "", 8).toUpperCase(),
+    tags: uniqueCleanStrings(attributes.tags, 16),
+    threat_labels: threatLabelsFromAttributes(attributes),
+    detection_names: detectionNamesFromAttributes(attributes),
     last_analysis_date: isoFromUnixSeconds(attributes.last_analysis_date),
     permalink: `https://www.virustotal.com/gui/ip-address/${encodeURIComponent(ip)}/detection`,
   };
+}
+
+async function addMitreTechniques(payload) {
+  return addMitrePatternAnalysis(payload, "virustotal", normalizeVirusTotalEvidence);
 }
 
 async function fetchVirusTotalIpReport(ip, apiKey) {
@@ -377,7 +431,7 @@ async function fetchVirusTotalIpReport(ip, apiKey) {
 async function buildVirusTotalIpPayload(ip, env, options = {}) {
   const cached = await readCachedDetail(ip);
   if (cached) {
-    return cached;
+    return addMitreTechniques(cached);
   }
 
   const apiKey = normalizeSecretValue(env?.VIRUSTOTAL_API_KEY);
@@ -396,7 +450,7 @@ async function buildVirusTotalIpPayload(ip, env, options = {}) {
   const pending = fetchVirusTotalIpReport(ip, apiKey)
     .then(async (payload) => {
       await writeCachedDetail(payload);
-      return payload;
+      return addMitreTechniques(payload);
     })
     .finally(() => pendingDetails.delete(ip));
 
@@ -629,6 +683,9 @@ function summaryFromPayload(payload) {
     asn: payload.asn,
     as_owner: payload.as_owner,
     country: payload.country,
+    tags: payload.tags || [],
+    threat_labels: payload.threat_labels || [],
+    detection_names: payload.detection_names || [],
     last_analysis_date: payload.last_analysis_date,
     permalink: payload.permalink,
     generated_at: payload.generated_at,
@@ -675,7 +732,7 @@ export async function handleVirusTotalIpDetailRequest(request, env = {}) {
   try {
     const cached = await readCachedDetail(ip);
     if (cached) {
-      return json(cached);
+      return json(await addMitreTechniques(cached));
     }
 
     if (!(await isLiveThreatMapIp(ip))) {
