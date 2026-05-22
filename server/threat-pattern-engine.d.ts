@@ -1,6 +1,6 @@
 export type MitreMatch = {
   technique_id: string;
-  source: "abuseipdb" | "spamhaus";
+  source: "abuseipdb" | "spamhaus" | "virustotal";
   evidence: string;
   evidence_title: string;
   evidence_summary: string;
@@ -15,13 +15,15 @@ export function normalizeAbuseIpdbEvidence(payload: unknown): Array<Record<strin
 
 export function normalizeSpamhausEvidence(payload: unknown): Array<Record<string, string>>;
 
+export function normalizeVirusTotalEvidence(payload: unknown): Array<Record<string, string>>;
+
 export function matchThreatPatterns(
   fields: Array<Record<string, string>>,
-  sourceType: "abuseipdb" | "spamhaus",
+  sourceType: "abuseipdb" | "spamhaus" | "virustotal",
 ): MitreMatch[];
 
 export function addMitrePatternAnalysis<T>(
   payload: T,
-  sourceType: "abuseipdb" | "spamhaus",
+  sourceType: "abuseipdb" | "spamhaus" | "virustotal",
   normalizeEvidence: (payload: T) => Array<Record<string, string>>,
 ): Promise<T & { mitre_techniques: Array<{ id: string; tactic: string; technique: string }>; mitre_matches: MitreMatch[] }>;
