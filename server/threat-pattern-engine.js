@@ -11,6 +11,7 @@ const THREAT_PATTERNS = [
     priority: 100,
     confidence: "high",
     evidenceLabel: "SSH brute-force signal",
+    meaning: "This maps to Credential Access because the evidence references SSH authentication failures, port 22 activity, or brute-force login behavior.",
     mergeKey: "bruteforce",
   },
   {
@@ -23,6 +24,7 @@ const THREAT_PATTERNS = [
     priority: 90,
     confidence: "high",
     evidenceLabel: "Brute-force signal",
+    meaning: "This maps to Credential Access because the evidence references repeated authentication attempts or brute-force login behavior.",
     mergeKey: "bruteforce",
   },
   {
@@ -35,6 +37,7 @@ const THREAT_PATTERNS = [
     priority: 80,
     confidence: "high",
     evidenceLabel: "Scanning signal",
+    meaning: "This maps to Reconnaissance because the evidence references scanning, probing, or port-scan behavior.",
     mergeKey: "scanning",
   },
   {
@@ -47,6 +50,7 @@ const THREAT_PATTERNS = [
     priority: 75,
     confidence: "high",
     evidenceLabel: "Denial-of-service signal",
+    meaning: "This maps to Impact because the evidence references denial-of-service, DDoS, flooding, or ping-of-death behavior.",
     mergeKey: "denial-of-service",
   },
   {
@@ -59,6 +63,7 @@ const THREAT_PATTERNS = [
     priority: 70,
     confidence: "high",
     evidenceLabel: "Public-facing application exploit signal",
+    meaning: "This maps to Initial Access because the evidence references SQL injection, public-facing application exploitation, CVE text, Citrix/Netscaler, RCE, or web app attack behavior.",
     mergeKey: "public-app-exploit",
   },
   {
@@ -71,6 +76,7 @@ const THREAT_PATTERNS = [
     priority: 65,
     confidence: "high",
     evidenceLabel: "Phishing signal",
+    meaning: "This maps to Initial Access because the evidence references phishing behavior.",
     mergeKey: "phishing",
   },
 ];
@@ -83,14 +89,17 @@ function cleanEvidence(value, maxLength = 180) {
     .slice(0, maxLength);
 }
 
-function addEvidence(fields, source, matchedField, value) {
-  const evidence = cleanEvidence(value);
+function addEvidence(fields, source, matchedField, value, metadata = {}) {
+  const evidence = cleanEvidence(value, 240);
   if (!evidence) return;
 
   fields.push({
     source,
     matched_field: matchedField,
     evidence,
+    evidence_title: cleanEvidence(metadata.title || evidence, 140),
+    evidence_summary: cleanEvidence(metadata.summary || "", 280),
+    raw_evidence: cleanEvidence(metadata.rawEvidence || value, 320),
     normalized: evidence.toLowerCase(),
   });
 }
@@ -102,25 +111,37 @@ function numberOrNull(value) {
 
 function abuseCategoryEvidence(category) {
   const id = numberOrNull(category?.id);
-  return [
-    id ? `category ${id}` : "",
-    category?.label || "",
-    category?.count ? `count ${category.count}` : "",
-  ].filter(Boolean).join(" ");
+  const label = cleanEvidence(category?.label || (id ? `Category ${id}` : "AbuseIPDB category"), 80);
+  const count = numberOrNull(category?.count);
+
+  return {
+    value: [label, id ? `category ${id}` : ""].filter(Boolean).join(" "),
+    title: `AbuseIPDB category: ${label}`,
+    summary: count
+      ? `${label} appeared in ${count} of the latest AbuseIPDB report examples loaded for this selected IP.`
+      : `AbuseIPDB labels this selected IP with the ${label}${id ? ` category ${id}` : " category"}.`,
+    rawEvidence: [id ? `Category ${id}` : "", label, count ? `sample count ${count}` : ""].filter(Boolean).join(": "),
+  };
 }
 
 export function normalizeAbuseIpdbEvidence(payload) {
   const fields = [];
 
   for (const category of Array.isArray(payload?.top_categories) ? payload.top_categories : []) {
-    addEvidence(fields, "abuseipdb", "top_categories", abuseCategoryEvidence(category));
+    const evidence = abuseCategoryEvidence(category);
+    addEvidence(fields, "abuseipdb", "top_categories", evidence.value, evidence);
   }
 
   for (const report of Array.isArray(payload?.recent_reports) ? payload.recent_reports : []) {
-    addEvidence(fields, "abuseipdb", "recent_report.comment", report?.comment);
+    addEvidence(fields, "abuseipdb", "recent_report.comment", report?.comment, {
+      title: "Reporter log snippet",
+      summary: "A recent AbuseIPDB report comment included text matching this ATT&CK behavior.",
+      rawEvidence: report?.comment,
+    });
 
     for (const category of Array.isArray(report?.categories) ? report.categories : []) {
-      addEvidence(fields, "abuseipdb", "recent_report.categories", abuseCategoryEvidence(category));
+      const evidence = abuseCategoryEvidence(category);
+      addEvidence(fields, "abuseipdb", "recent_report.categories", evidence.value, evidence);
     }
   }
 
@@ -128,11 +149,16 @@ export function normalizeAbuseIpdbEvidence(payload) {
 }
 
 function spamhausDatasetEvidence(dataset) {
-  return [
-    dataset?.code ? `code ${dataset.code}` : "",
-    dataset?.dataset || "",
-    dataset?.label || "",
-  ].filter(Boolean).join(" ");
+  const datasetName = cleanEvidence(dataset?.dataset || "Spamhaus listing", 80);
+  const label = cleanEvidence(dataset?.label || datasetName, 120);
+  const code = numberOrNull(dataset?.code);
+
+  return {
+    value: [datasetName, label, code ? `code ${code}` : ""].filter(Boolean).join(" "),
+    title: `Current listing: ${datasetName}`,
+    summary: `${label}${code ? ` returned code ${code}` : ""}. Dataset-only listings are used only when they describe a concrete behavior signal.`,
+    rawEvidence: [datasetName, label, code ? `code ${code}` : ""].filter(Boolean).join(" / "),
+  };
 }
 
 function spamhausEventEvidence(event) {
@@ -148,24 +174,45 @@ function spamhausEventEvidence(event) {
     event?.protocol || "",
   ].filter(Boolean).join(" ");
 
-  return [
+  const dataset = cleanEvidence(event?.dataset || "historical listing", 60);
+  const detection = cleanEvidence(event?.detection || "historical detection", 120);
+  const heuristic = cleanEvidence(event?.heuristic || "", 60);
+  const botname = cleanEvidence(event?.botname || "", 80);
+  const protocol = cleanEvidence(event?.protocol || "", 20);
+  const port = event?.destination_port || event?.source_port || null;
+  const value = [
     event?.dataset || "",
     connection,
     event?.detection || "",
     event?.heuristic ? `heuristic ${event.heuristic}` : "",
     event?.botname ? `bot ${event.botname}` : "",
   ].filter(Boolean).join(" ");
+
+  return {
+    value,
+    title: "Historical listing event",
+    summary: [
+      `Spamhaus historical intelligence recorded ${dataset} activity`,
+      port ? `on port ${port}` : "",
+      protocol ? `using ${protocol}` : "",
+      heuristic ? `with heuristic ${heuristic}` : "",
+      botname ? `and bot label ${botname}` : "",
+    ].filter(Boolean).join(" ") + ".",
+    rawEvidence: [dataset, connection, detection, heuristic ? `heuristic ${heuristic}` : "", botname ? `bot ${botname}` : ""].filter(Boolean).join(" "),
+  };
 }
 
 export function normalizeSpamhausEvidence(payload) {
   const fields = [];
 
   for (const dataset of Array.isArray(payload?.datasets) ? payload.datasets : []) {
-    addEvidence(fields, "spamhaus", "datasets", spamhausDatasetEvidence(dataset));
+    const evidence = spamhausDatasetEvidence(dataset);
+    addEvidence(fields, "spamhaus", "datasets", evidence.value, evidence);
   }
 
   for (const event of Array.isArray(payload?.history?.events) ? payload.history.events : []) {
-    addEvidence(fields, "spamhaus", "history.events", spamhausEventEvidence(event));
+    const evidence = spamhausEventEvidence(event);
+    addEvidence(fields, "spamhaus", "history.events", evidence.value, evidence);
   }
 
   return fields;
@@ -194,6 +241,10 @@ export function matchThreatPatterns(fields, sourceType) {
         technique_id: pattern.techniqueId,
         source: sourceType,
         evidence: field.evidence,
+        evidence_title: field.evidence_title || pattern.evidenceLabel,
+        evidence_summary: field.evidence_summary || "Evidence from this source matched the ATT&CK behavior pattern.",
+        raw_evidence: field.raw_evidence || field.evidence,
+        meaning: pattern.meaning,
         matched_field: field.matched_field,
         confidence: pattern.confidence,
         pattern_label: pattern.evidenceLabel,
