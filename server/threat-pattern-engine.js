@@ -122,18 +122,51 @@ function numberOrNull(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+const ABUSE_CATEGORY_MEANINGS = new Map([
+  [1, "DNS compromise reports indicate abuse involving unauthorized or malicious changes to DNS infrastructure."],
+  [2, "DNS poisoning reports indicate attempts to misdirect traffic by corrupting DNS resolution."],
+  [3, "Fraud order reports indicate the IP was associated with suspicious or fraudulent transaction activity."],
+  [4, "DDoS reports indicate denial-of-service traffic intended to disrupt network or application availability."],
+  [5, "FTP brute-force reports indicate repeated login attempts against FTP services."],
+  [6, "Ping of Death reports indicate malformed or oversized ICMP traffic associated with denial-of-service behavior."],
+  [7, "Phishing reports indicate the IP was associated with credential-theft or social-engineering infrastructure."],
+  [8, "Fraud VoIP reports indicate suspicious or abusive voice-over-IP activity."],
+  [9, "Open Proxy reports indicate the IP may relay traffic for other users and hide the original source."],
+  [10, "Web Spam reports indicate unwanted or abusive web-posted content."],
+  [11, "Email Spam reports indicate unwanted or abusive email-sending behavior."],
+  [12, "Blog Spam reports indicate unwanted or abusive blog/comment-posted content."],
+  [13, "VPN reports indicate the IP was observed as VPN infrastructure or anonymized network access."],
+  [14, "Port Scan reports indicate probing or scanning of network services, usually reconnaissance before other activity."],
+  [15, "Hacking reports indicate unauthorized access attempts or other compromise-oriented behavior."],
+  [16, "SQL Injection reports indicate attempts to abuse database-backed web applications through SQL input."],
+  [17, "Spoofing reports indicate traffic or identity manipulation intended to impersonate another source."],
+  [18, "Brute-Force reports indicate repeated authentication attempts against accounts or services."],
+  [19, "Bad Web Bot reports indicate automated web activity considered abusive or unwanted."],
+  [20, "Exploited Host reports indicate the IP may belong to a compromised or malware-affected machine."],
+  [21, "Web App Attack reports indicate attempts to exploit public-facing web application behavior."],
+  [22, "SSH reports indicate activity involving Secure Shell services, often login attempts on port 22."],
+  [23, "IoT Targeted reports indicate activity aimed at internet-connected devices such as cameras, routers, or DVRs."],
+]);
+
 function abuseCategoryEvidence(category) {
   const id = numberOrNull(category?.id);
   const label = cleanEvidence(category?.label || (id ? `Category ${id}` : "AbuseIPDB category"), 80);
   const count = numberOrNull(category?.count);
+  const meaning = ABUSE_CATEGORY_MEANINGS.get(id) || `${label} is an AbuseIPDB report category returned for this selected IP.`;
+  const countText = count
+    ? `Seen in ${count} of the latest AbuseIPDB report examples loaded for this selected IP.`
+    : "Returned as an AbuseIPDB category for this selected IP.";
+  const summary = [
+    id ? `Category ID ${id}: ${label}.` : `${label}.`,
+    countText,
+    meaning,
+  ].join(" ");
 
   return {
     value: [label, id ? `category ${id}` : ""].filter(Boolean).join(" "),
     title: `AbuseIPDB category: ${label}`,
-    summary: count
-      ? `${label} appeared in ${count} of the latest AbuseIPDB report examples loaded for this selected IP.`
-      : `AbuseIPDB labels this selected IP with the ${label}${id ? ` category ${id}` : " category"}.`,
-    rawEvidence: [id ? `Category ${id}` : "", label, count ? `sample count ${count}` : ""].filter(Boolean).join(": "),
+    summary,
+    rawEvidence: summary,
   };
 }
 
