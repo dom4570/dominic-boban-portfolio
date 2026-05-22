@@ -1,4 +1,5 @@
 import { isLiveThreatMapIp } from "./abuse-origin-map.js";
+import { resolveMitreTechniques } from "./mitre-attack.js";
 
 const ABUSEIPDB_CHECK_URL = "https://api.abuseipdb.com/api/v2/check";
 const ABUSEIPDB_REPORTS_URL = "https://api.abuseipdb.com/api/v2/reports";
@@ -340,6 +341,7 @@ function statusPayload(ip, status, warnings = []) {
     recent_reports: [],
     reports_status: "not_loaded",
     top_categories: [],
+    mitre_techniques: [],
     generated_at: new Date().toISOString(),
     cache_status: "fresh",
     cache_expires_at: expiresAtFromNow(),
@@ -376,6 +378,79 @@ function normalizeReport(report) {
     comment: cleanComment(report?.comment),
     categories: categoriesFromIds(report?.categories),
   };
+}
+
+function mitreIdsFromAbusePayload(payload) {
+  const categoryIds = new Set();
+  const evidence = [];
+
+  for (const category of Array.isArray(payload?.top_categories) ? payload.top_categories : []) {
+    const id = numberOrNull(category?.id);
+    if (id) {
+      categoryIds.add(id);
+    }
+
+    if (category?.label) {
+      evidence.push(category.label);
+    }
+  }
+
+  for (const report of Array.isArray(payload?.recent_reports) ? payload.recent_reports : []) {
+    if (report?.comment) {
+      evidence.push(report.comment);
+    }
+
+    for (const category of Array.isArray(report?.categories) ? report.categories : []) {
+      const id = numberOrNull(category?.id);
+      if (id) {
+        categoryIds.add(id);
+      }
+
+      if (category?.label) {
+        evidence.push(category.label);
+      }
+    }
+  }
+
+  const text = evidence.join(" ").toLowerCase();
+  const ids = [];
+  const hasCategory = (...idsToCheck) => idsToCheck.some((id) => categoryIds.has(id));
+
+  if (hasCategory(5, 18, 22) || /brute[- ]?force|failed password|sshd|ssh2/.test(text)) {
+    ids.push("T1110");
+  }
+
+  if (hasCategory(14) || /\bport scan\b|\bscan(?:ning|ned)?\b/.test(text)) {
+    ids.push("T1595");
+  }
+
+  if (hasCategory(4, 6) || /\bddos\b|denial of service|ping of death/.test(text)) {
+    ids.push("T1498");
+  }
+
+  if (hasCategory(16, 21) || /sql injection|web app attack|public-facing|public facing|\bexploit\b|\bcve-\d{4}-\d+/i.test(text)) {
+    ids.push("T1190");
+  }
+
+  if (hasCategory(7) || /\bphishing\b/.test(text)) {
+    ids.push("T1566");
+  }
+
+  return ids;
+}
+
+async function addMitreTechniques(payload) {
+  try {
+    return {
+      ...payload,
+      mitre_techniques: await resolveMitreTechniques(mitreIdsFromAbusePayload(payload)),
+    };
+  } catch {
+    return {
+      ...payload,
+      mitre_techniques: [],
+    };
+  }
 }
 
 async function fetchAbuseIpdbCheck(ip, apiKey) {
@@ -685,14 +760,14 @@ export async function handleAbuseIpdbIpDetailRequest(request, env = {}) {
   try {
     const cached = await readCachedDetail(ip);
     if (cached) {
-      return json(await addReportDetail(cached, env));
+      return json(await addMitreTechniques(await addReportDetail(cached, env)));
     }
 
     if (!(await isLiveThreatMapIp(ip))) {
       return json(statusPayload(ip, "unavailable", ["IP Intelligence is only available for IPs from the current or recent Daily Top 50 map. Reload the map to refresh the selected source."]));
     }
 
-    return json(await buildAbuseIpdbDetailPayload(ip, env, { includeReports: true }));
+    return json(await addMitreTechniques(await buildAbuseIpdbDetailPayload(ip, env, { includeReports: true })));
   } catch (error) {
     return json(statusPayload(ip, "unavailable", ["AbuseIPDB detail is temporarily unavailable."]));
   }
