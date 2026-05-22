@@ -242,25 +242,72 @@ function rankTone(rank: number) {
   return "#22d3ee";
 }
 
-function markerSize(rank: number) {
-  if (rank <= 10) return 20;
-  if (rank <= 25) return 16;
-  return 13;
-}
-
 const NO_INTELLIGENCE_DATA = "No additional intelligence data is available at the moment.";
 
-function createThreatMarkerIcon(point: ThreatPoint, selected: boolean) {
-  const color = rankTone(point.rank || MAX_DAILY_POINTS);
-  const sizeValue = markerSize(point.rank || MAX_DAILY_POINTS);
-  const selectedClass = selected ? " threat-pulse-marker--selected" : "";
+function escapeHtml(value: string | number | null | undefined) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function markerIntelFromPoint(point: ThreatPoint, mitreTechniques: MitreTechnique[] = []): MarkerIntelModel {
+  const abuse = abusePayload(null, point.abuseipdb_intelligence || null);
+  const categories = abuseCategories(null, point.abuseipdb_intelligence || null);
+  const datasets = spamhausDatasets(null, point.ip_intelligence || null);
+  const listingCount = spamhausListingCount(null, point.ip_intelligence || null);
+  const virusTotal = virusTotalPayload(null, point.virustotal_intelligence || null);
+  const score = deriveIntelScore({ abuse, datasets, historyEvent: null, virusTotal });
+  const hasSignals = Boolean(abuse || virusTotal || listingCount);
+  const assessment = hasSignals
+    ? deriveAssessment({ abuse, categories, datasets, historyEvent: null, listingCount, virusTotal }).activity
+    : "Reported source";
+
+  return {
+    ...score,
+    assessmentLabel: assessment,
+    mitreIds: mergeMitreTechniques(mitreTechniques).map((technique) => technique.id),
+  };
+}
+
+function createThreatMarkerIcon(intel: MarkerIntelModel, selected: boolean) {
+  const sizeValue = markerHitSize(intel.severity);
+  const coreSize = markerCoreSize(intel.severity);
+  const selectedClass = selected ? " threat-radar-marker--selected" : "";
+  const severityClass = ` threat-radar-marker--${intel.severity.toLowerCase()}`;
 
   return L.divIcon({
-    className: "",
-    html: `<span class="threat-pulse-marker${selectedClass}" style="--marker-color:${color};--marker-size:${sizeValue}px"></span>`,
+    className: "threat-radar-icon",
+    html: `<span class="threat-radar-marker${severityClass}${selectedClass}" style="--marker-size:${sizeValue}px;--marker-core-size:${coreSize}px"><span class="threat-radar-marker__ring"></span><span class="threat-radar-marker__ring threat-radar-marker__ring--delay"></span><span class="threat-radar-marker__core"></span></span>`,
     iconAnchor: [sizeValue / 2, sizeValue / 2],
     iconSize: [sizeValue, sizeValue],
   });
+}
+
+function threatPopupHtml(point: ThreatPoint, intel: MarkerIntelModel) {
+  const mitreHtml = intel.mitreIds.length
+    ? `<div class="threat-map-popup-card__mitre">${intel.mitreIds
+        .map((id) => `<span class="threat-map-popup-card__mitre-chip">${escapeHtml(id)}</span>`)
+        .join("")}</div>`
+    : "";
+
+  return `
+    <div class="threat-map-popup-card">
+      <div class="threat-map-popup-card__top">
+        <span class="threat-map-popup-card__ip">${escapeHtml(point.ip)}</span>
+        <span class="threat-map-popup-card__country">${escapeHtml(formatLocation(point))}</span>
+      </div>
+      <div class="threat-map-popup-card__assessment">${escapeHtml(intel.assessmentLabel)}</div>
+      <div class="threat-map-popup-card__meta">
+        <span>#${escapeHtml(point.rank || "?")}</span>
+        <span>${escapeHtml(intel.score)}/100</span>
+        <span>${escapeHtml(intel.severity)}</span>
+      </div>
+      ${mitreHtml}
+    </div>
+  `;
 }
 
 function StatBlock({ label, value }: { label: string; value: string }) {
@@ -509,6 +556,11 @@ type IntelScore = {
   severity: "Low" | "Elevated" | "High" | "Critical";
 };
 
+type MarkerIntelModel = IntelScore & {
+  assessmentLabel: string;
+  mitreIds: string[];
+};
+
 function abusePayload(detail: AbuseIpdbDetail | null, summary: AbuseIpdbSummary | null) {
   const payload = detail || summary;
   return payload?.status === "reported" && payload.total_reports > 0 ? payload : null;
@@ -639,6 +691,17 @@ function intelSeverityClasses(severity: IntelScore["severity"]) {
     card: "border-cyan-300/35 bg-cyan-400/10 text-cyan-100",
     pill: "border-cyan-300/45 bg-cyan-400/15 text-cyan-100",
   };
+}
+
+function markerCoreSize(severity: IntelScore["severity"]) {
+  if (severity === "Critical") return 18;
+  if (severity === "High") return 16;
+  if (severity === "Elevated") return 14;
+  return 12;
+}
+
+function markerHitSize(severity: IntelScore["severity"]) {
+  return severity === "High" || severity === "Critical" ? 50 : 30;
 }
 
 function hasSshBruteforceHistory(event: SpamhausHistoryEvent | null) {
@@ -1001,6 +1064,7 @@ export function LiveThreatMapPage() {
   const mapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const markerRefs = useRef(new Map<string, L.Marker>());
+  const popupOpenIdRef = useRef("");
   const fittedPointsSignatureRef = useRef("");
   const spamhausCacheRef = useRef(new Map<string, SpamhausDetail>());
   const abuseIpdbCacheRef = useRef(new Map<string, AbuseIpdbDetail>());
@@ -1018,6 +1082,7 @@ export function LiveThreatMapPage() {
   const [virusTotalDetail, setVirusTotalDetail] = useState<VirusTotalDetail | null>(null);
   const [virusTotalLoading, setVirusTotalLoading] = useState(false);
   const [virusTotalError, setVirusTotalError] = useState("");
+  const [mitreTechniquesByIp, setMitreTechniquesByIp] = useState(new Map<string, MitreTechnique[]>());
   const [mapReady, setMapReady] = useState(false);
 
   const points = data?.points || [];
@@ -1220,6 +1285,27 @@ export function LiveThreatMapPage() {
   }, [data?.mode, selectedPoint?.ip]);
 
   useEffect(() => {
+    if (!selectedPoint?.ip) return;
+
+    const techniques = mergeMitreTechniques(abuseIpdbDetail?.mitre_techniques, spamhausDetail?.mitre_techniques);
+    if (!techniques.length) return;
+
+    setMitreTechniquesByIp((current) => {
+      const currentTechniques = current.get(selectedPoint.ip) || [];
+      const currentIds = currentTechniques.map((technique) => technique.id).join("|");
+      const nextIds = techniques.map((technique) => technique.id).join("|");
+
+      if (currentIds === nextIds) {
+        return current;
+      }
+
+      const next = new Map(current);
+      next.set(selectedPoint.ip, techniques);
+      return next;
+    });
+  }, [abuseIpdbDetail?.mitre_techniques, selectedPoint?.ip, spamhausDetail?.mitre_techniques]);
+
+  useEffect(() => {
     if (data?.mode !== "live" || !points.length) {
       return;
     }
@@ -1307,44 +1393,34 @@ export function LiveThreatMapPage() {
     const pointsSignature = points.map((point) => `${point.id}:${point.latitude}:${point.longitude}`).join("|");
 
     points.forEach((point) => {
-      const tooltip = document.createElement("div");
-      tooltip.className = "threat-map-tooltip__content";
-
-      const tooltipIp = document.createElement("div");
-      tooltipIp.className = "threat-map-tooltip__ip";
-      tooltipIp.textContent = point.ip;
-
-      const tooltipLocation = document.createElement("div");
-      tooltipLocation.className = "threat-map-tooltip__location";
-      tooltipLocation.textContent = formatLocation(point);
-
-      const tooltipMeta = document.createElement("div");
-      tooltipMeta.className = "threat-map-tooltip__grid";
-      tooltipMeta.append(
-        Object.assign(document.createElement("span"), { textContent: "Daily rank" }),
-        Object.assign(document.createElement("strong"), { textContent: `#${point.rank || "?"}` }),
-        Object.assign(document.createElement("span"), { textContent: "Last report" }),
-        Object.assign(document.createElement("strong"), { textContent: formatDate(point.last_reported_at) }),
-      );
-
-      tooltip.append(tooltipIp, tooltipLocation, tooltipMeta);
-
+      const markerIntel = markerIntelFromPoint(point, mitreTechniquesByIp.get(point.ip) || []);
       const marker = L.marker([point.latitude, point.longitude], {
-        icon: createThreatMarkerIcon(point, selectedPoint?.id === point.id),
+        icon: createThreatMarkerIcon(markerIntel, selectedPoint?.id === point.id),
         title: `${point.ip} / ${formatLocation(point)}`,
         zIndexOffset: selectedPoint?.id === point.id ? 1000 : point.rank ? MAX_DAILY_POINTS - point.rank : 0,
-      })
-        .on("click", () => setSelectedId(point.id));
+      });
 
-      marker.bindTooltip(tooltip, {
-        className: "threat-map-tooltip",
-        direction: "top",
-        offset: [0, -8],
+      marker.on("click", () => {
+        popupOpenIdRef.current = point.id;
+        setSelectedId(point.id);
+        marker.openPopup();
+      });
+
+      marker.bindPopup(threatPopupHtml(point, markerIntel), {
+        className: "threat-map-popup",
+        closeButton: true,
+        maxWidth: 330,
+        minWidth: 260,
+        offset: [0, -4],
       });
 
       marker.addTo(markerLayer);
       markerRefs.current.set(point.id, marker);
       bounds.extend([point.latitude, point.longitude]);
+
+      if (popupOpenIdRef.current === point.id) {
+        window.setTimeout(() => marker.openPopup(), 0);
+      }
     });
 
     if (bounds.isValid() && fittedPointsSignatureRef.current !== pointsSignature) {
@@ -1354,11 +1430,13 @@ export function LiveThreatMapPage() {
       });
       fittedPointsSignatureRef.current = pointsSignature;
     }
-  }, [mapReady, points, selectedPoint?.id]);
+  }, [mapReady, mitreTechniquesByIp, points, selectedPoint?.id]);
 
   const focusPoint = (point: ThreatPoint) => {
+    popupOpenIdRef.current = point.id;
     setSelectedId(point.id);
     mapRef.current?.setView([point.latitude, point.longitude], Math.max(mapRef.current.getZoom(), 4), { animate: true });
+    window.setTimeout(() => markerRefs.current.get(point.id)?.openPopup(), 120);
   };
 
   return (
