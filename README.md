@@ -126,6 +126,8 @@ To run this platform locally or deploy to production, verify the following confi
 | `SPAMHAUS_SIA_USERNAME` | Spamhaus Intelligence API | Optional API username for historical IP listing context |
 | `SPAMHAUS_SIA_PASSWORD` | Spamhaus Intelligence API | Optional API password for historical IP listing context |
 | `SPAMHAUS_SIA_TOKEN` | Spamhaus Intelligence API | Optional short-lived bearer token fallback for historical IP listing context |
+| `VIRUSTOTAL_API_KEY` | VirusTotal API | Server-side IP reputation enrichment key |
+| `THREAT_MAP_CRON_SECRET` | Scheduled threat map refresh | Shared secret used by GitHub Actions to call protected refresh endpoints |
 
 ### Local Infrastructure Testing
 
@@ -137,8 +139,13 @@ export CLOUDFLARE_RADAR_TOKEN="your_token_here"
 export SPAMHAUS_DQS_KEY="your_key_here"
 export SPAMHAUS_SIA_USERNAME="your_optional_sia_username"
 export SPAMHAUS_SIA_PASSWORD="your_optional_sia_password"
+export VIRUSTOTAL_API_KEY="your_key_here"
+export THREAT_MAP_CRON_SECRET="your_shared_cron_secret"
 npm run dev
 ```
+
+The Daily Top 50 threat map is scheduled by `.github/workflows/daily-threat-map-refresh.yml`.
+Add the same `THREAT_MAP_CRON_SECRET` value to both Cloudflare Pages Production secrets and GitHub Actions repository secrets. Optional GitHub secret `THREAT_MAP_BASE_URL` can override the default production URL.
 
 ### Production Deployment
 

@@ -629,6 +629,82 @@ async function buildLivePayload(env, context) {
   return pendingLivePayload;
 }
 
+function scheduledRefreshSummary(payload, status = "refreshed") {
+  return {
+    status,
+    refreshed: payload?.mode === "live" && status === "refreshed",
+    mode: payload?.mode || "unavailable",
+    cache_status: payload?.cache_status || status,
+    generated_at: payload?.generated_at || new Date().toISOString(),
+    cache_expires_at: payload?.cache_expires_at || null,
+    next_refresh_at: payload?.next_refresh_at || null,
+    point_count: Array.isArray(payload?.points) ? payload.points.length : 0,
+    prewarm: payload?.mode === "live"
+      ? {
+          abuseipdb: "queued",
+          spamhaus: "queued",
+          virustotal: "queued",
+        }
+      : {
+          abuseipdb: "skipped",
+          spamhaus: "skipped",
+          virustotal: "skipped",
+        },
+    warnings: payload?.warnings || [],
+  };
+}
+
+export async function refreshThreatMapSnapshot(env = {}, context = {}) {
+  const apiKey = cleanString(env?.ABUSEIPDB_API_KEY, "", 256);
+  if (!apiKey) {
+    return {
+      status: "not_configured",
+      refreshed: false,
+      mode: "unavailable",
+      cache_status: "not_configured",
+      generated_at: new Date().toISOString(),
+      cache_expires_at: null,
+      next_refresh_at: null,
+      point_count: 0,
+      prewarm: {
+        abuseipdb: "skipped",
+        spamhaus: "skipped",
+        virustotal: "skipped",
+      },
+      warnings: ["ABUSEIPDB_API_KEY is not configured."],
+    };
+  }
+
+  try {
+    if (!pendingLivePayload) {
+      pendingLivePayload = refreshLivePayload(apiKey, Date.now(), env, context).finally(() => {
+        pendingLivePayload = null;
+      });
+    }
+
+    return scheduledRefreshSummary(await pendingLivePayload);
+  } catch (error) {
+    const message = messageFromError(error, "Threat origin providers are temporarily unavailable.");
+
+    if (cachedPayload?.mode === "live") {
+      cachedUntil = Date.now() + CACHE_TTL_MS;
+      cachedPayload = cacheablePayload(cachedResponse("stale", `Scheduled refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
+      await writePersistentCache(cachedPayload);
+      return scheduledRefreshSummary(cachedPayload, "stale");
+    }
+
+    return scheduledRefreshSummary(fallbackPayload(message), "fallback");
+  }
+}
+
+export async function handleThreatMapRefreshRequest(request, env = {}, context = {}) {
+  if (request.method !== "POST") {
+    return json({ message: "Method not allowed" }, 405, { Allow: "POST" });
+  }
+
+  return json(await refreshThreatMapSnapshot(env, context));
+}
+
 async function refreshLivePayload(apiKey, now, env, context) {
   const blacklist = await fetchAbuseIpdbBlacklist(apiKey);
   if (!blacklist.rows.length) {
