@@ -1,0 +1,65 @@
+name: Daily Threat Map Refresh
+
+on:
+  schedule:
+    # AbuseIPDB resets at 00:00 UTC. 00:30 UTC is 01:30 BST.
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh-threat-map:
+    name: Refresh Daily Top 50 and Warm Intelligence
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh cached Daily Top 50 snapshot
+        env:
+          THREAT_MAP_BASE_URL: ${{ secrets.THREAT_MAP_BASE_URL }}
+          THREAT_MAP_CRON_SECRET: ${{ secrets.THREAT_MAP_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          base_url="${THREAT_MAP_BASE_URL:-https://www.dominic-boban.com}"
+
+          if [ -z "${THREAT_MAP_CRON_SECRET:-}" ]; then
+            echo "THREAT_MAP_CRON_SECRET is required in GitHub Actions secrets."
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${THREAT_MAP_CRON_SECRET}" \
+            --header "Accept: application/json" \
+            "${base_url}/api/admin/refresh-threat-map"
+
+      - name: Warm VirusTotal queue
+        env:
+          THREAT_MAP_BASE_URL: ${{ secrets.THREAT_MAP_BASE_URL }}
+          THREAT_MAP_CRON_SECRET: ${{ secrets.THREAT_MAP_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          base_url="${THREAT_MAP_BASE_URL:-https://www.dominic-boban.com}"
+
+          # Give the refresh endpoint's background queue writer a moment to persist.
+          sleep 10
+
+          for attempt in $(seq 1 15); do
+            response="$(
+              curl --fail --silent --show-error \
+                --request POST \
+                --header "Authorization: Bearer ${THREAT_MAP_CRON_SECRET}" \
+                --header "Accept: application/json" \
+                "${base_url}/api/admin/warm-threat-intel"
+            )"
+
+            echo "${response}"
+
+            remaining="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("remaining", 0))' <<< "${response}")"
+            status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))' <<< "${response}")"
+
+            if [ "${remaining}" = "0" ] || [ "${status}" = "complete" ] || [ "${status}" = "empty" ] || [ "${status}" = "not_configured" ]; then
+              break
+            fi
+
+            if [ "${attempt}" != "15" ]; then
+              sleep 60
+            fi
+          done
