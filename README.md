@@ -16,39 +16,59 @@ This platform splits operational workloads into two distinct, decoupled pipeline
 
 ```mermaid
 graph TD
-    %% Define Global Styles & Nodes to force a clean vertical stack
+    %% Base Infrastructure Components
     Cron["GitHub Actions Cron<br>(01:30 BST)"]
     EdgeBackend["Cloudflare Pages Functions<br>(Edge Runtime)"]
-    IntelProviders["Threat Intel Providers<br>(AbuseIPDB / VT / Spamhaus)"]
-    D1[("Cloudflare D1 / R2 Cache")]
+    EdgeCache[("Cloudflare Edge Cache<br>24h Engine / 01:30 Window")]
     Client["Browser UI<br>(Vite + React)"]
-    GraphUI["MITRE ATT&CK<br>Behavior Graph"]
+    GraphUI["Assessment + Threat Profile<br>MITRE ATT&CK Behavior Graph"]
 
-    subgraph Automation_Pipeline ["🔄 Automated Ingestion Pipeline"]
-        Cron -->|1. Trigger Refresh| EdgeBackend
-        EdgeBackend -->|2. Fetch| IntelProviders
-        IntelProviders -->|3. Raw Logs| EdgeBackend
-        EdgeBackend -->|4. Normalize & Save| D1
+    %% External APIs & Enrichment Elements
+    Abuse["AbuseIPDB Blacklist<br>(Daily Top 50 Feed)"]
+    Geo["ip-api<br>(Batch Geolocation)"]
+    Spamhaus["Spamhaus DQS / SIA<br>(Reputation Zones)"]
+    VT["VirusTotal API<br>(IP Reputation Context)"]
+    Mitre["MITRE ATT&CK<br>Static Schema Catalog"]
+
+    subgraph Automation ["🔄 Automated Daily Ingestion"]
+        Cron -->|1. POST with secret| EdgeBackend
+        EdgeBackend -->|2. Fetch Blacklist| Abuse
+        EdgeBackend -->|3. Geo-Enrich| Geo
+        EdgeBackend -->|4. Save Snapshot| EdgeCache
+        
+        %% Warmup Ingestion Logic
+        Cron -->|5. Trigger Step Warmup Loops| EdgeBackend
+        EdgeBackend -->|6. Controlled Queue Tick 4/min| VT
+        EdgeBackend -->|7. Prewarm Evidence| Spamhaus
+        EdgeBackend -->|8. Cache Enriched Summaries| EdgeCache
     end
 
-    subgraph Client_Delivery ["🌐 User Request Delivery"]
-        Client -->|5. Request Profile| EdgeBackend
-        EdgeBackend -->|6. Check Cache| D1
-        D1 -->|Cache Hit| Client
-        Client -->|7. Render UI| GraphUI
+    subgraph Delivery ["🌐 User Request Delivery"]
+        Client -->|9. Load Map View| EdgeBackend
+        EdgeBackend -->|10. Read Cached Snapshot| EdgeCache
+        EdgeCache -->|11. Return Top 50 + Summaries| Client
+        
+        %% Live Selected IP Analysis Loop
+        Client -->|12. Inspect Selected IP Node| EdgeBackend
+        EdgeBackend -->|13. Cache-First Check| EdgeCache
+        EdgeBackend -->|14. Fetch Context If Uncached| Abuse
+        EdgeBackend -->|15. Check DNSBL Zones| Spamhaus
+        EdgeBackend -->|16. Evaluate Behavioral Rep| VT
+        EdgeBackend -->|17. Parse & Validate Schema| Mitre
+        EdgeBackend -->|18. Deliver Normalized Payload| Client
+        Client -->|19. Render Component Nodes| GraphUI
     end
 
-    %% Visual Styling Configurations
+    %% Visual Styling
     style Cron fill:#fee,stroke:#b33,stroke-width:2px
     style EdgeBackend fill:#f96,stroke:#333,stroke-width:2px
-    style D1 fill:#bbf,stroke:#333,stroke-width:2px
+    style EdgeCache fill:#bbf,stroke:#333,stroke-width:2px
     style GraphUI fill:#edf,stroke:#639,stroke-width:2px
-    style IntelProviders fill:#ddd,stroke:#666,stroke-width:1px
     style Client fill:#def,stroke:#33b,stroke-width:1px
     
-    %% Subgraph Styling
-    style Automation_Pipeline fill:none,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-    style Client_Delivery fill:none,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    %% Subtle Border Adjustments
+    style Automation fill:none,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    style Delivery fill:none,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
 ```
 
 # 🛠️ Core Features & Capabilities
