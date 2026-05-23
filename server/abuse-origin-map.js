@@ -317,13 +317,39 @@ function cacheExpiryTime(payload) {
   return Number.isFinite(expiry) ? expiry : 0;
 }
 
+function payloadGeneratedTime(payload) {
+  const generated = new Date(payload?.generated_at || 0).getTime();
+  return Number.isFinite(generated) && generated > 0 ? generated : 0;
+}
+
+function effectiveCacheExpiryTime(payload, now = Date.now()) {
+  const storedExpiry = cacheExpiryTime(payload);
+
+  if (payload?.mode !== "live") {
+    return storedExpiry;
+  }
+
+  const generated = payloadGeneratedTime(payload);
+  const scheduledExpiry = nextScheduledRefreshTime(generated || now);
+
+  if (!storedExpiry) {
+    return scheduledExpiry;
+  }
+
+  return Math.min(storedExpiry, scheduledExpiry);
+}
+
 function isCachePayloadUsable(payload, now = Date.now()) {
-  return payload?.mode === "live" && Array.isArray(payload.points) && payload.points.length > 0 && cacheExpiryTime(payload) > now;
+  return payload?.mode === "live" && Array.isArray(payload.points) && payload.points.length > 0 && effectiveCacheExpiryTime(payload, now) > now;
 }
 
 function setMemoryCache(payload) {
-  cachedPayload = payload;
-  cachedUntil = cacheExpiryTime(payload);
+  cachedUntil = effectiveCacheExpiryTime(payload);
+  cachedPayload = {
+    ...payload,
+    cache_expires_at: isoFromTime(cachedUntil),
+    next_refresh_at: isoFromTime(cachedUntil),
+  };
 }
 
 function fallbackPayload(warning) {
@@ -392,10 +418,11 @@ async function writeEdgeCache(payload) {
     return;
   }
 
+  const maxAge = Math.max(1, Math.min(CACHE_TTL_SECONDS, Math.floor((effectiveCacheExpiryTime(payload) - Date.now()) / 1000)));
   const response = new Response(JSON.stringify(payload), {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
+      "Cache-Control": `public, max-age=${maxAge}`,
     },
   });
 
@@ -743,7 +770,7 @@ export async function refreshThreatMapSnapshot(env = {}, context = {}) {
     const message = messageFromError(error, "Threat origin providers are temporarily unavailable.");
 
     if (cachedPayload?.mode === "live") {
-      cachedUntil = Date.now() + CACHE_TTL_MS;
+      cachedUntil = nextScheduledRefreshTime(Date.now());
       cachedPayload = cacheablePayload(cachedResponse("stale", `Scheduled refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
       await writePersistentCache(cachedPayload);
       return scheduledRefreshSummary(cachedPayload, "stale");
@@ -857,7 +884,7 @@ export async function handleAbuseOriginMapRequest(request, env = {}, context = {
   } catch (error) {
     const message = messageFromError(error, "Threat origin providers are temporarily unavailable.");
     if (cachedPayload?.mode === "live") {
-      cachedUntil = Date.now() + CACHE_TTL_MS;
+      cachedUntil = nextScheduledRefreshTime(Date.now());
       cachedPayload = cacheablePayload(cachedResponse("stale", `Live refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
       await writePersistentCache(cachedPayload);
       return json(await withIpIntelligenceSummaries(cachedPayload));
