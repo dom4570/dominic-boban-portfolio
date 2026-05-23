@@ -16,47 +16,45 @@ This platform splits operational workloads into two distinct, decoupled pipeline
 
 ```mermaid
 graph LR
-    %% Group 1: Automation Orchestration (Far Left)
-    subgraph Track1 ["🔄 Phase 1: Automated Ingestion (01:30 BST)"]
+    subgraph Track1 ["Phase 1: Automated Ingestion (01:30 Europe/London)"]
         Cron["GitHub Actions Cron"] -->|1. Auth POST| EdgeBackend["Cloudflare Pages Functions<br>(Edge Runtime)"]
-        EdgeBackend -->|2. Ingest Blacklist| Abuse["AbuseIPDB Daily Top 50"]
+        EdgeBackend -->|2. Ingest Blacklist| AbuseFeed["AbuseIPDB Daily Top 50 Feed"]
         EdgeBackend -->|3. Geolocation| Geo["ip-api Batch Geo"]
-        EdgeBackend -->|4. Save Snapshot| EdgeCache[("Cloudflare Edge Cache<br>(24h Engine)")]
+        EdgeBackend -->|4. Save Snapshot| EdgeCache[("Cloudflare Edge Cache<br>(Scheduled 01:30 Window)")]
     end
 
-    %% Group 2: Controlled Edge Background Warmup Ticks
-    subgraph Track2 ["⏳ Phase 2: Sequential Cache Warmup"]
-        Cron -->|5. Step Warmup Ticks| EdgeBackend
-        EdgeBackend -->|6. Controlled 4/min| VT["VirusTotal API"]
-        EdgeBackend -->|7. DNSBL Lookup| Spamhaus["Spamhaus DQS / SIA"]
-        VT -->|8. Cache Summaries| EdgeCache
-        Spamhaus -->|8. Cache Summaries| EdgeCache
+    subgraph Track2 ["Phase 2: Sequential Intelligence Warmup"]
+        CronWarm["GitHub Actions Warmup Ticks"] -->|5. Controlled Queue Ticks| EdgeBackend
+        EdgeBackend -->|6. Controlled 4/min| VT_API["VirusTotal API"]
+        EdgeBackend -->|7. DNSBL Lookup| Spam_API["Spamhaus DQS / SIA"]
+        EdgeBackend -->|8. Prewarm Summaries| AbuseFeed
+        VT_API -->|9. Cache Summaries| EdgeCache
+        Spam_API -->|9. Cache Summaries| EdgeCache
     end
 
-    %% Group 3: Real-Time User Triage & UI Delivery (Stacked Bottom)
-    subgraph Track3 ["🌐 Phase 3: Live User Delivery Path"]
-        Client["Browser UI<br>(Vite + React)"] -->|9. Load Map| EdgeBackend
-        EdgeBackend -->|10. Read Snapshot| EdgeCache
-        EdgeCache -->|11. Return Top 50| Client
-        
-        %% Deep Inspection Cycle
-        Client -->|12. Inspect Node| DetailAPI["Selected-IP Detail Router"]
-        DetailAPI -->|13. Cache-First Hit| EdgeCache
-        DetailAPI -->|14. Uncached Failback| Abuse
-        DetailAPI -->|15. Check Mapping| Mitre["MITRE ATT&CK Catalog"]
-        DetailAPI -->|16. Payload Delivery| Client
-        Client -->|17. Graph UI Render| GraphUI["Assessment Graph<br>(MITRE ATT&CK Map)"]
+    subgraph Track3 ["Phase 3: Live User Delivery Path"]
+        Client["Browser UI<br>(Vite + React)"] -->|10. Load Map| EdgeBackend
+        EdgeBackend -->|11. Read Snapshot| EdgeCache
+        EdgeCache -->|12. Return Top 50| Client
+
+        Client -->|13. Inspect Node| DetailAPI["Selected-IP Detail Router"]
+        DetailAPI -->|14. Cache-First Lookup| EdgeCache
+        DetailAPI -->|15. Safe Proxy Fetch If Uncached| ExtAPIs["Upstream Intelligence Providers<br>(AbuseIPDB / Spamhaus / VT)"]
+        DetailAPI -->|16. Validate Mapping| Mitre["MITRE ATT&CK Catalog"]
+        DetailAPI -->|17. Intelligence Payload| Client
+        Client -->|18. Render Analyst UI| GraphUI["Assessment + Threat Profile<br>MITRE ATT&CK Graph"]
     end
 
-    %% Enterprise Visual Aesthetics
+    %% Visual Styling
     style Cron fill:#fee,stroke:#b33,stroke-width:2px
+    style CronWarm fill:#fee,stroke:#b33,stroke-width:1px
     style EdgeBackend fill:#f96,stroke:#333,stroke-width:2px
     style EdgeCache fill:#bbf,stroke:#333,stroke-width:2px
     style GraphUI fill:#edf,stroke:#639,stroke-width:2px
     style Client fill:#def,stroke:#33b,stroke-width:1px
     style DetailAPI fill:#fff,stroke:#f96,stroke-width:1px,stroke-dasharray: 3 3
-    
-    %% Clean Subgraph Layout Borders
+    style ExtAPIs fill:#eee,stroke:#444,stroke-width:1px
+
     style Track1 fill:none,stroke:#666,stroke-width:1px,stroke-dasharray: 4 4
     style Track2 fill:none,stroke:#666,stroke-width:1px,stroke-dasharray: 4 4
     style Track3 fill:none,stroke:#666,stroke-width:1px,stroke-dasharray: 4 4
