@@ -17,40 +17,44 @@ This platform splits operational workloads into two distinct, decoupled pipeline
 ```mermaid
 graph TD
 
-    subgraph Automation_Pipeline [Automated Cron Ingestion]
-        Cron[GitHub Actions Cron <br/> 01:30 BST / 00:30 UTC]
-        -->|1. Trigger Protected Refresh Endpoint|
-        EdgeBackend[Cloudflare Pages Functions]
+    subgraph Automation_Pipeline["Automated Cron Ingestion"]
+
+        Cron["GitHub Actions Cron<br>01:30 BST / 00:30 UTC"]
+        -->|"1. Trigger Protected Refresh Endpoint"|
+        EdgeBackend["Cloudflare Pages Functions"]
 
         EdgeBackend
-        -->|2. Ingest Source Feeds|
-        IntelProviders[AbuseIPDB / VirusTotal / Spamhaus]
+        -->|"2. Ingest Source Feeds"|
+        IntelProviders["AbuseIPDB / VirusTotal / Spamhaus"]
 
         IntelProviders
-        -->|3. Return Raw Telemetry Logs|
+        -->|"3. Return Raw Telemetry Logs"|
         EdgeBackend
 
         EdgeBackend
-        -->|4. Normalize & Clamp Cache|
-        D1[(Cloudflare D1 / R2 Cache)]
+        -->|"4. Normalize & Clamp Cache"|
+        D1[("Cloudflare D1 / R2 Cache")]
+
     end
 
-    subgraph Client_Delivery [Live User Triage Path]
-        Client[Browser UI: Vite + React]
-        -->|5. Request Intelligence Profile|
+    subgraph Client_Delivery["Live User Triage Path"]
+
+        Client["Browser UI: Vite + React"]
+        -->|"5. Request Intelligence Profile"|
         EdgeBackend
 
         EdgeBackend
-        -->|6. Query Cached Evidence|
+        -->|"6. Query Cached Evidence"|
         D1
 
         D1
-        -->|Cache Hit: Return Deterministic Profile|
+        -->|"Cache Hit: Return Deterministic Profile"|
         Client
 
         Client
-        -->|7. Render Node Topology|
-        GraphUI[MITRE ATT&CK Behavior Graph]
+        -->|"7. Render Node Topology"|
+        GraphUI["MITRE ATT&CK Behavior Graph"]
+
     end
 
     style Cron fill:#fdd,stroke:#b33,stroke-width:2px
@@ -58,8 +62,6 @@ graph TD
     style D1 fill:#bbf,stroke:#333,stroke-width:2px
     style GraphUI fill:#dfd,stroke:#3b3,stroke-width:2px
 ```
-
----
 
 # 🛠️ Core Features & Capabilities
 
