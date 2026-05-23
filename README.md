@@ -15,60 +15,51 @@ This application is deployed natively at the edge on **Cloudflare Pages** and en
 This platform splits operational workloads into two distinct, decoupled pipelines to enforce strict API quota defense while maintaining sub-second, edge-cached response windows for clients.
 
 ```mermaid
-graph TD
-    %% Base Infrastructure Components
-    Cron["GitHub Actions Cron<br>(01:30 BST)"]
-    EdgeBackend["Cloudflare Pages Functions<br>(Edge Runtime)"]
-    EdgeCache[("Cloudflare Edge Cache<br>24h Engine / 01:30 Window")]
-    Client["Browser UI<br>(Vite + React)"]
-    GraphUI["Assessment + Threat Profile<br>MITRE ATT&CK Behavior Graph"]
-
-    %% External APIs & Enrichment Elements
-    Abuse["AbuseIPDB Blacklist<br>(Daily Top 50 Feed)"]
-    Geo["ip-api<br>(Batch Geolocation)"]
-    Spamhaus["Spamhaus DQS / SIA<br>(Reputation Zones)"]
-    VT["VirusTotal API<br>(IP Reputation Context)"]
-    Mitre["MITRE ATT&CK<br>Static Schema Catalog"]
-
-    subgraph Automation ["🔄 Automated Daily Ingestion"]
-        Cron -->|1. POST with secret| EdgeBackend
-        EdgeBackend -->|2. Fetch Blacklist| Abuse
-        EdgeBackend -->|3. Geo-Enrich| Geo
-        EdgeBackend -->|4. Save Snapshot| EdgeCache
-        
-        %% Warmup Ingestion Logic
-        Cron -->|5. Trigger Step Warmup Loops| EdgeBackend
-        EdgeBackend -->|6. Controlled Queue Tick 4/min| VT
-        EdgeBackend -->|7. Prewarm Evidence| Spamhaus
-        EdgeBackend -->|8. Cache Enriched Summaries| EdgeCache
+graph LR
+    %% Group 1: Automation Orchestration (Far Left)
+    subgraph Track1 ["🔄 Phase 1: Automated Ingestion (01:30 BST)"]
+        Cron["GitHub Actions Cron"] -->|1. Auth POST| EdgeBackend["Cloudflare Pages Functions<br>(Edge Runtime)"]
+        EdgeBackend -->|2. Ingest Blacklist| Abuse["AbuseIPDB Daily Top 50"]
+        EdgeBackend -->|3. Geolocation| Geo["ip-api Batch Geo"]
+        EdgeBackend -->|4. Save Snapshot| EdgeCache[("Cloudflare Edge Cache<br>(24h Engine)")]
     end
 
-    subgraph Delivery ["🌐 User Request Delivery"]
-        Client -->|9. Load Map View| EdgeBackend
-        EdgeBackend -->|10. Read Cached Snapshot| EdgeCache
-        EdgeCache -->|11. Return Top 50 + Summaries| Client
-        
-        %% Live Selected IP Analysis Loop
-        Client -->|12. Inspect Selected IP Node| EdgeBackend
-        EdgeBackend -->|13. Cache-First Check| EdgeCache
-        EdgeBackend -->|14. Fetch Context If Uncached| Abuse
-        EdgeBackend -->|15. Check DNSBL Zones| Spamhaus
-        EdgeBackend -->|16. Evaluate Behavioral Rep| VT
-        EdgeBackend -->|17. Parse & Validate Schema| Mitre
-        EdgeBackend -->|18. Deliver Normalized Payload| Client
-        Client -->|19. Render Component Nodes| GraphUI
+    %% Group 2: Controlled Edge Background Warmup Ticks
+    subgraph Track2 ["⏳ Phase 2: Sequential Cache Warmup"]
+        Cron -->|5. Step Warmup Ticks| EdgeBackend
+        EdgeBackend -->|6. Controlled 4/min| VT["VirusTotal API"]
+        EdgeBackend -->|7. DNSBL Lookup| Spamhaus["Spamhaus DQS / SIA"]
+        VT -->|8. Cache Summaries| EdgeCache
+        Spamhaus -->|8. Cache Summaries| EdgeCache
     end
 
-    %% Visual Styling
+    %% Group 3: Real-Time User Triage & UI Delivery (Stacked Bottom)
+    subgraph Track3 ["🌐 Phase 3: Live User Delivery Path"]
+        Client["Browser UI<br>(Vite + React)"] -->|9. Load Map| EdgeBackend
+        EdgeBackend -->|10. Read Snapshot| EdgeCache
+        EdgeCache -->|11. Return Top 50| Client
+        
+        %% Deep Inspection Cycle
+        Client -->|12. Inspect Node| DetailAPI["Selected-IP Detail Router"]
+        DetailAPI -->|13. Cache-First Hit| EdgeCache
+        DetailAPI -->|14. Uncached Failback| Abuse
+        DetailAPI -->|15. Check Mapping| Mitre["MITRE ATT&CK Catalog"]
+        DetailAPI -->|16. Payload Delivery| Client
+        Client -->|17. Graph UI Render| GraphUI["Assessment Graph<br>(MITRE ATT&CK Map)"]
+    end
+
+    %% Enterprise Visual Aesthetics
     style Cron fill:#fee,stroke:#b33,stroke-width:2px
     style EdgeBackend fill:#f96,stroke:#333,stroke-width:2px
     style EdgeCache fill:#bbf,stroke:#333,stroke-width:2px
     style GraphUI fill:#edf,stroke:#639,stroke-width:2px
     style Client fill:#def,stroke:#33b,stroke-width:1px
+    style DetailAPI fill:#fff,stroke:#f96,stroke-width:1px,stroke-dasharray: 3 3
     
-    %% Subtle Border Adjustments
-    style Automation fill:none,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
-    style Delivery fill:none,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    %% Clean Subgraph Layout Borders
+    style Track1 fill:none,stroke:#666,stroke-width:1px,stroke-dasharray: 4 4
+    style Track2 fill:none,stroke:#666,stroke-width:1px,stroke-dasharray: 4 4
+    style Track3 fill:none,stroke:#666,stroke-width:1px,stroke-dasharray: 4 4
 ```
 
 # 🛠️ Core Features & Capabilities
