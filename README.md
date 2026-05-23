@@ -1,137 +1,253 @@
 # Dominic Boban: Cybersecurity Engineering Portfolio
 
-A production-grade cybersecurity portfolio, threat intelligence suite, and serverless content platform. This application is deployed natively at the edge on **Cloudflare Pages** and engineered using **React, Vite, TypeScript, and Cloudflare Pages Functions**.
+A production-grade cybersecurity portfolio, threat intelligence suite, and serverless content platform.
+
+This application is deployed natively at the edge on **Cloudflare Pages** and engineered using **React, Vite, TypeScript, and Cloudflare Pages Functions**.
 
 [![Semgrep Scan Status](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/semgrep.yml/badge.svg)](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/semgrep.yml)
+
 [![CodeQL](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/github-code-scanning/codeql)
 
 ---
 
-## 🌐 System Architecture & Data Flow
+# 🌐 System Architecture & Data Flow
+
+This platform splits operational workloads into two distinct, decoupled pipelines to enforce strict API quota defense while maintaining sub-second, edge-cached response windows for clients.
 
 ```mermaid
 graph TD
-    Client[Browser UI: Vite + React] -->|1. Request Enrichment| Edge[Cloudflare Pages Functions]
-    Edge -->|2. Check Cache| Cache[(24h Edge Cache: D1/KV)]
-    Cache -->|Cache Hit| Client
-    Cache -->|3. Cache Miss| Upstream[Secure API Gateways]
-    Upstream -->|AbuseIPDB API| Target1[Daily Top 50 Blacklist]
-    Upstream -->|Spamhaus DQS| Target2[IP Reputation Zones]
-    Upstream -->|Cloudflare Radar| Target3[Global Telemetry]
-    Upstream -->|Breach Intelligence| Target4[Identity Exposure Data]
 
-    style Edge fill:#f96,stroke:#333,stroke-width:2px
-    style Cache fill:#bbf,stroke:#333,stroke-width:2px
+    subgraph Automation_Pipeline [Automated Cron Ingestion]
+        Cron[GitHub Actions Cron <br/> 01:30 BST / 00:30 UTC]
+        -->|1. Trigger Protected Refresh Endpoint|
+        EdgeBackend[Cloudflare Pages Functions]
+
+        EdgeBackend
+        -->|2. Ingest Source Feeds|
+        IntelProviders[AbuseIPDB / VirusTotal / Spamhaus]
+
+        IntelProviders
+        -->|3. Return Raw Telemetry Logs|
+        EdgeBackend
+
+        EdgeBackend
+        -->|4. Normalize & Clamp Cache|
+        D1[(Cloudflare D1 / R2 Cache)]
+    end
+
+    subgraph Client_Delivery [Live User Triage Path]
+        Client[Browser UI: Vite + React]
+        -->|5. Request Intelligence Profile|
+        EdgeBackend
+
+        EdgeBackend
+        -->|6. Query Cached Evidence|
+        D1
+
+        D1
+        -->|Cache Hit: Return Deterministic Profile|
+        Client
+
+        Client
+        -->|7. Render Node Topology|
+        GraphUI[MITRE ATT&CK Behavior Graph]
+    end
+
+    style Cron fill:#fdd,stroke:#b33,stroke-width:2px
+    style EdgeBackend fill:#f96,stroke:#333,stroke-width:2px
+    style D1 fill:#bbf,stroke:#333,stroke-width:2px
+    style GraphUI fill:#dfd,stroke:#3b3,stroke-width:2px
 ```
 
 ---
 
-## 🛠️ Core Features & Capabilities
+# 🛠️ Core Features & Capabilities
 
-### 1. Personal Portfolio & Brand Engine
+## 1. Personal Portfolio & Brand Engine
 
 The central landing hub serves as a fast-loading verification vehicle for technical recruitment and industry collaborators.
 
-**Components:** Custom hero section, interactive skills inventory, chronologically structured experience timeline, production projects index, and certified credentials catalog.
+### Components
+- Custom hero section
+- Interactive skills inventory
+- Chronologically structured experience timeline
+- Production projects index
+- Certified credentials catalog
 
-**Integrations:** Direct CV download routing, authenticated GitHub/LinkedIn secure outbound links, and an active contact form for clients/recruiters.
+### Integrations
+- Direct CV download routing
+- Authenticated GitHub/LinkedIn outbound links
+- Active contact form for recruiters and clients
 
-### 2. Global Threat Dashboard
+---
+
+## 2. Global Threat Dashboard
 
 **Route:** `/global-threat-dashboard`
 
 Processes and visualizes global Layer 7 network telemetry to display macro internet security trends.
 
-**Telemetry Data:** Ingests live Cloudflare Radar telemetry datasets.
+### Telemetry Data
+- Live Cloudflare Radar telemetry datasets
 
-**Visuals:** Renders attack geography distributions, top origin threat vectors, targeted country groups, and dynamic origin-to-target Sankey/flow matrix visualizations.
+### Visuals
+- Attack geography distributions
+- Top origin threat vectors
+- Targeted country groups
+- Dynamic origin-to-target Sankey visualizations
 
-### 3. Daily Top 50 Threat Map
+---
+
+## 3. Daily Top 50 Threat Map
 
 **Route:** `/live-threat-map`
 
-An interactive OSINT geographic map rendering top global threat actors without deploying aggressive or misleading simulated honeypots on the portfolio itself.
+An interactive OSINT geographic map rendering top global threat actors without deploying misleading simulated honeypots.
 
-**Telemetry Data:** Pulls malicious source nodes from AbuseIPDB's global blacklist feed.
+### Telemetry Data
+- AbuseIPDB global blacklist feeds
 
-**Visuals:** Renders geo-IP source pins via Leaflet map layouts alongside an active ranked leaderboard from #1 to #50.
+### Visuals
+- Geo-IP source pins via Leaflet
+- Ranked leaderboard (#1–#50)
 
-**Source Intelligence Panel:** Displays selected node attributes including raw IP address, target city/country metadata, ASN ownership, network range allocations, and timestamped reporting cycles.
+### Source Intelligence Panel
+Displays:
+- Raw IP addresses
+- City/country metadata
+- ASN ownership
+- Network ranges
+- Reporting timestamps
 
-### 4. IP Intelligence Enrichment Pipeline
+---
 
-Deep reputation inspection nested cleanly into the active threat map interface.
+## 4. IP Intelligence Enrichment Pipeline
 
-**Telemetry Data:** Performs server-side DNS queries against Spamhaus DQS components.
+Deep reputation inspection integrated directly into the threat map interface.
 
-**Reputation Zones Evaluated:** SBL, XBL, PBL, and AuthBL.
+### Telemetry Data
+- Spamhaus DQS DNS queries
 
-**Output:** Extracts raw return codes, corresponding listing data names, and block justifications.
+### Reputation Zones
+- SBL
+- XBL
+- PBL
+- AuthBL
 
-### 5. Identity Exposure Scanner
+### Output
+- Raw return codes
+- Listing data names
+- Block justifications
+
+---
+
+## 5. Identity Exposure Scanner
 
 **Route:** `/identity-exposure-scanner`
 
 A compliant breach exposure query interface built for demonstration testing.
 
-**Logic:** Accepts user-supplied emails and passes them down to server-side breach intelligence providers.
+### Logic
+- Accepts user-supplied emails
+- Performs server-side breach intelligence lookups
 
-**Output:** Generates aggregate risk levels, breach occurrences, paste exposure metrics, linear compromise timelines, leaked data classifications, and remediation playbooks.
+### Output
+- Aggregate risk levels
+- Breach occurrences
+- Paste exposure metrics
+- Compromise timelines
+- Leaked data classifications
+- Remediation guidance
 
-### 6. Dynamic Blog & Field Notes Platform
+---
+
+## 6. Dynamic Blog & Field Notes Platform
 
 **Route:** `/blog`
 
-An active technical ledger mapping research updates, vulnerability writeups, and detection engineering notes.
+A technical ledger for:
+- Vulnerability writeups
+- Detection engineering notes
+- Research updates
 
-**Logic:** Resolves paths dynamically at the edge to serve dedicated markdown content components under `/blog/{slug}`.
+### Logic
+Dynamic edge-resolved markdown routing under:
 
-### 7. Gated Administration Dashboard
+```txt
+/blog/{slug}
+```
+
+---
+
+## 7. Gated Administration Dashboard
 
 **Route:** `/admin`
 
-A zero-trust administration panel built to create, update, or remove live technical blog posts and handle media object storage.
+A zero-trust administration panel for live blog and media management.
 
-**Infrastructure:** Uses Cloudflare D1 as the serverless relational data store and Cloudflare R2 for media object buckets.
+### Infrastructure
+- Cloudflare D1
+- Cloudflare R2
 
-**Security:** Gated behind Cloudflare Access Zero Trust authorization, removing code rebuild requirements for content publication cycles.
-
----
-
-## 🔒 Defensive Engineering & Security Architecture
-
-The ecosystem is built around defensive coding patterns to protect upstream resources and isolate secrets.
-
-### Backend/API Security Design
-
-**Zero Client Exposure:** Upstream authentication secrets, tokens, and verification keys for AbuseIPDB, Spamhaus DQS, and Cloudflare Radar remain server-side. The frontend runtime never exposes these credentials.
-
-**Edge Compute Abstraction:** Network input processing, query transformations, and routing are handled through serverless Cloudflare Pages Functions.
-
-**API Quota Preservation & Caching:** Implements 24-hour edge caching layers on resource-intensive threat intelligence endpoints. Client reloads pull records from edge cache where possible, helping protect API rate limits.
-
-**Graceful Degradation:** Integration paths include fallback error handling. If an upstream intelligence API times out or fails, the application returns labelled fallback states instead of breaking the user experience.
+### Security
+Protected using Cloudflare Access Zero Trust authorization.
 
 ---
 
-## ⚙️ Runtime Configuration & Secret Injection
+# 🔒 Defensive Engineering & Security Architecture
 
-To run this platform locally or deploy to production, verify the following configuration schema is mapped correctly.
+The ecosystem is designed around defensive coding patterns to isolate secrets and protect upstream infrastructure.
 
-| Environment Variable | Provider Target | Assigned Context Scope |
+## Backend/API Security Design
+
+### Zero Client Exposure
+All secrets remain server-side:
+- AbuseIPDB
+- Spamhaus DQS
+- VirusTotal
+- Cloudflare Radar
+
+### Edge Compute Abstraction
+All network processing is handled through Cloudflare Pages Functions.
+
+### Deterministic Threat Persona Engine
+Telemetry normalization avoids hallucinated LLM inference and instead maps raw telemetry into verified MITRE ATT&CK techniques such as:
+- T1110 — Brute Force
+- T1595 — Active Scanning
+- T1190 — Exploit Public-Facing Application
+
+### API Quota Preservation & Caching
+- 24-hour edge caching
+- GitHub Actions cron warm-up jobs
+- Rate-limit protection
+- Cache-boundary enforcement
+
+### Allowlist Guard
+IP lookups are restricted to recent threat-map entities to prevent abuse.
+
+### Graceful Degradation
+Fallback states are returned if upstream intelligence providers fail.
+
+---
+
+# ⚙️ Runtime Configuration & Secret Injection
+
+## Environment Variables
+
+| Variable | Provider | Purpose |
 |---|---|---|
-| `CLOUDFLARE_RADAR_TOKEN` | Cloudflare Radar API | Account → Radar → Read Permissions |
-| `ABUSEIPDB_API_KEY` | AbuseIPDB Engine | Inbound blacklist extraction key |
-| `SPAMHAUS_DQS_KEY` | Spamhaus Edge DQS | 26-character bare customer code token |
-| `SPAMHAUS_SIA_USERNAME` | Spamhaus Intelligence API | Optional API username for historical IP listing context |
-| `SPAMHAUS_SIA_PASSWORD` | Spamhaus Intelligence API | Optional API password for historical IP listing context |
-| `SPAMHAUS_SIA_TOKEN` | Spamhaus Intelligence API | Optional short-lived bearer token fallback for historical IP listing context |
-| `VIRUSTOTAL_API_KEY` | VirusTotal API | Server-side IP reputation enrichment key |
-| `THREAT_MAP_CRON_SECRET` | Scheduled threat map refresh | Shared secret used by GitHub Actions to call protected refresh endpoints |
+| CLOUDFLARE_RADAR_TOKEN | Cloudflare Radar | API access |
+| ABUSEIPDB_API_KEY | AbuseIPDB | Blacklist extraction |
+| SPAMHAUS_DQS_KEY | Spamhaus | DNS reputation lookups |
+| SPAMHAUS_SIA_USERNAME | Spamhaus | Optional historical lookup |
+| SPAMHAUS_SIA_PASSWORD | Spamhaus | Optional historical lookup |
+| SPAMHAUS_SIA_TOKEN | Spamhaus | Optional bearer fallback |
+| VIRUSTOTAL_API_KEY | VirusTotal | Reputation enrichment |
+| THREAT_MAP_CRON_SECRET | GitHub Actions | Protected refresh secret |
 
-### Local Infrastructure Testing
+---
 
-Pass environment variables through your terminal before launching the local preview boundary.
+# 🧪 Local Infrastructure Testing
 
 ```bash
 export ABUSEIPDB_API_KEY="your_key_here"
@@ -141,46 +257,84 @@ export SPAMHAUS_SIA_USERNAME="your_optional_sia_username"
 export SPAMHAUS_SIA_PASSWORD="your_optional_sia_password"
 export VIRUSTOTAL_API_KEY="your_key_here"
 export THREAT_MAP_CRON_SECRET="your_shared_cron_secret"
+
 npm run dev
 ```
 
-The Daily Top 50 threat map is scheduled by `.github/workflows/daily-threat-map-refresh.yml`.
-Add the same `THREAT_MAP_CRON_SECRET` value to both Cloudflare Pages Production secrets and GitHub Actions repository secrets. Optional GitHub secret `THREAT_MAP_BASE_URL` can override the default production URL.
+The Daily Top 50 threat map is scheduled through:
 
-### Production Deployment
-
-Production variables must be mapped in the Cloudflare Pages Management Console:
-
-```text
-Project Settings → Environment Variables
+```txt
+.github/workflows/daily-threat-map-refresh.yml
 ```
 
 ---
 
-## 🛡️ Security Challenge & Verification
+# 🚀 Production Deployment
 
-This codebase uses automated testing pipelines. Merge and deployment workflows can trigger Semgrep OSS and GitHub CodeQL scans to detect issues such as cross-site scripting, path traversal, and broken authentication paths before code reaches production.
+Production variables must be mapped inside:
 
-### Scope Challenge
-
-Think you found an input validation bypass or an edge cache manipulation flaw? The admin routes are enforced via Zero Trust JWT verification, and incoming markdown payloads are expected to pass through sanitization pipelines such as `rehypeSanitize`.
-
-If you discover an exploitable state, please open an issue with a clear proof-of-concept vector and reproduction steps.
+```txt
+Cloudflare Pages → Project Settings → Environment Variables
+```
 
 ---
 
-## 🚀 Tech Stack
+# 🛡️ Security Challenge & Verification
 
-- **Frontend:** React, Vite, TypeScript
-- **Hosting:** Cloudflare Pages
-- **Serverless Runtime:** Cloudflare Pages Functions
-- **Database:** Cloudflare D1
-- **Object Storage:** Cloudflare R2
-- **Threat Intelligence Sources:** AbuseIPDB, Spamhaus DQS, Cloudflare Radar
-- **Security Tooling:** Semgrep, GitHub CodeQL
+This repository uses:
+- Semgrep OSS
+- GitHub CodeQL
+
+These pipelines help identify:
+- XSS
+- Path traversal
+- Broken authentication
+- Injection vulnerabilities
+
+## Scope Challenge
+
+Admin routes are protected via:
+- Zero Trust JWT verification
+- Markdown sanitization pipelines
+- `rehypeSanitize`
+
+If you discover a vulnerability, refer to:
+
+```txt
+SECURITY.md
+```
+
+for responsible disclosure instructions.
 
 ---
 
-## 📌 Project Status
+# 🚀 Tech Stack
+
+## Frontend
+- React
+- Vite
+- TypeScript
+- Tailwind CSS
+- Leaflet
+
+## Infrastructure
+- Cloudflare Pages
+- Cloudflare Pages Functions
+- Cloudflare D1
+- Cloudflare R2
+
+## Threat Intelligence Sources
+- AbuseIPDB
+- Spamhaus DQS
+- Cloudflare Radar
+- VirusTotal
+
+## Security Tooling
+- Semgrep
+- GitHub CodeQL
+
+---
+
+# 📌 Project Status
 
 This project is actively maintained as a cybersecurity engineering portfolio and threat intelligence demonstration platform.
