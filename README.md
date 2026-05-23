@@ -10,6 +10,8 @@ This application is deployed natively at the edge on **Cloudflare Pages** and en
 
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/12952/baseline)](https://www.bestpractices.dev/projects/12952)
 
+[![Dependency Status](https://img.shields.shields.shields.shields.shields.shields.io/badge/dependencies-up%20to%20date-brightgreen.svg)](https://github.com/dom4570/dominic-boban-portfolio/network/dependencies)
+
 ---
 
 # 🌐 System Architecture & Data Flow
