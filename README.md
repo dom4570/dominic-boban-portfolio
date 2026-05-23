@@ -8,6 +8,8 @@ This application is deployed natively at the edge on **Cloudflare Pages** and en
 
 [![CodeQL](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/github-code-scanning/codeql)
 
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/12952/baseline)](https://www.bestpractices.dev/projects/12952)
+
 ---
 
 # 🌐 System Architecture & Data Flow
