@@ -148,7 +148,37 @@ const ABUSE_CATEGORY_MEANINGS = new Map([
   [23, "IoT Targeted reports indicate activity aimed at internet-connected devices such as cameras, routers, or DVRs."],
 ]);
 
-function abuseCategoryEvidence(category) {
+function categoryIdFromValue(category) {
+  return numberOrNull(category?.id || category);
+}
+
+function categoryIdsFromReport(report) {
+  return (Array.isArray(report?.categories) ? report.categories : [])
+    .map(categoryIdFromValue)
+    .filter(Boolean);
+}
+
+function abuseCategorySamples(reports) {
+  const samples = new Map();
+
+  for (const report of Array.isArray(reports) ? reports : []) {
+    const sample = {
+      reported_at: cleanEvidence(report?.reported_at || report?.reportedAt || "", 80),
+      reporter_country: cleanEvidence(report?.reporter_country_name || report?.reporterCountryName || report?.reporter_country_code || report?.reporterCountryCode || "", 80),
+      comment: cleanEvidence(report?.comment || "", 260),
+    };
+
+    for (const id of categoryIdsFromReport(report)) {
+      if (!samples.has(id)) {
+        samples.set(id, sample);
+      }
+    }
+  }
+
+  return samples;
+}
+
+function abuseCategoryEvidence(category, sample = null) {
   const id = numberOrNull(category?.id);
   const label = cleanEvidence(category?.label || (id ? `Category ${id}` : "AbuseIPDB category"), 80);
   const count = numberOrNull(category?.count);
@@ -156,29 +186,40 @@ function abuseCategoryEvidence(category) {
   const countText = count
     ? `Seen in ${count} of the latest AbuseIPDB report examples loaded for this selected IP.`
     : "Returned as an AbuseIPDB category for this selected IP.";
+  const sampleParts = sample
+    ? [
+        "Representative recent report",
+        sample.reported_at ? `at ${sample.reported_at}` : "",
+        sample.reporter_country ? `from ${sample.reporter_country}` : "",
+        sample.comment ? "included a comment snippet shown below." : "was tagged with this category.",
+      ].filter(Boolean).join(" ") + "."
+    : "";
   const summary = [
     id ? `Category ID ${id}: ${label}.` : `${label}.`,
     countText,
+    sampleParts,
     meaning,
-  ].join(" ");
+  ].filter(Boolean).join(" ");
 
   return {
     value: [label, id ? `category ${id}` : ""].filter(Boolean).join(" "),
     title: `AbuseIPDB category: ${label}`,
     summary,
-    rawEvidence: summary,
+    rawEvidence: sample?.comment || summary,
   };
 }
 
 export function normalizeAbuseIpdbEvidence(payload) {
   const fields = [];
+  const reports = Array.isArray(payload?.recent_reports) ? payload.recent_reports : [];
+  const categorySamples = abuseCategorySamples(reports);
 
   for (const category of Array.isArray(payload?.top_categories) ? payload.top_categories : []) {
-    const evidence = abuseCategoryEvidence(category);
+    const evidence = abuseCategoryEvidence(category, categorySamples.get(categoryIdFromValue(category)) || null);
     addEvidence(fields, "abuseipdb", "top_categories", evidence.value, evidence);
   }
 
-  for (const report of Array.isArray(payload?.recent_reports) ? payload.recent_reports : []) {
+  for (const report of reports) {
     addEvidence(fields, "abuseipdb", "recent_report.comment", report?.comment, {
       title: "Reporter log snippet",
       summary: "A recent AbuseIPDB report comment included text matching this ATT&CK behavior.",
@@ -186,7 +227,11 @@ export function normalizeAbuseIpdbEvidence(payload) {
     });
 
     for (const category of Array.isArray(report?.categories) ? report.categories : []) {
-      const evidence = abuseCategoryEvidence(category);
+      const evidence = abuseCategoryEvidence(category, {
+        reported_at: report?.reported_at || report?.reportedAt || "",
+        reporter_country: report?.reporter_country_name || report?.reporterCountryName || report?.reporter_country_code || report?.reporterCountryCode || "",
+        comment: report?.comment || "",
+      });
       addEvidence(fields, "abuseipdb", "recent_report.categories", evidence.value, evidence);
     }
   }
