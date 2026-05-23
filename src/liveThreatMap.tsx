@@ -709,6 +709,16 @@ type IntelScore = {
   severity: "Low" | "Elevated" | "High" | "Critical";
 };
 
+type ThreatProfileBadge = {
+  id: string;
+  label: string;
+  confidence: "Strong" | "Context";
+  evidence: string;
+  sourceCount: number;
+  tone: "red" | "purple" | "cyan" | "amber" | "zinc";
+  priority: number;
+};
+
 function abusePayload(detail: AbuseIpdbDetail | null, summary: AbuseIpdbSummary | null) {
   const payload = detail || summary;
   return payload?.status === "reported" && payload.total_reports > 0 ? payload : null;
@@ -753,8 +763,206 @@ function hasVirusTotalDetections(payload: VirusTotalSummary | VirusTotalDetail |
   return Boolean(payload && (payload.vendor_malicious > 0 || payload.vendor_suspicious > 0));
 }
 
+function cleanProfileEvidence(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function addProfile(profiles: Map<string, ThreatProfileBadge>, next: ThreatProfileBadge) {
+  const existing = profiles.get(next.id);
+  if (!existing || next.priority > existing.priority || (next.confidence === "Strong" && existing.confidence === "Context")) {
+    profiles.set(next.id, next);
+  }
+}
+
+function profileToneClasses(tone: ThreatProfileBadge["tone"]) {
+  if (tone === "red") return "border-l-trace bg-trace/10 text-trace";
+  if (tone === "purple") return "border-l-purple-400 bg-purple-400/10 text-purple-200";
+  if (tone === "cyan") return "border-l-cyan-300 bg-cyan-300/10 text-cyan-100";
+  if (tone === "amber") return "border-l-volt bg-volt/10 text-volt";
+  return "border-l-white/25 bg-white/[0.035] text-haze";
+}
+
 function hasDataset(datasets: EvidenceDataset[], names: string[]) {
   return datasets.some((dataset) => names.some((name) => dataset.dataset.toLowerCase().includes(name.toLowerCase())));
+}
+
+function deriveThreatProfiles({
+  abuse,
+  categories,
+  datasets,
+  historyEvent,
+  matches,
+  point,
+  virusTotal,
+}: {
+  abuse: AbuseIpdbSummary | AbuseIpdbDetail | null;
+  categories: AbuseIpdbCategory[];
+  datasets: EvidenceDataset[];
+  historyEvent: SpamhausHistoryEvent | null;
+  matches: MitreMatch[];
+  point: ThreatPoint | null;
+  virusTotal: VirusTotalSummary | VirusTotalDetail | null;
+}) {
+  const profiles = new Map<string, ThreatProfileBadge>();
+  const categoryLabels = categorySet(categories);
+  const networkText = cleanProfileEvidence([
+    point?.as_name,
+    point?.isp,
+    point?.org,
+    abuse?.usage_type,
+    abuse?.isp,
+    abuse?.domain,
+    virusTotal?.asn ? `AS${virusTotal.asn}` : "",
+    virusTotal?.as_owner,
+  ].filter(Boolean).join(" "));
+  const behaviorText = cleanProfileEvidence([
+    ...categories.map((category) => category.label),
+    ...matches.flatMap((match) => [match.pattern_label, match.evidence, match.evidence_summary || "", match.raw_evidence || ""]),
+    ...(virusTotal?.tags || []),
+    ...(virusTotal?.threat_labels || []),
+    ...(virusTotal?.detection_names || []),
+    historyEvent?.detection,
+    historyEvent?.heuristic,
+    historyEvent?.botname,
+  ].filter(Boolean).join(" "));
+
+  const hasHostedInfra = Boolean(point?.hosting) || /hosting|vps|data center|datacenter|cloud|dedicated|servers|ovh|digitalocean|linode|amazon|aws|azure|google|vultr|hetzner|leaseweb|transit/i.test(networkText);
+  const hasAnonymizedRelay = Boolean(point?.proxy || abuse?.is_tor) || /tor|tor-exit|vpn|proxy|nordvpn|expressvpn|proton|mullvad|surfshark|hide-my-ip/i.test(networkText);
+  const hasMobileNetwork = Boolean(point?.mobile) || /mobile|cellular|wireless|carrier/i.test(networkText);
+
+  if (hasHostedInfra) {
+    addProfile(profiles, {
+      id: "hosted-infrastructure",
+      label: "Hosted Infrastructure",
+      confidence: "Context",
+      evidence: `Network or usage fields indicate cloud, hosting, VPS, data-center, or transit infrastructure. ${networkText}`,
+      sourceCount: [point?.hosting, abuse?.usage_type, virusTotal?.as_owner].filter(Boolean).length || 1,
+      tone: "red",
+      priority: 55,
+    });
+  } else if (hasAnonymizedRelay) {
+    addProfile(profiles, {
+      id: "anonymized-relay",
+      label: "Anonymized Relay",
+      confidence: "Context",
+      evidence: `Proxy, Tor, VPN, or relay indicators are present in the selected IP metadata. ${networkText}`,
+      sourceCount: [point?.proxy, abuse?.is_tor, networkText].filter(Boolean).length || 1,
+      tone: "purple",
+      priority: 52,
+    });
+  } else if (hasMobileNetwork) {
+    addProfile(profiles, {
+      id: "mobile-carrier",
+      label: "Mobile/Carrier Network",
+      confidence: "Context",
+      evidence: `Geo-IP or network metadata indicates mobile, carrier, or wireless infrastructure. ${networkText}`,
+      sourceCount: 1,
+      tone: "zinc",
+      priority: 35,
+    });
+  } else if (networkText) {
+    addProfile(profiles, {
+      id: "residential-corporate",
+      label: "Residential/Corporate Network",
+      confidence: "Context",
+      evidence: `No hosting, proxy, or mobile indicator dominated the network metadata. ${networkText}`,
+      sourceCount: 1,
+      tone: "zinc",
+      priority: 20,
+    });
+  }
+
+  const hasMatch = (id: string) => matches.some((match) => match.technique_id === id);
+  const hasDatasetSignal = (names: string[]) => hasDataset(datasets, names);
+
+  if (hasMatch("T1110") || categoryLabels.has("brute-force") || categoryLabels.has("ssh")) {
+    addProfile(profiles, {
+      id: "credential-attack",
+      label: "Credential Attack Source",
+      confidence: "Strong",
+      evidence: "Matched SSH, brute-force, authentication failure, or port 22 behavior in activity/listing/reputation evidence.",
+      sourceCount: matches.filter((match) => match.technique_id === "T1110").length || 1,
+      tone: "red",
+      priority: 95,
+    });
+  }
+
+  if (hasMatch("T1595") || categoryLabels.has("port scan") || /scan|probe|scanner|recon/i.test(behaviorText)) {
+    addProfile(profiles, {
+      id: "recon-scanner",
+      label: "Recon Scanner",
+      confidence: "Strong",
+      evidence: "Matched port scanning, probing, or reconnaissance behavior in the selected IP evidence.",
+      sourceCount: matches.filter((match) => match.technique_id === "T1595").length || 1,
+      tone: "cyan",
+      priority: 90,
+    });
+  }
+
+  if (hasMatch("T1190") || categoryLabels.has("sql injection") || categoryLabels.has("web app attack")) {
+    addProfile(profiles, {
+      id: "web-exploit-probe",
+      label: "Web Exploit Probe",
+      confidence: "Strong",
+      evidence: "Matched SQL injection, public-facing application exploit, CVE, RCE, or web app attack evidence.",
+      sourceCount: matches.filter((match) => match.technique_id === "T1190").length || 1,
+      tone: "amber",
+      priority: 88,
+    });
+  }
+
+  if (hasMatch("T1071") || /c2|c&c|command and control|botnet controller/i.test(behaviorText)) {
+    addProfile(profiles, {
+      id: "c2-labeled",
+      label: "C2-Labeled Infrastructure",
+      confidence: "Strong",
+      evidence: "Matched explicit C2, command-and-control, or botnet-controller labeling in reputation/listing evidence.",
+      sourceCount: matches.filter((match) => match.technique_id === "T1071").length || 1,
+      tone: "purple",
+      priority: 86,
+    });
+  }
+
+  if (hasMatch("T1566") || categoryLabels.has("phishing") || /phishing/i.test(behaviorText)) {
+    addProfile(profiles, {
+      id: "phishing-infrastructure",
+      label: "Phishing Infrastructure",
+      confidence: "Strong",
+      evidence: "Matched phishing category, tag, or threat label in the selected IP evidence.",
+      sourceCount: matches.filter((match) => match.technique_id === "T1566").length || 1,
+      tone: "amber",
+      priority: 84,
+    });
+  }
+
+  if (hasMatch("T1498") || categoryLabels.has("ddos attack") || /ddos|denial of service|flood|ping of death/i.test(behaviorText)) {
+    addProfile(profiles, {
+      id: "dos-source",
+      label: "DoS Source",
+      confidence: "Strong",
+      evidence: "Matched denial-of-service, DDoS, flood, or ping-of-death evidence.",
+      sourceCount: matches.filter((match) => match.technique_id === "T1498").length || 1,
+      tone: "red",
+      priority: 82,
+    });
+  }
+
+  if (hasDatasetSignal(["XBL", "CBL"]) || categoryLabels.has("exploited host") || /mirai|mozi|tsunami|kaiten|bashlite|gafgyt|botnet|infected|trojan/i.test(behaviorText)) {
+    addProfile(profiles, {
+      id: "compromised-host",
+      label: "Possible Compromised Host",
+      confidence: "Strong",
+      evidence: "Matched exploited-host, XBL/CBL, botnet family, infected-host, or malware-related evidence.",
+      sourceCount: [hasDatasetSignal(["XBL", "CBL"]), categoryLabels.has("exploited host"), /botnet|infected|trojan/i.test(behaviorText)].filter(Boolean).length || 1,
+      tone: "purple",
+      priority: 80,
+    });
+  }
+
+  return [...profiles.values()].sort((left, right) => {
+    if (left.confidence !== right.confidence) return left.confidence === "Strong" ? -1 : 1;
+    return right.priority - left.priority;
+  });
 }
 
 function datasetScore(datasets: EvidenceDataset[]) {
@@ -950,6 +1158,43 @@ function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment })
   );
 }
 
+function ThreatProfileStrip({ profiles }: { profiles: ThreatProfileBadge[] }) {
+  if (!profiles.length) return null;
+
+  const visible = profiles.slice(0, 5);
+  const hiddenCount = Math.max(0, profiles.length - visible.length);
+
+  return (
+    <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-[10px] uppercase text-signal">Threat Profile</p>
+        <SourceBadge label="Derived" title="Generated from selected-IP activity, reputation, listing, and network evidence." />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {visible.map((profile) => (
+          <span
+            key={profile.id}
+            className={`inline-flex max-w-full items-center gap-2 rounded-md border border-white/10 border-l-2 px-2.5 py-1.5 font-mono text-[10px] uppercase ${profileToneClasses(profile.tone)}`}
+            title={profile.evidence}
+          >
+            <span className="truncate">{profile.label}</span>
+            <span className="rounded border border-white/10 bg-black/20 px-1.5 py-0.5 text-[9px] text-haze">{profile.confidence}</span>
+            <span className="text-[9px] text-haze">{profile.sourceCount} src</span>
+          </span>
+        ))}
+        {hiddenCount ? (
+          <span
+            className="inline-flex items-center rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 font-mono text-[10px] uppercase text-haze"
+            title={profiles.slice(visible.length).map((profile) => `${profile.label}: ${profile.evidence}`).join("\n")}
+          >
+            +{hiddenCount} context
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function IntelligenceSignalsPanel({
   abuse,
   categories,
@@ -1103,6 +1348,7 @@ function IpIntelligence({
   detail,
   error,
   loading,
+  selectedPoint,
   selectedIp,
   summary,
   virusTotalDetail,
@@ -1117,6 +1363,7 @@ function IpIntelligence({
   detail: SpamhausDetail | null;
   error: string;
   loading: boolean;
+  selectedPoint: ThreatPoint | null;
   selectedIp: string;
   summary: IpIntelligenceSummary | null;
   virusTotalDetail: VirusTotalDetail | null;
@@ -1143,6 +1390,15 @@ function IpIntelligence({
     : null;
   const mitreTechniques = mergeMitreTechniques(abuseDetail?.mitre_techniques, detail?.mitre_techniques, virusTotalDetail?.mitre_techniques);
   const mitreMatches = mergeMitreMatches(abuseDetail?.mitre_matches, detail?.mitre_matches, virusTotalDetail?.mitre_matches);
+  const threatProfiles = deriveThreatProfiles({
+    abuse,
+    categories,
+    datasets,
+    historyEvent,
+    matches: mitreMatches,
+    point: selectedPoint,
+    virusTotal,
+  });
   const isChecking = loading || abuseLoading || virusTotalLoading;
 
   return (
@@ -1161,6 +1417,7 @@ function IpIntelligence({
       ) : assessment ? (
         <div className="grid gap-3">
           <AssessmentPanel assessment={assessment} />
+          <ThreatProfileStrip profiles={threatProfiles} />
           <MitreBehaviorGraph matches={mitreMatches} techniques={mitreTechniques} />
           <IntelligenceSignalsPanel
             abuse={abuse}
@@ -1682,6 +1939,7 @@ export function LiveThreatMapPage() {
             detail={spamhausDetail}
             error={spamhausError}
             loading={spamhausLoading}
+            selectedPoint={selectedPoint}
             selectedIp={selectedPoint?.ip || ""}
             summary={selectedPoint?.ip_intelligence || null}
             virusTotalDetail={virusTotalDetail}
