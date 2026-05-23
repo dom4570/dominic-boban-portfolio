@@ -8,9 +8,9 @@ This application is deployed natively at the edge on **Cloudflare Pages** and en
 
 [![CodeQL](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dom4570/dominic-boban-portfolio/actions/workflows/github-code-scanning/codeql)
 
-[![OpenSSF Baseline](https://www.bestpractices.dev/projects/12952/baseline)](https://www.bestpractices.dev/projects/12952)
+[![Dependabot Status](https://img.shields.io/badge/dependabot-active-brightgreen?logo=dependabot&logoColor=white)](https://github.com/dom4570/dominic-boban-portfolio/network/dependencies)
 
-[![Dependency Status](https://img.shields.shields.shields.shields.shields.shields.io/badge/dependencies-up%20to%20date-brightgreen.svg)](https://github.com/dom4570/dominic-boban-portfolio/network/dependencies)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/12952/baseline)](https://www.bestpractices.dev/projects/12952)
 
 ---
 
