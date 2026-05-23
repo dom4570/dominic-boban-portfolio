@@ -11,6 +11,8 @@ const SPAMHAUS_PREWARM_CONCURRENCY = 3;
 const SPAMHAUS_PREWARM_TIMEOUT_MS = 25000;
 const ABUSEIPDB_PREWARM_CONCURRENCY = 3;
 const ABUSEIPDB_PREWARM_TIMEOUT_MS = 25000;
+const SCHEDULED_REFRESH_HOUR_LONDON = 1;
+const SCHEDULED_REFRESH_MINUTE_LONDON = 30;
 
 let cachedPayload = null;
 let cachedUntil = 0;
@@ -250,6 +252,60 @@ function isUsableCoordinate(lat, lon) {
 
 function isoFromTime(time) {
   return new Date(time).toISOString();
+}
+
+function londonDateParts(date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+}
+
+function londonOffsetMs(date) {
+  const parts = londonDateParts(date);
+  const londonAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  return londonAsUtc - date.getTime();
+}
+
+function utcTimeForLondonWallTime(year, month, day, hour, minute) {
+  const roughUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const firstPass = roughUtc - londonOffsetMs(new Date(roughUtc));
+  const secondPass = roughUtc - londonOffsetMs(new Date(firstPass));
+  return secondPass;
+}
+
+function nextScheduledRefreshTime(now = Date.now()) {
+  const current = new Date(now);
+  const parts = londonDateParts(current);
+  const todayRefresh = utcTimeForLondonWallTime(
+    parts.year,
+    parts.month,
+    parts.day,
+    SCHEDULED_REFRESH_HOUR_LONDON,
+    SCHEDULED_REFRESH_MINUTE_LONDON,
+  );
+
+  if (now < todayRefresh) {
+    return todayRefresh;
+  }
+
+  const tomorrow = new Date(utcTimeForLondonWallTime(parts.year, parts.month, parts.day, 12, 0) + CACHE_TTL_MS);
+  const tomorrowParts = londonDateParts(tomorrow);
+  return utcTimeForLondonWallTime(
+    tomorrowParts.year,
+    tomorrowParts.month,
+    tomorrowParts.day,
+    SCHEDULED_REFRESH_HOUR_LONDON,
+    SCHEDULED_REFRESH_MINUTE_LONDON,
+  );
 }
 
 function isNodeRuntime() {
@@ -739,7 +795,7 @@ async function refreshLivePayload(apiKey, now, env, context) {
     return fallbackPayload("Geo-IP returned no usable coordinates. Showing demo source locations.");
   }
 
-  cachedUntil = now + CACHE_TTL_MS;
+  cachedUntil = nextScheduledRefreshTime(now);
   const payload = {
     mode: "live",
     cache_status: "fresh",
