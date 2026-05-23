@@ -16,25 +16,39 @@ This platform splits operational workloads into two distinct, decoupled pipeline
 
 ```mermaid
 graph TD
+    %% Define Global Styles & Nodes to force a clean vertical stack
+    Cron["GitHub Actions Cron<br>(01:30 BST)"]
+    EdgeBackend["Cloudflare Pages Functions<br>(Edge Runtime)"]
+    IntelProviders["Threat Intel Providers<br>(AbuseIPDB / VT / Spamhaus)"]
+    D1[("Cloudflare D1 / R2 Cache")]
+    Client["Browser UI<br>(Vite + React)"]
+    GraphUI["MITRE ATT&CK<br>Behavior Graph"]
 
-    subgraph Automation_Pipeline["Automated Cron Ingestion"]
-        Cron["GitHub Actions Cron<br>01:30 BST / 00:30 UTC"] -->|"1. Trigger Protected Refresh Endpoint"| EdgeBackend["Cloudflare Pages Functions"]
-        EdgeBackend -->|"2. Ingest Source Feeds"| IntelProviders["AbuseIPDB / VirusTotal / Spamhaus"]
-        IntelProviders -->|"3. Return Raw Telemetry Logs"| EdgeBackend
-        EdgeBackend -->|"4. Normalize & Clamp Cache"| D1[("Cloudflare D1 / R2 Cache")]
+    subgraph Automation_Pipeline ["🔄 Automated Ingestion Pipeline"]
+        Cron -->|1. Trigger Refresh| EdgeBackend
+        EdgeBackend -->|2. Fetch| IntelProviders
+        IntelProviders -->|3. Raw Logs| EdgeBackend
+        EdgeBackend -->|4. Normalize & Save| D1
     end
 
-    subgraph Client_Delivery["Live User Triage Path"]
-        Client["Browser UI: Vite + React"] -->|"5. Request Intelligence Profile"| EdgeBackend
-        EdgeBackend -->|"6. Query Cached Evidence"| D1
-        D1 -->|"Cache Hit: Return Deterministic Profile"| Client
-        Client -->|"7. Render Node Topology"| GraphUI["MITRE ATT&CK Behavior Graph"]
+    subgraph Client_Delivery ["🌐 User Request Delivery"]
+        Client -->|5. Request Profile| EdgeBackend
+        EdgeBackend -->|6. Check Cache| D1
+        D1 -->|Cache Hit| Client
+        Client -->|7. Render UI| GraphUI
     end
 
-    style Cron fill:#fdd,stroke:#b33,stroke-width:2px
+    %% Visual Styling Configurations
+    style Cron fill:#fee,stroke:#b33,stroke-width:2px
     style EdgeBackend fill:#f96,stroke:#333,stroke-width:2px
     style D1 fill:#bbf,stroke:#333,stroke-width:2px
-    style GraphUI fill:#dfd,stroke:#3b3,stroke-width:2px
+    style GraphUI fill:#edf,stroke:#639,stroke-width:2px
+    style IntelProviders fill:#ddd,stroke:#666,stroke-width:1px
+    style Client fill:#def,stroke:#33b,stroke-width:1px
+    
+    %% Subgraph Styling
+    style Automation_Pipeline fill:none,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
+    style Client_Delivery fill:none,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
 ```
 
 # 🛠️ Core Features & Capabilities
