@@ -413,6 +413,31 @@ function SourceBadge({ label, title }: { label: string; title: string }) {
   );
 }
 
+function useOutsideDismiss<T extends HTMLElement>(active: boolean, onDismiss: () => void) {
+  const ref = useRef<T | null>(null);
+
+  useEffect(() => {
+    if (!active) return undefined;
+
+    const handlePointerStart = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (target instanceof Node && ref.current && !ref.current.contains(target)) {
+        onDismiss();
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerStart);
+    document.addEventListener("touchstart", handlePointerStart);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerStart);
+      document.removeEventListener("touchstart", handlePointerStart);
+    };
+  }, [active, onDismiss]);
+
+  return ref;
+}
+
 function SignalSection({
   children,
   className = "",
@@ -552,6 +577,7 @@ function mitreSourceBadge(match: MitreMatch) {
 
 function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; techniques: MitreTechnique[] }) {
   const [selectedId, setSelectedId] = useState("");
+  const containerRef = useOutsideDismiss<HTMLDivElement>(Boolean(selectedId), () => setSelectedId(""));
   const explainableIds = new Set(matches.map((match) => match.technique_id).filter(Boolean));
   const sortedTechniques = techniques.filter((technique) => explainableIds.has(technique.id)).sort((left, right) => {
     const order = tacticOrder(left.tactic) - tacticOrder(right.tactic);
@@ -560,8 +586,8 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
 
   if (!sortedTechniques.length) return null;
 
-  const activeId = sortedTechniques.some((technique) => technique.id === selectedId) ? selectedId : sortedTechniques[0]?.id || "";
-  const activeTechnique = sortedTechniques.find((technique) => technique.id === activeId) || sortedTechniques[0];
+  const activeId = sortedTechniques.some((technique) => technique.id === selectedId) ? selectedId : "";
+  const activeTechnique = sortedTechniques.find((technique) => technique.id === activeId) || null;
   const matchesByTechnique = new Map<string, MitreMatch[]>();
 
   matches.forEach((match) => {
@@ -582,7 +608,7 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
   const activeMatches = matchesByTechnique.get(activeTechnique?.id || "") || [];
 
   return (
-    <div className="rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3">
+    <div ref={containerRef} className="rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-[10px] uppercase text-cyan-100">ATT&CK Behavior Graph</p>
         <SourceBadge label="Framework" title="Source: MITRE ATT&CK Enterprise technique catalog" />
@@ -617,7 +643,8 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
                             ? "border-signal/60 bg-signal/15 shadow-[0_0_22px_rgba(250,255,0,0.12)]"
                             : "border-cyan-300/15 bg-white/[0.03] hover:border-cyan-300/40 hover:bg-cyan-300/10"
                         }`}
-                        onClick={() => setSelectedId(technique.id)}
+                        aria-expanded={isActive}
+                        onClick={() => setSelectedId(isActive ? "" : technique.id)}
                       >
                         <span className="font-mono text-[10px] uppercase text-cyan-100">{technique.id}</span>
                         <span className="mt-1 block text-sm font-semibold leading-tight text-white">{technique.technique}</span>
@@ -1159,38 +1186,83 @@ function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment })
 }
 
 function ThreatProfileStrip({ profiles }: { profiles: ThreatProfileBadge[] }) {
+  const [activeId, setActiveId] = useState("");
+  const containerRef = useOutsideDismiss<HTMLDivElement>(Boolean(activeId), () => setActiveId(""));
+
   if (!profiles.length) return null;
 
   const visible = profiles.slice(0, 5);
   const hiddenCount = Math.max(0, profiles.length - visible.length);
+  const hidden = profiles.slice(visible.length);
+  const activeProfile = visible.find((profile) => profile.id === activeId);
+  const isContextOpen = activeId === "__context";
 
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+    <div ref={containerRef} className="rounded-md border border-white/10 bg-white/[0.03] p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-[10px] uppercase text-signal">Threat Profile</p>
         <SourceBadge label="Derived" title="Generated from selected-IP activity, reputation, listing, and network evidence." />
       </div>
       <div className="flex flex-wrap gap-2">
         {visible.map((profile) => (
-          <span
+          <button
             key={profile.id}
+            type="button"
+            aria-expanded={activeId === profile.id}
             className={`inline-flex max-w-full items-center gap-2 rounded-md border border-white/10 border-l-2 px-2.5 py-1.5 font-mono text-[10px] uppercase ${profileToneClasses(profile.tone)}`}
-            title={profile.evidence}
+            onClick={() => setActiveId(activeId === profile.id ? "" : profile.id)}
           >
             <span className="truncate">{profile.label}</span>
             <span className="rounded border border-white/10 bg-black/20 px-1.5 py-0.5 text-[9px] text-haze">{profile.confidence}</span>
             <span className="text-[9px] text-haze">{profile.sourceCount} src</span>
-          </span>
+          </button>
         ))}
         {hiddenCount ? (
-          <span
+          <button
+            type="button"
+            aria-expanded={isContextOpen}
             className="inline-flex items-center rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 font-mono text-[10px] uppercase text-haze"
-            title={profiles.slice(visible.length).map((profile) => `${profile.label}: ${profile.evidence}`).join("\n")}
+            onClick={() => setActiveId(isContextOpen ? "" : "__context")}
           >
             +{hiddenCount} context
-          </span>
+          </button>
         ) : null}
       </div>
+      {activeProfile ? (
+        <div className="mt-3 rounded-md border border-white/10 bg-black/25 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-md border border-white/10 border-l-2 px-2 py-1 font-mono text-[10px] uppercase ${profileToneClasses(activeProfile.tone)}`}>
+              {activeProfile.label}
+            </span>
+            <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+              {activeProfile.confidence}
+            </span>
+            <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+              {activeProfile.sourceCount} source {activeProfile.sourceCount === 1 ? "signal" : "signals"}
+            </span>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-haze">
+            <span className="text-white">Why this appeared:</span> {activeProfile.evidence}
+          </p>
+        </div>
+      ) : null}
+      {isContextOpen ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {hidden.map((profile) => (
+            <div key={profile.id} className="rounded-md border border-white/10 bg-black/25 p-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-md border border-white/10 border-l-2 px-2 py-1 font-mono text-[10px] uppercase ${profileToneClasses(profile.tone)}`}>
+                  {profile.label}
+                </span>
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+                  {profile.confidence}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-haze">{profile.evidence}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
