@@ -264,6 +264,9 @@ The Daily Top 50 threat map is scheduled through:
 .github/workflows/daily-threat-map-refresh.yml
 ```
 
+The workflow calls `/api/scheduled/threat-map-refresh` and `/api/scheduled/threat-intel-warmup`, which are protected by `THREAT_MAP_CRON_SECRET`.
+Add the same `THREAT_MAP_CRON_SECRET` value to both Cloudflare Pages Production secrets and GitHub Actions repository secrets. Optional GitHub secret `THREAT_MAP_BASE_URL` can override the default production URL.
+
 ---
 
 # 🚀 Production Deployment

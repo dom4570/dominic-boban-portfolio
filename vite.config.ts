@@ -211,6 +211,80 @@ function localAbuseOriginMapApi(): Plugin {
         }
       });
 
+      server.middlewares.use("/api/scheduled/threat-map-refresh", async (req, res) => {
+        const devReq = req as unknown as DevRequest;
+        const devRes = res as unknown as DevResponse;
+        const rawHost = devReq.headers.host;
+        const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) || "127.0.0.1:5173";
+        const headers = new Headers();
+
+        for (const [key, value] of Object.entries(devReq.headers)) {
+          if (Array.isArray(value)) {
+            value.forEach((entry) => headers.append(key, entry));
+          } else if (value) {
+            headers.set(key, value);
+          }
+        }
+
+        try {
+          const url = new URL(`/api/scheduled/threat-map-refresh${devReq.url || ""}`, `http://${host}`);
+          const request = new Request(url, {
+            method: devReq.method || "POST",
+            headers,
+          });
+          const response = scheduledRefreshAuthorized(request, process.env)
+            ? await handleThreatMapRefreshRequest(request, process.env)
+            : rejectUnauthorizedScheduledRequest(process.env);
+          const body = new Uint8Array(await response.arrayBuffer());
+
+          devRes.statusCode = response.status;
+          response.headers.forEach((value, key) => devRes.setHeader(key, value));
+          devRes.end(body);
+        } catch (error) {
+          devRes.statusCode = 500;
+          devRes.setHeader("Content-Type", "application/json; charset=utf-8");
+          const message = error instanceof Error ? error.message : "Local scheduled threat map refresh failed.";
+          devRes.end(JSON.stringify({ message }));
+        }
+      });
+
+      server.middlewares.use("/api/scheduled/threat-intel-warmup", async (req, res) => {
+        const devReq = req as unknown as DevRequest;
+        const devRes = res as unknown as DevResponse;
+        const rawHost = devReq.headers.host;
+        const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) || "127.0.0.1:5173";
+        const headers = new Headers();
+
+        for (const [key, value] of Object.entries(devReq.headers)) {
+          if (Array.isArray(value)) {
+            value.forEach((entry) => headers.append(key, entry));
+          } else if (value) {
+            headers.set(key, value);
+          }
+        }
+
+        try {
+          const url = new URL(`/api/scheduled/threat-intel-warmup${devReq.url || ""}`, `http://${host}`);
+          const request = new Request(url, {
+            method: devReq.method || "POST",
+            headers,
+          });
+          const response = scheduledRefreshAuthorized(request, process.env)
+            ? await handleVirusTotalPrewarmRequest(request, process.env)
+            : rejectUnauthorizedScheduledRequest(process.env);
+          const body = new Uint8Array(await response.arrayBuffer());
+
+          devRes.statusCode = response.status;
+          response.headers.forEach((value, key) => devRes.setHeader(key, value));
+          devRes.end(body);
+        } catch (error) {
+          devRes.statusCode = 500;
+          devRes.setHeader("Content-Type", "application/json; charset=utf-8");
+          const message = error instanceof Error ? error.message : "Local scheduled threat intelligence warmup failed.";
+          devRes.end(JSON.stringify({ message }));
+        }
+      });
+
       server.middlewares.use("/api/admin/refresh-threat-map", async (req, res) => {
         const devReq = req as unknown as DevRequest;
         const devRes = res as unknown as DevResponse;
