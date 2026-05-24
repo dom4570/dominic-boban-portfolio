@@ -26,11 +26,24 @@ jobs:
             exit 1
           fi
 
-          curl --fail --silent --show-error \
-            --request POST \
-            --header "Authorization: Bearer ${THREAT_MAP_CRON_SECRET}" \
-            --header "Accept: application/json" \
-            "${base_url}/api/admin/refresh-threat-map"
+          validate_json() {
+            RESPONSE_BODY="$1" python3 -c "import json, os; json.loads(os.environ.get('RESPONSE_BODY', ''))" || {
+              echo "Expected JSON from the scheduled threat map endpoint. Check endpoint routing, Cloudflare Access, or cron auth." >&2
+              printf '%.500s\n' "$1" >&2
+              exit 1
+            }
+          }
+
+          response="$(
+            curl --fail --silent --show-error \
+              --request POST \
+              --header "Authorization: Bearer ${THREAT_MAP_CRON_SECRET}" \
+              --header "Accept: application/json" \
+              "${base_url}/api/scheduled/threat-map-refresh"
+          )"
+
+          echo "${response}"
+          validate_json "${response}"
 
       - name: Warm VirusTotal queue
         env:
@@ -49,13 +62,20 @@ jobs:
                 --request POST \
                 --header "Authorization: Bearer ${THREAT_MAP_CRON_SECRET}" \
                 --header "Accept: application/json" \
-                "${base_url}/api/admin/warm-threat-intel"
+                "${base_url}/api/scheduled/threat-intel-warmup"
             )"
 
             echo "${response}"
 
-            remaining="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("remaining", 0))' <<< "${response}")"
-            status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))' <<< "${response}")"
+            parsed="$(
+              RESPONSE_BODY="${response}" python3 -c "import json, os; payload = json.loads(os.environ.get('RESPONSE_BODY', '')); print(payload.get('remaining', 0)); print(payload.get('status', ''))"
+            )" || {
+              echo "Expected JSON from the scheduled warmup endpoint. Check endpoint routing, Cloudflare Access, or cron auth." >&2
+              printf '%.500s\n' "${response}" >&2
+              exit 1
+            }
+            remaining="$(sed -n '1p' <<< "${parsed}")"
+            status="$(sed -n '2p' <<< "${parsed}")"
 
             if [ "${remaining}" = "0" ] || [ "${status}" = "complete" ] || [ "${status}" = "empty" ] || [ "${status}" = "not_configured" ]; then
               break
