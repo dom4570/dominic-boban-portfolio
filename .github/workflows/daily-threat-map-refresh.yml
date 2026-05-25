@@ -26,24 +26,44 @@ jobs:
             exit 1
           fi
 
-          validate_json() {
-            RESPONSE_BODY="$1" python3 -c "import json, os; json.loads(os.environ.get('RESPONSE_BODY', ''))" || {
-              echo "Expected JSON from the scheduled threat map endpoint. Check endpoint routing, Cloudflare Access, or cron auth." >&2
-              printf '%.500s\n' "$1" >&2
+          post_scheduled_endpoint() {
+            endpoint_url="$1"
+            label="$2"
+            response_file="$(mktemp)"
+
+            http_status="$(
+              curl --silent --show-error --location \
+                --request POST \
+                --output "${response_file}" \
+                --write-out "%{http_code}" \
+                --header "Authorization: Bearer ${THREAT_MAP_CRON_SECRET}" \
+                --header "Accept: application/json" \
+                --header "Content-Type: application/json" \
+                --header "User-Agent: dominic-boban-threat-map-cron/1.0" \
+                --data '{"source":"github-actions","workflow":"daily-threat-map-refresh"}' \
+                "${endpoint_url}"
+            )"
+
+            response="$(cat "${response_file}")"
+            rm -f "${response_file}"
+
+            echo "${response}"
+
+            if [ "${http_status}" -lt 200 ] || [ "${http_status}" -ge 300 ]; then
+              echo "${label} failed with HTTP ${http_status}." >&2
+              echo "Response preview:" >&2
+              printf '%.1000s\n' "${response}" >&2
+              exit 1
+            fi
+
+            RESPONSE_BODY="${response}" python3 -c "import json, os; json.loads(os.environ.get('RESPONSE_BODY', ''))" || {
+              echo "Expected JSON from ${label}. Check endpoint routing, Cloudflare Access, WAF rules, or cron auth." >&2
+              printf '%.1000s\n' "${response}" >&2
               exit 1
             }
           }
 
-          response="$(
-            curl --fail --silent --show-error \
-              --request POST \
-              --header "Authorization: Bearer ${THREAT_MAP_CRON_SECRET}" \
-              --header "Accept: application/json" \
-              "${base_url}/api/scheduled/threat-map-refresh"
-          )"
-
-          echo "${response}"
-          validate_json "${response}"
+          post_scheduled_endpoint "${base_url}/api/scheduled/threat-map-refresh" "scheduled threat map refresh endpoint"
 
       - name: Warm VirusTotal queue
         env:
@@ -56,16 +76,45 @@ jobs:
           # Give the refresh endpoint's background queue writer a moment to persist.
           sleep 10
 
-          for attempt in $(seq 1 15); do
-            response="$(
-              curl --fail --silent --show-error \
+          post_scheduled_endpoint() {
+            endpoint_url="$1"
+            label="$2"
+            response_file="$(mktemp)"
+
+            http_status="$(
+              curl --silent --show-error --location \
                 --request POST \
+                --output "${response_file}" \
+                --write-out "%{http_code}" \
                 --header "Authorization: Bearer ${THREAT_MAP_CRON_SECRET}" \
                 --header "Accept: application/json" \
-                "${base_url}/api/scheduled/threat-intel-warmup"
+                --header "Content-Type: application/json" \
+                --header "User-Agent: dominic-boban-threat-map-cron/1.0" \
+                --data '{"source":"github-actions","workflow":"daily-threat-map-refresh"}' \
+                "${endpoint_url}"
             )"
 
+            response="$(cat "${response_file}")"
+            rm -f "${response_file}"
+
             echo "${response}"
+
+            if [ "${http_status}" -lt 200 ] || [ "${http_status}" -ge 300 ]; then
+              echo "${label} failed with HTTP ${http_status}." >&2
+              echo "Response preview:" >&2
+              printf '%.1000s\n' "${response}" >&2
+              exit 1
+            fi
+
+            RESPONSE_BODY="${response}" python3 -c "import json, os; json.loads(os.environ.get('RESPONSE_BODY', ''))" || {
+              echo "Expected JSON from ${label}. Check endpoint routing, Cloudflare Access, WAF rules, or cron auth." >&2
+              printf '%.1000s\n' "${response}" >&2
+              exit 1
+            }
+          }
+
+          for attempt in $(seq 1 15); do
+            response="$(post_scheduled_endpoint "${base_url}/api/scheduled/threat-intel-warmup" "scheduled threat intelligence warmup endpoint")"
 
             parsed="$(
               RESPONSE_BODY="${response}" python3 -c "import json, os; payload = json.loads(os.environ.get('RESPONSE_BODY', '')); print(payload.get('remaining', 0)); print(payload.get('status', ''))"
