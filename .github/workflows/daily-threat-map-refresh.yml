@@ -132,7 +132,7 @@ jobs:
             remaining="$(sed -n '1p' <<< "${parsed}")"
             status="$(sed -n '2p' <<< "${parsed}")"
 
-            if [ "${remaining}" = "0" ] || [ "${status}" = "complete" ] || [ "${status}" = "empty" ] || [ "${status}" = "not_configured" ]; then
+            if [ "${remaining}" = "0" ] || [ "${status}" = "complete" ] || [ "${status}" = "empty" ] || [ "${status}" = "not_configured" ] || [ "${status}" = "unavailable" ] || [ "${status}" = "rate_limited" ]; then
               break
             fi
 
