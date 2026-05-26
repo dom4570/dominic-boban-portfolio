@@ -484,7 +484,7 @@ async function writePersistentCache(payload) {
   await Promise.all([writeEdgeCache(payload), writeLocalCache(payload)]);
 }
 
-async function withIpIntelligenceSummaries(payload) {
+async function withIpIntelligenceSummaries(payload, env = {}) {
   if (payload?.mode !== "live" || !Array.isArray(payload.points) || !payload.points.length) {
     return payload;
   }
@@ -507,7 +507,7 @@ async function withIpIntelligenceSummaries(payload) {
 
   try {
     const { addVirusTotalSummariesToPoints } = await import("./virustotal-ip-detail.js");
-    points = await addVirusTotalSummariesToPoints(points);
+    points = await addVirusTotalSummariesToPoints(points, env);
   } catch {
     // VirusTotal summary enrichment is best-effort and rate-limit aware.
   }
@@ -562,13 +562,13 @@ function scheduleAbuseIpdbPrewarm(points, env, context) {
   void task;
 }
 
-function scheduleVirusTotalQueue(points, context) {
+function scheduleVirusTotalQueue(points, env, context) {
   if (!Array.isArray(points) || !points.length) {
     return;
   }
 
   const task = import("./virustotal-ip-detail.js")
-    .then(({ storeVirusTotalPrewarmQueue }) => storeVirusTotalPrewarmQueue(points))
+    .then(({ storeVirusTotalPrewarmQueue }) => storeVirusTotalPrewarmQueue(points, env))
     .catch(() => null);
 
   if (typeof context?.waitUntil === "function") {
@@ -838,7 +838,7 @@ async function refreshLivePayload(apiKey, now, env, context) {
   await writePersistentCache(cacheablePayload(payload));
   scheduleSpamhausPrewarm(points, env, context);
   scheduleAbuseIpdbPrewarm(points, env, context);
-  scheduleVirusTotalQueue(points, context);
+  scheduleVirusTotalQueue(points, env, context);
 
   return payload;
 }
@@ -880,14 +880,14 @@ export async function handleAbuseOriginMapRequest(request, env = {}, context = {
   }
 
   try {
-    return json(await withIpIntelligenceSummaries(await buildLivePayload(env, context)));
+    return json(await withIpIntelligenceSummaries(await buildLivePayload(env, context), env));
   } catch (error) {
     const message = messageFromError(error, "Threat origin providers are temporarily unavailable.");
     if (cachedPayload?.mode === "live") {
       cachedUntil = nextScheduledRefreshTime(Date.now());
       cachedPayload = cacheablePayload(cachedResponse("stale", `Live refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
       await writePersistentCache(cachedPayload);
-      return json(await withIpIntelligenceSummaries(cachedPayload));
+      return json(await withIpIntelligenceSummaries(cachedPayload, env));
     }
 
     return json(fallbackPayload(message));

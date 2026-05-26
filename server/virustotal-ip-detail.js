@@ -14,6 +14,8 @@ const LOCAL_CACHE_FILE = ".cache/virustotal-ip-detail.json";
 const LOCAL_QUEUE_FILE = ".cache/virustotal-prewarm-queue.json";
 const EDGE_CACHE_PREFIX = "https://portfolio-cache.local/virustotal-ip-detail/";
 const EDGE_QUEUE_REQUEST = new Request("https://portfolio-cache.local/virustotal-prewarm-queue/current", { method: "GET" });
+const KV_DETAIL_PREFIX = "virustotal:ip:";
+const KV_QUEUE_KEY = "virustotal:prewarm:current";
 
 let memoryCache = new Map();
 let pendingDetails = new Map();
@@ -131,6 +133,44 @@ function isCachePayloadUsable(payload, now = Date.now()) {
   );
 }
 
+function threatIntelKv(env = {}) {
+  const namespace = env.THREAT_INTEL_KV || env.THREAT_MAP_KV || env.VIRUSTOTAL_KV;
+  return namespace && typeof namespace.get === "function" && typeof namespace.put === "function" ? namespace : null;
+}
+
+async function readKvJson(env, key) {
+  const namespace = threatIntelKv(env);
+  if (!namespace) {
+    return null;
+  }
+
+  return namespace.get(key, { type: "json" }).catch(() => null);
+}
+
+async function writeKvJson(env, key, payload) {
+  const namespace = threatIntelKv(env);
+  if (!namespace) {
+    return;
+  }
+
+  await namespace
+    .put(key, JSON.stringify(payload), {
+      expirationTtl: CACHE_TTL_SECONDS,
+    })
+    .catch(() => {});
+}
+
+async function readKvCache(ip, env) {
+  const payload = await readKvJson(env, `${KV_DETAIL_PREFIX}${normalizeIp(ip)}`);
+  return isCachePayloadUsable(payload) ? payload : null;
+}
+
+async function writeKvCache(payload, env) {
+  if (isCachePayloadUsable(payload)) {
+    await writeKvJson(env, `${KV_DETAIL_PREFIX}${payload.ip}`, payload);
+  }
+}
+
 function edgeCacheRequest(ip) {
   return new Request(`${EDGE_CACHE_PREFIX}${encodeURIComponent(ip)}`, { method: "GET" });
 }
@@ -229,14 +269,14 @@ function cachedPayload(payload) {
   };
 }
 
-async function readCachedDetail(ip) {
+async function readCachedDetail(ip, env = {}) {
   const normalizedIp = normalizeIp(ip);
   const memoryPayload = memoryCache.get(normalizedIp);
   if (isCachePayloadUsable(memoryPayload)) {
     return cachedPayload(memoryPayload);
   }
 
-  const payload = (await readEdgeCache(normalizedIp)) || (await readLocalCache(normalizedIp));
+  const payload = (await readKvCache(normalizedIp, env)) || (await readEdgeCache(normalizedIp)) || (await readLocalCache(normalizedIp));
   if (!payload) {
     return null;
   }
@@ -245,7 +285,7 @@ async function readCachedDetail(ip) {
   return cachedPayload(payload);
 }
 
-async function writeCachedDetail(payload) {
+async function writeCachedDetail(payload, env = {}) {
   if (!isCachePayloadUsable(payload)) {
     return;
   }
@@ -256,7 +296,7 @@ async function writeCachedDetail(payload) {
   };
 
   memoryCache.set(normalized.ip, normalized);
-  await Promise.all([writeEdgeCache(normalized), writeLocalCache(normalized)]);
+  await Promise.all([writeKvCache(normalized, env), writeEdgeCache(normalized), writeLocalCache(normalized)]);
 }
 
 function reserveMinuteBudget(limit = PREWARM_LIMIT_PER_MINUTE) {
@@ -429,7 +469,7 @@ async function fetchVirusTotalIpReport(ip, apiKey) {
 }
 
 async function buildVirusTotalIpPayload(ip, env, options = {}) {
-  const cached = await readCachedDetail(ip);
+  const cached = await readCachedDetail(ip, env);
   if (cached) {
     return addMitreTechniques(cached);
   }
@@ -449,7 +489,7 @@ async function buildVirusTotalIpPayload(ip, env, options = {}) {
 
   const pending = fetchVirusTotalIpReport(ip, apiKey)
     .then(async (payload) => {
-      await writeCachedDetail(payload);
+      await writeCachedDetail(payload, env);
       return addMitreTechniques(payload);
     })
     .finally(() => pendingDetails.delete(ip));
@@ -494,6 +534,17 @@ async function readEdgeQueue() {
   return prewarmQueueUsable(queue) ? queue : null;
 }
 
+async function readKvQueue(env) {
+  const queue = await readKvJson(env, KV_QUEUE_KEY);
+  return prewarmQueueUsable(queue) ? queue : null;
+}
+
+async function writeKvQueue(queue, env) {
+  if (prewarmQueueUsable(queue)) {
+    await writeKvJson(env, KV_QUEUE_KEY, queue);
+  }
+}
+
 async function writeEdgeQueue(queue) {
   if (!globalThis.caches?.default || !prewarmQueueUsable(queue)) {
     return;
@@ -520,19 +571,19 @@ async function writeLocalQueue(queue) {
   }
 }
 
-async function readPrewarmQueue() {
-  return (await readEdgeQueue()) || (await readLocalQueue());
+async function readPrewarmQueue(env = {}) {
+  return (await readKvQueue(env)) || (await readEdgeQueue()) || (await readLocalQueue());
 }
 
-async function writePrewarmQueue(queue) {
-  await Promise.all([writeEdgeQueue(queue), writeLocalQueue(queue)]);
+async function writePrewarmQueue(queue, env = {}) {
+  await Promise.all([writeKvQueue(queue, env), writeEdgeQueue(queue), writeLocalQueue(queue)]);
 }
 
 function queueSignature(ips) {
   return ips.join("|");
 }
 
-export async function storeVirusTotalPrewarmQueue(points) {
+export async function storeVirusTotalPrewarmQueue(points, env = {}) {
   const ips = uniqueIpsFromPoints(points);
   if (!ips.length) {
     return {
@@ -541,7 +592,7 @@ export async function storeVirusTotalPrewarmQueue(points) {
     };
   }
 
-  const existing = await readPrewarmQueue();
+  const existing = await readPrewarmQueue(env);
   const signature = queueSignature(ips);
   if (existing?.signature === signature && !existing.completed) {
     return {
@@ -562,7 +613,7 @@ export async function storeVirusTotalPrewarmQueue(points) {
     cache_expires_at: expiresAtFromNow(),
   };
 
-  await writePrewarmQueue(queue);
+  await writePrewarmQueue(queue, env);
 
   return {
     status: "queued",
@@ -570,11 +621,11 @@ export async function storeVirusTotalPrewarmQueue(points) {
   };
 }
 
-async function uncachedIps(ips) {
+async function uncachedIps(ips, env = {}) {
   const remaining = [];
 
   for (const ip of ips) {
-    if (!(await readCachedDetail(ip))) {
+    if (!(await readCachedDetail(ip, env))) {
       remaining.push(ip);
     }
   }
@@ -584,7 +635,7 @@ async function uncachedIps(ips) {
 
 export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
   const apiKey = normalizeSecretValue(env?.VIRUSTOTAL_API_KEY);
-  const queue = await readPrewarmQueue();
+  const queue = await readPrewarmQueue(env);
 
   if (!apiKey) {
     return {
@@ -615,14 +666,14 @@ export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
       status: "cooldown",
       attempted: 0,
       cached: 0,
-      remaining: (await uncachedIps(queue.ips)).length,
+      remaining: (await uncachedIps(queue.ips, env)).length,
       next_run_at: new Date(lastRun + 60_000).toISOString(),
       warnings: [],
     };
   }
 
   const limit = Math.max(1, Math.min(PREWARM_LIMIT_PER_MINUTE, numberOrNull(options.limit) || PREWARM_LIMIT_PER_MINUTE));
-  const remainingBefore = await uncachedIps(queue.ips);
+  const remainingBefore = await uncachedIps(queue.ips, env);
   const batch = remainingBefore.slice(0, limit);
   let attempted = 0;
   let cached = 0;
@@ -643,7 +694,7 @@ export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
     }
   }
 
-  const remainingAfter = await uncachedIps(queue.ips);
+  const remainingAfter = await uncachedIps(queue.ips, env);
   const updatedQueue = {
     ...queue,
     updated_at: new Date().toISOString(),
@@ -651,7 +702,7 @@ export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
     completed: remainingAfter.length === 0,
   };
 
-  await writePrewarmQueue(updatedQueue);
+  await writePrewarmQueue(updatedQueue, env);
 
   return {
     status: remainingAfter.length ? "warming" : "complete",
@@ -693,12 +744,12 @@ function summaryFromPayload(payload) {
   };
 }
 
-async function readCachedDetailSummary(ip) {
-  const payload = await readCachedDetail(ip);
+async function readCachedDetailSummary(ip, env = {}) {
+  const payload = await readCachedDetail(ip, env);
   return summaryFromPayload(payload);
 }
 
-export async function addVirusTotalSummariesToPoints(points) {
+export async function addVirusTotalSummariesToPoints(points, env = {}) {
   if (!Array.isArray(points) || !points.length) {
     return [];
   }
@@ -706,7 +757,7 @@ export async function addVirusTotalSummariesToPoints(points) {
   const summaries = await Promise.all(
     points.map(async (point) => {
       const ip = normalizeIp(point?.ip);
-      return isIpAddress(ip) ? readCachedDetailSummary(ip) : null;
+      return isIpAddress(ip) ? readCachedDetailSummary(ip, env) : null;
     }),
   );
 
@@ -730,7 +781,7 @@ export async function handleVirusTotalIpDetailRequest(request, env = {}) {
   }
 
   try {
-    const cached = await readCachedDetail(ip);
+    const cached = await readCachedDetail(ip, env);
     if (cached) {
       return json(await addMitreTechniques(cached));
     }

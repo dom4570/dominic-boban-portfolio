@@ -1,19 +1,20 @@
 export function handleVirusTotalIpDetailRequest(
   request: Request,
-  env?: Record<string, string | undefined>,
+  env?: Record<string, unknown>,
 ): Promise<Response>;
 
 export function handleVirusTotalPrewarmRequest(
   request: Request,
-  env?: Record<string, string | undefined>,
+  env?: Record<string, unknown>,
 ): Promise<Response>;
 
 export function storeVirusTotalPrewarmQueue(
   points: Array<{ ip?: string }>,
+  env?: Record<string, unknown>,
 ): Promise<{ status: string; queued: number }>;
 
 export function prewarmVirusTotalQueuedIps(
-  env?: Record<string, string | undefined>,
+  env?: Record<string, unknown>,
   options?: { limit?: number },
 ): Promise<{
   status: string;
@@ -26,6 +27,7 @@ export function prewarmVirusTotalQueuedIps(
 
 export function addVirusTotalSummariesToPoints<T extends { ip?: string }>(
   points: T[],
+  env?: Record<string, unknown>,
 ): Promise<Array<T & { virustotal_intelligence?: VirusTotalSummary }>>;
 
 export type VirusTotalSummary = {
