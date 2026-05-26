@@ -671,10 +671,6 @@ function blockingPrewarmFailure(payload) {
     return "unavailable";
   }
 
-  if (text.includes("rate limit") || text.includes("rate limited") || text.includes("quota")) {
-    return "rate_limited";
-  }
-
   return "";
 }
 
