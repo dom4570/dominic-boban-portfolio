@@ -20,6 +20,9 @@ jobs:
         run: |
           set -euo pipefail
           base_url="${THREAT_MAP_BASE_URL:-https://www.dominic-boban.com}"
+          base_url="${base_url%/}"
+          refresh_url="${base_url}/api/scheduled/threat-map-refresh"
+          echo "Calling scheduled threat map refresh endpoint: ${refresh_url}"
 
           if [ -z "${THREAT_MAP_CRON_SECRET:-}" ]; then
             echo "THREAT_MAP_CRON_SECRET is required in GitHub Actions secrets."
@@ -63,7 +66,7 @@ jobs:
             }
           }
 
-          post_scheduled_endpoint "${base_url}/api/scheduled/threat-map-refresh" "scheduled threat map refresh endpoint"
+          post_scheduled_endpoint "${refresh_url}" "scheduled threat map refresh endpoint"
 
       - name: Warm VirusTotal queue
         env:
@@ -72,6 +75,9 @@ jobs:
         run: |
           set -euo pipefail
           base_url="${THREAT_MAP_BASE_URL:-https://www.dominic-boban.com}"
+          base_url="${base_url%/}"
+          warmup_url="${base_url}/api/scheduled/threat-intel-warmup"
+          echo "Calling scheduled threat intelligence warmup endpoint: ${warmup_url}"
 
           # Give the refresh endpoint's background queue writer a moment to persist.
           sleep 10
@@ -114,7 +120,7 @@ jobs:
           }
 
           for attempt in $(seq 1 15); do
-            response="$(post_scheduled_endpoint "${base_url}/api/scheduled/threat-intel-warmup" "scheduled threat intelligence warmup endpoint")"
+            response="$(post_scheduled_endpoint "${warmup_url}" "scheduled threat intelligence warmup endpoint")"
 
             parsed="$(
               RESPONSE_BODY="${response}" python3 -c "import json, os; payload = json.loads(os.environ.get('RESPONSE_BODY', '')); print(payload.get('remaining', 0)); print(payload.get('status', ''))"
