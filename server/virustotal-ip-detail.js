@@ -633,6 +633,51 @@ async function uncachedIps(ips, env = {}) {
   return remaining;
 }
 
+async function nextUncachedEntries(queue, limit, env = {}) {
+  const ips = Array.isArray(queue?.ips) ? queue.ips : [];
+  if (!ips.length) {
+    return { entries: [], nextCursor: 0 };
+  }
+
+  const start = Math.max(0, Math.min(ips.length - 1, numberOrNull(queue.cursor) || 0));
+  const entries = [];
+  let nextCursor = start;
+
+  for (let offset = 0; offset < ips.length && entries.length < limit; offset += 1) {
+    const index = (start + offset) % ips.length;
+    const ip = ips[index];
+    nextCursor = (index + 1) % ips.length;
+
+    if (!(await readCachedDetail(ip, env))) {
+      entries.push({ ip, index });
+    }
+  }
+
+  return { entries, nextCursor };
+}
+
+function prewarmFailureSummary(ip, payload) {
+  const warning = cleanString(payload?.warnings?.[0] || "", "", 180);
+  return {
+    ip,
+    status: cleanString(payload?.status, "unavailable", 40),
+    warning,
+  };
+}
+
+function blockingPrewarmFailure(payload) {
+  const text = `${payload?.status || ""} ${(payload?.warnings || []).join(" ")}`.toLowerCase();
+  if (text.includes("authorization failed") || text.includes("api_key") || text.includes("not configured")) {
+    return "unavailable";
+  }
+
+  if (text.includes("rate limit") || text.includes("rate limited") || text.includes("quota")) {
+    return "rate_limited";
+  }
+
+  return "";
+}
+
 export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
   const apiKey = normalizeSecretValue(env?.VIRUSTOTAL_API_KEY);
   const queue = await readPrewarmQueue(env);
@@ -674,43 +719,60 @@ export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
 
   const limit = Math.max(1, Math.min(PREWARM_LIMIT_PER_MINUTE, numberOrNull(options.limit) || PREWARM_LIMIT_PER_MINUTE));
   const remainingBefore = await uncachedIps(queue.ips, env);
-  const batch = remainingBefore.slice(0, limit);
+  const { entries: batch, nextCursor } = await nextUncachedEntries(queue, limit, env);
   let attempted = 0;
   let cached = 0;
+  let cursor = nextCursor;
+  let terminalStatus = "";
+  const failures = [];
 
-  for (const ip of batch) {
+  for (const entry of batch) {
     if (!reserveMinuteBudget()) {
       break;
     }
 
     attempted += 1;
+    cursor = (entry.index + 1) % queue.ips.length;
+
     try {
-      const payload = await buildVirusTotalIpPayload(ip, env, { ignoreBudget: true });
+      const payload = await buildVirusTotalIpPayload(entry.ip, env, { ignoreBudget: true });
       if (isCachePayloadUsable(payload)) {
         cached += 1;
+      } else {
+        failures.push(prewarmFailureSummary(entry.ip, payload));
+        terminalStatus = terminalStatus || blockingPrewarmFailure(payload);
+        if (terminalStatus) {
+          break;
+        }
       }
     } catch {
-      // Warmup is opportunistic; selected-IP lookup can retry later.
+      failures.push({ ip: entry.ip, status: "error", warning: "VirusTotal warmup lookup failed." });
     }
   }
 
   const remainingAfter = await uncachedIps(queue.ips, env);
   const updatedQueue = {
     ...queue,
+    cursor,
     updated_at: new Date().toISOString(),
     last_run_at: new Date().toISOString(),
     completed: remainingAfter.length === 0,
+    last_failures: failures.slice(0, 8),
   };
 
   await writePrewarmQueue(updatedQueue, env);
 
   return {
-    status: remainingAfter.length ? "warming" : "complete",
+    status: terminalStatus || (remainingAfter.length ? "warming" : "complete"),
     attempted,
     cached,
     remaining: remainingAfter.length,
-    next_run_at: remainingAfter.length ? new Date(Date.now() + 60_000).toISOString() : "",
-    warnings: [],
+    next_run_at: remainingAfter.length && !terminalStatus ? new Date(Date.now() + 60_000).toISOString() : "",
+    warnings: failures.map((failure) =>
+      failure.warning
+        ? `${failure.ip}: ${failure.status} - ${failure.warning}`
+        : `${failure.ip}: ${failure.status}`,
+    ).slice(0, 4),
   };
 }
 
