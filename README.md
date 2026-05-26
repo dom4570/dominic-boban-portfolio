@@ -242,6 +242,12 @@ Fallback states are returned if upstream intelligence providers fail.
 | VIRUSTOTAL_API_KEY | VirusTotal | Reputation enrichment |
 | THREAT_MAP_CRON_SECRET | GitHub Actions | Protected refresh secret |
 
+Optional Cloudflare Pages KV binding:
+
+| Binding | Provider | Purpose |
+|---|---|---|
+| THREAT_INTEL_KV | Cloudflare KV | Shared VirusTotal warmup queue and cached IP reputation results across edge locations |
+
 ---
 
 # 🧪 Local Infrastructure Testing
