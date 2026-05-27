@@ -79,8 +79,9 @@ jobs:
           warmup_url="${base_url}/api/scheduled/threat-intel-warmup"
           echo "Calling scheduled threat intelligence warmup endpoint: ${warmup_url}"
 
-          # Give the refresh endpoint's background queue writer a moment to persist.
-          sleep 10
+          # Give Cloudflare KV time to propagate the queue write globally before the
+          # first warmup read. KV reads can return stale "empty" for up to ~60s otherwise.
+          sleep 30
 
           post_scheduled_endpoint() {
             endpoint_url="$1"
