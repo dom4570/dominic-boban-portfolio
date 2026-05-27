@@ -562,21 +562,17 @@ function scheduleAbuseIpdbPrewarm(points, env, context) {
   void task;
 }
 
-function scheduleVirusTotalQueue(points, env, context) {
+async function scheduleVirusTotalQueue(points, env, context) {
   if (!Array.isArray(points) || !points.length) {
     return;
   }
 
-  const task = import("./virustotal-ip-detail.js")
-    .then(({ storeVirusTotalPrewarmQueue }) => storeVirusTotalPrewarmQueue(points, env))
-    .catch(() => null);
-
-  if (typeof context?.waitUntil === "function") {
-    context.waitUntil(task);
-    return;
+  try {
+    const { storeVirusTotalPrewarmQueue } = await import("./virustotal-ip-detail.js");
+    await storeVirusTotalPrewarmQueue(points, env);
+  } catch {
+    void context;
   }
-
-  void task;
 }
 
 function countryNameFromCode(countryCode) {
@@ -838,7 +834,7 @@ async function refreshLivePayload(apiKey, now, env, context) {
   await writePersistentCache(cacheablePayload(payload));
   scheduleSpamhausPrewarm(points, env, context);
   scheduleAbuseIpdbPrewarm(points, env, context);
-  scheduleVirusTotalQueue(points, env, context);
+  await scheduleVirusTotalQueue(points, env, context);
 
   return payload;
 }
