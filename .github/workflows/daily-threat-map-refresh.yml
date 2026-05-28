@@ -134,6 +134,12 @@ jobs:
             remaining="$(sed -n '1p' <<< "${parsed}")"
             status="$(sed -n '2p' <<< "${parsed}")"
 
+            if [ "${status}" = "empty" ] && [ "${attempt}" -lt 3 ]; then
+              echo "Warmup queue is not visible yet; retrying after KV propagation delay."
+              sleep 60
+              continue
+            fi
+
             if [ "${remaining}" = "0" ] || [ "${status}" = "complete" ] || [ "${status}" = "empty" ] || [ "${status}" = "not_configured" ] || [ "${status}" = "unavailable" ]; then
               break
             fi
