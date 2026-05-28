@@ -583,6 +583,18 @@ function queueSignature(ips) {
   return ips.join("|");
 }
 
+function queueCompletedIps(queue) {
+  return new Set(
+    (Array.isArray(queue?.completed_ips) ? queue.completed_ips : [])
+      .map((ip) => normalizeIp(ip))
+      .filter((ip) => isIpAddress(ip)),
+  );
+}
+
+function remainingQueueCount(ips, completedIps) {
+  return (Array.isArray(ips) ? ips : []).filter((ip) => !completedIps.has(normalizeIp(ip))).length;
+}
+
 export async function storeVirusTotalPrewarmQueue(points, env = {}) {
   const ips = uniqueIpsFromPoints(points);
   if (!ips.length) {
@@ -609,6 +621,8 @@ export async function storeVirusTotalPrewarmQueue(points, env = {}) {
     created_at: now,
     updated_at: now,
     last_run_at: "",
+    cursor: 0,
+    completed_ips: [],
     completed: false,
     cache_expires_at: expiresAtFromNow(),
   };
@@ -621,39 +635,28 @@ export async function storeVirusTotalPrewarmQueue(points, env = {}) {
   };
 }
 
-async function uncachedIps(ips, env = {}) {
-  const remaining = [];
-
-  for (const ip of ips) {
-    if (!(await readCachedDetail(ip, env))) {
-      remaining.push(ip);
-    }
-  }
-
-  return remaining;
-}
-
-async function nextUncachedEntries(queue, limit, env = {}) {
+function nextPendingEntries(queue, limit) {
   const ips = Array.isArray(queue?.ips) ? queue.ips : [];
   if (!ips.length) {
-    return { entries: [], nextCursor: 0 };
+    return { entries: [], nextCursor: 0, completedIps: new Set() };
   }
 
   const start = Math.max(0, Math.min(ips.length - 1, numberOrNull(queue.cursor) || 0));
+  const completedIps = queueCompletedIps(queue);
   const entries = [];
   let nextCursor = start;
 
   for (let offset = 0; offset < ips.length && entries.length < limit; offset += 1) {
     const index = (start + offset) % ips.length;
-    const ip = ips[index];
+    const ip = normalizeIp(ips[index]);
     nextCursor = (index + 1) % ips.length;
 
-    if (!(await readCachedDetail(ip, env))) {
+    if (isIpAddress(ip) && !completedIps.has(ip)) {
       entries.push({ ip, index });
     }
   }
 
-  return { entries, nextCursor };
+  return { entries, nextCursor, completedIps };
 }
 
 function prewarmFailureSummary(ip, payload) {
@@ -703,19 +706,19 @@ export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
   const now = Date.now();
   const lastRun = new Date(queue.last_run_at || 0).getTime();
   if (Number.isFinite(lastRun) && lastRun > 0 && now - lastRun < 60_000) {
+    const completedIps = queueCompletedIps(queue);
     return {
       status: "cooldown",
       attempted: 0,
       cached: 0,
-      remaining: (await uncachedIps(queue.ips, env)).length,
+      remaining: remainingQueueCount(queue.ips, completedIps),
       next_run_at: new Date(lastRun + 60_000).toISOString(),
       warnings: [],
     };
   }
 
   const limit = Math.max(1, Math.min(PREWARM_LIMIT_PER_MINUTE, numberOrNull(options.limit) || PREWARM_LIMIT_PER_MINUTE));
-  const remainingBefore = await uncachedIps(queue.ips, env);
-  const { entries: batch, nextCursor } = await nextUncachedEntries(queue, limit, env);
+  const { entries: batch, nextCursor, completedIps } = nextPendingEntries(queue, limit);
   let attempted = 0;
   let cached = 0;
   let cursor = nextCursor;
@@ -734,6 +737,7 @@ export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
       const payload = await buildVirusTotalIpPayload(entry.ip, env, { ignoreBudget: true });
       if (isCachePayloadUsable(payload)) {
         cached += 1;
+        completedIps.add(entry.ip);
       } else {
         failures.push(prewarmFailureSummary(entry.ip, payload));
         terminalStatus = terminalStatus || blockingPrewarmFailure(payload);
@@ -746,24 +750,25 @@ export async function prewarmVirusTotalQueuedIps(env = {}, options = {}) {
     }
   }
 
-  const remainingAfter = await uncachedIps(queue.ips, env);
+  const remainingAfter = remainingQueueCount(queue.ips, completedIps);
   const updatedQueue = {
     ...queue,
     cursor,
+    completed_ips: [...completedIps],
     updated_at: new Date().toISOString(),
     last_run_at: new Date().toISOString(),
-    completed: remainingAfter.length === 0,
+    completed: remainingAfter === 0,
     last_failures: failures.slice(0, 8),
   };
 
   await writePrewarmQueue(updatedQueue, env);
 
   return {
-    status: terminalStatus || (remainingAfter.length ? "warming" : "complete"),
+    status: terminalStatus || (remainingAfter ? "warming" : "complete"),
     attempted,
     cached,
-    remaining: remainingAfter.length,
-    next_run_at: remainingAfter.length && !terminalStatus ? new Date(Date.now() + 60_000).toISOString() : "",
+    remaining: remainingAfter,
+    next_run_at: remainingAfter && !terminalStatus ? new Date(Date.now() + 60_000).toISOString() : "",
     warnings: failures.map((failure) =>
       failure.warning
         ? `${failure.ip}: ${failure.status} - ${failure.warning}`
