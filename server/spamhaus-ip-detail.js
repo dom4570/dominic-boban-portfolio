@@ -1114,7 +1114,7 @@ export async function handleSpamhausIpDetailRequest(request, env = {}) {
       return json(await addMitreTechniques(enriched));
     }
 
-    if (!(await isLiveThreatMapIp(ip))) {
+    if (!(await isLiveThreatMapIp(ip, env))) {
       return json(statusPayload(ip, "unavailable", ["IP Intelligence is only available for IPs from the current or recent Daily Top 50 map. Reload the map to refresh the selected source."]));
     }
 

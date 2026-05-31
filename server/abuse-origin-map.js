@@ -7,6 +7,7 @@ const DEFAULT_CONFIDENCE_MINIMUM = 90;
 const CACHE_SCHEMA_VERSION = 1;
 const LOCAL_CACHE_FILE = ".cache/abuse-origin-map.json";
 const EDGE_CACHE_URL = "https://portfolio-cache.local/abuse-origin-map/daily-top-50";
+const KV_CACHE_KEY = "abuse-origin-map:daily-top-50";
 const SPAMHAUS_PREWARM_CONCURRENCY = 3;
 const SPAMHAUS_PREWARM_TIMEOUT_MS = 25000;
 const ABUSEIPDB_PREWARM_CONCURRENCY = 3;
@@ -312,6 +313,35 @@ function isNodeRuntime() {
   return typeof process !== "undefined" && Boolean(process.versions?.node);
 }
 
+function threatIntelKv(env = {}) {
+  const namespace = env.THREAT_INTEL_KV || env.THREAT_MAP_KV;
+  return namespace && typeof namespace.get === "function" && typeof namespace.put === "function" ? namespace : null;
+}
+
+async function readKvCache(env = {}) {
+  const namespace = threatIntelKv(env);
+  if (!namespace) {
+    return null;
+  }
+
+  const payload = await namespace.get(KV_CACHE_KEY, { type: "json" }).catch(() => null);
+  return isCachePayloadUsable(payload) ? payload : null;
+}
+
+async function writeKvCache(payload, env = {}) {
+  const namespace = threatIntelKv(env);
+  if (!namespace || !isCachePayloadUsable(payload)) {
+    return;
+  }
+
+  const ttl = Math.max(60, Math.min(CACHE_TTL_SECONDS, Math.floor((effectiveCacheExpiryTime(payload) - Date.now()) / 1000)));
+  await namespace
+    .put(KV_CACHE_KEY, JSON.stringify(payload), {
+      expirationTtl: ttl,
+    })
+    .catch(() => {});
+}
+
 function cacheExpiryTime(payload) {
   const expiry = new Date(payload?.cache_expires_at || payload?.next_refresh_at || 0).getTime();
   return Number.isFinite(expiry) ? expiry : 0;
@@ -469,8 +499,8 @@ async function writeLocalCache(payload) {
   }
 }
 
-async function readPersistentCache() {
-  const payload = (await readEdgeCache()) || (await readLocalCache());
+async function readPersistentCache(env = {}) {
+  const payload = (await readKvCache(env)) || (await readEdgeCache()) || (await readLocalCache());
 
   if (!payload) {
     return null;
@@ -480,8 +510,8 @@ async function readPersistentCache() {
   return cachedResponse(payload.cache_status === "stale" ? "stale" : "cached");
 }
 
-async function writePersistentCache(payload) {
-  await Promise.all([writeEdgeCache(payload), writeLocalCache(payload)]);
+async function writePersistentCache(payload, env = {}) {
+  await Promise.all([writeKvCache(payload, env), writeEdgeCache(payload), writeLocalCache(payload)]);
 }
 
 async function withIpIntelligenceSummaries(payload, env = {}) {
@@ -687,7 +717,7 @@ async function buildLivePayload(env, context) {
     return cachedResponse(cachedPayload.cache_status === "stale" ? "stale" : "cached");
   }
 
-  const persistentPayload = await readPersistentCache();
+  const persistentPayload = await readPersistentCache(env);
   if (persistentPayload) {
     return persistentPayload;
   }
@@ -768,7 +798,7 @@ export async function refreshThreatMapSnapshot(env = {}, context = {}) {
     if (cachedPayload?.mode === "live") {
       cachedUntil = nextScheduledRefreshTime(Date.now());
       cachedPayload = cacheablePayload(cachedResponse("stale", `Scheduled refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
-      await writePersistentCache(cachedPayload);
+      await writePersistentCache(cachedPayload, env);
       return scheduledRefreshSummary(cachedPayload, "stale");
     }
 
@@ -831,7 +861,7 @@ async function refreshLivePayload(apiKey, now, env, context) {
   };
 
   cachedPayload = payload;
-  await writePersistentCache(cacheablePayload(payload));
+  await writePersistentCache(cacheablePayload(payload), env);
   scheduleSpamhausPrewarm(points, env, context);
   scheduleAbuseIpdbPrewarm(points, env, context);
   await scheduleVirusTotalQueue(points, env, context);
@@ -882,7 +912,7 @@ export async function handleAbuseOriginMapRequest(request, env = {}, context = {
     if (cachedPayload?.mode === "live") {
       cachedUntil = nextScheduledRefreshTime(Date.now());
       cachedPayload = cacheablePayload(cachedResponse("stale", `Live refresh failed, so the last daily snapshot is still being shown. ${message}`), "stale");
-      await writePersistentCache(cachedPayload);
+      await writePersistentCache(cachedPayload, env);
       return json(await withIpIntelligenceSummaries(cachedPayload, env));
     }
 
@@ -890,7 +920,7 @@ export async function handleAbuseOriginMapRequest(request, env = {}, context = {
   }
 }
 
-export async function isLiveThreatMapIp(ip) {
+export async function isLiveThreatMapIp(ip, env = {}) {
   const normalizedIp = cleanString(ip, "", 80);
   if (!normalizedIp) {
     return false;
@@ -901,6 +931,6 @@ export async function isLiveThreatMapIp(ip) {
     return cachedPayload.points?.some((point) => point.ip === normalizedIp) || false;
   }
 
-  const persistentPayload = await readPersistentCache();
+  const persistentPayload = await readPersistentCache(env);
   return persistentPayload?.mode === "live" && persistentPayload.points?.some((point) => point.ip === normalizedIp);
 }
