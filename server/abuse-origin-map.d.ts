@@ -30,4 +30,4 @@ export function handleThreatMapRefreshRequest(
   context?: { waitUntil?: (promise: Promise<unknown>) => void },
 ): Promise<Response>;
 
-export function isLiveThreatMapIp(ip: string): Promise<boolean>;
+export function isLiveThreatMapIp(ip: string, env?: Record<string, unknown>): Promise<boolean>;

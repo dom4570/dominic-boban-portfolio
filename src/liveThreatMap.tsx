@@ -200,6 +200,15 @@ type VirusTotalDetail = VirusTotalSummary & {
   mitre_matches?: MitreMatch[];
 };
 
+type VirusTotalPrewarmResponse = {
+  status: string;
+  attempted: number;
+  cached: number;
+  remaining: number;
+  next_run_at: string;
+  warnings: string[];
+};
+
 const MAX_DAILY_POINTS = 50;
 
 function readJson<T>(response: Response): Promise<T> {
@@ -1538,6 +1547,9 @@ export function LiveThreatMapPage() {
   const [data, setData] = useState<ThreatOriginResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [warmupStatus, setWarmupStatus] = useState<VirusTotalPrewarmResponse | null>(null);
+  const [warmupLoading, setWarmupLoading] = useState(false);
+  const [warmupError, setWarmupError] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [spamhausDetail, setSpamhausDetail] = useState<SpamhausDetail | null>(null);
   const [spamhausLoading, setSpamhausLoading] = useState(false);
@@ -1569,7 +1581,7 @@ export function LiveThreatMapPage() {
       .then((response) => readJson<ThreatOriginResponse>(response))
       .then((payload) => {
         setData(payload);
-        setSelectedId(payload.points[0]?.id || "");
+        setSelectedId((currentId) => (payload.points.some((point) => point.id === currentId) ? currentId : payload.points[0]?.id || ""));
       })
       .catch((loadError) => {
         setError(loadError instanceof Error ? loadError.message : "Threat origin data is temporarily unavailable.");
@@ -1582,6 +1594,33 @@ export function LiveThreatMapPage() {
   useEffect(() => {
     loadThreatOrigins();
   }, []);
+
+  const warmReputationCache = () => {
+    if (data?.mode !== "live" || warmupLoading) {
+      return;
+    }
+
+    setWarmupLoading(true);
+    setWarmupError("");
+
+    fetch("/api/virustotal-prewarm", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    })
+      .then((response) => readJson<VirusTotalPrewarmResponse>(response))
+      .then((payload) => {
+        setWarmupStatus(payload);
+        if (payload.cached > 0 || payload.remaining <= 0 || payload.status === "complete") {
+          loadThreatOrigins();
+        }
+      })
+      .catch((loadError) => {
+        setWarmupError(loadError instanceof Error ? loadError.message : "Reputation cache warmup is temporarily unavailable.");
+      })
+      .finally(() => setWarmupLoading(false));
+  };
 
   useEffect(() => {
     if (!selectedPoint?.ip) {
@@ -1951,16 +1990,40 @@ export function LiveThreatMapPage() {
                     <Globe2 size={16} />
                     Daily source marker layer
                   </div>
-                  <button
-                    type="button"
-                    onClick={loadThreatOrigins}
-                    disabled={loading}
-                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm font-medium text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {loading ? <Loader2 className="animate-spin" size={15} /> : <RotateCcw size={15} />}
-                    Reload cache
-                  </button>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={warmReputationCache}
+                      disabled={data?.mode !== "live" || warmupLoading}
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-cyan-300/20 bg-cyan-300/10 px-3 text-sm font-medium text-cyan-100 transition hover:border-cyan-300/45 hover:text-cyan-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {warmupLoading ? <Loader2 className="animate-spin" size={15} /> : <Radar size={15} />}
+                      Warm intel cache
+                    </button>
+                    <button
+                      type="button"
+                      onClick={loadThreatOrigins}
+                      disabled={loading}
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-black/25 px-3 text-sm font-medium text-white transition hover:border-signal/45 hover:text-signal disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {loading ? <Loader2 className="animate-spin" size={15} /> : <RotateCcw size={15} />}
+                      Reload cache
+                    </button>
+                  </div>
                 </div>
+                {(warmupStatus || warmupError) && (
+                  <div className="border-b border-white/10 bg-black/20 px-4 py-2 text-xs leading-5 text-haze">
+                    {warmupError ? (
+                      <span className="text-trace">{warmupError}</span>
+                    ) : warmupStatus ? (
+                      <span>
+                        Reputation warmup: {warmupStatus.status}. Cached {warmupStatus.cached} this run, {warmupStatus.remaining} remaining
+                        {warmupStatus.next_run_at ? `; next batch after ${formatDate(warmupStatus.next_run_at)}` : ""}.
+                        {warmupStatus.warnings?.length ? ` ${warmupStatus.warnings.join(" ")}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
                 <div className="relative">
                   <div ref={mapContainerRef} className="threat-origin-map h-[58vh] min-h-[420px] w-full" aria-label="Reported abusive IP source map" />
                   {(loading || (!points.length && error)) && <EmptyMapState loading={loading} error={error} />}

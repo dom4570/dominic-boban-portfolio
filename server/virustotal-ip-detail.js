@@ -849,7 +849,7 @@ export async function handleVirusTotalIpDetailRequest(request, env = {}) {
       return json(await addMitreTechniques(cached));
     }
 
-    if (!(await isLiveThreatMapIp(ip))) {
+    if (!(await isLiveThreatMapIp(ip, env))) {
       return json(statusPayload(ip, "unavailable", ["VirusTotal intelligence is only available for IPs from the current or recent Daily Top 50 map. Reload the map to refresh the selected source."]));
     }
 
