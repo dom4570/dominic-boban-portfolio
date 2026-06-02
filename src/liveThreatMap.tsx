@@ -1244,10 +1244,6 @@ function matchServiceText(match: MitreMatch | null) {
   return [match.service, match.port ? `port ${match.port}` : ""].filter(Boolean).join(" / ");
 }
 
-function bestMatchForTechnique(matches: MitreMatch[], techniqueId: string) {
-  return matchesForTechnique(matches, techniqueId)[0] || null;
-}
-
 function assessmentTechniqueConfig(techniqueId: string, match: MitreMatch | null) {
   const service = match?.service || "";
   const port = match?.port || null;
@@ -1388,8 +1384,7 @@ function deriveAssessment({
       ? `Supported by ${corroborationSources[0]}.`
       : "Supported by third-party reputation data.";
   const limitations = [
-    "Reported source-IP evidence, not telemetry against this portfolio.",
-    "Verdict is deterministic from cached third-party data.",
+    "Reported source-IP evidence only; details below show the source signals.",
   ];
 
   if (primary) {
@@ -1403,36 +1398,31 @@ function deriveAssessment({
     if (hasVirusTotalSignal) secondarySignals.push("Vendor detections present");
 
     const serviceText = matchServiceText(primary.bestMatch);
+    const contextNotes = uniqueProfileValues([
+      hasSpamhausListings ? "listing context" : "",
+      hasVirusTotalSignal ? "vendor reputation" : "",
+      hasPortScan && primary.techniqueId !== "T1595" ? "scanning also reported" : "",
+      hasXbl ? "possible compromised host context" : "",
+    ]).slice(0, 2);
     const evidenceCards = [
       {
-        label: "Primary evidence",
-        value: primary.techniqueId,
-        detail: primary.bestMatch.analyst_summary || primary.bestMatch.meaning || primary.bestMatch.evidence_summary || "Mapped from explainable behavior evidence.",
+        label: "Why",
+        value: `${assessmentSourceText(primary.sourceCount)} agree`,
+        detail: primary.bestMatch.pattern_label || "Explainable behavior evidence",
       },
       {
-        label: "Source agreement",
-        value: assessmentSourceText(primary.sourceCount),
-        detail: primary.bestMatch.confidence_reason || "Evidence strength is based on provider source, specificity, and matched behavior signals.",
+        label: "Context",
+        value: [serviceText, latest ? formatDate(latest) : ""].filter(Boolean).join(" / ") || `${primary.confidenceScore}/100`,
+        detail: contextNotes.join(", ") || "No extra context highlighted",
       },
-      serviceText
-        ? {
-            label: "Service context",
-            value: serviceText,
-            detail: "Service and port context make the behavior mapping more specific.",
-          }
-        : null,
-      latest
-        ? {
-            label: "Latest signal",
-            value: formatDate(latest),
-            detail: "Newest activity, listing, or reputation timestamp available for this selected source.",
-          }
-        : null,
     ].filter((card): card is IntelligenceAssessment["evidenceCards"][number] => Boolean(card));
 
     return {
       activity: verdict.activity,
-      conclusion: `${verdict.conclusion}${hostingContext && !verdict.conclusion.includes("hosting") ? hostingContext : ""}${hasSpamhausListings ? ", with listing data indicating broader abuse reputation." : "."}`.replace(/\.\./g, "."),
+      conclusion: [
+        `${verdict.conclusion.replace(/\.$/, "")}${hostingContext && !verdict.conclusion.includes("hosting") ? hostingContext : ""}.`,
+        hasSpamhausListings ? "Listing data adds broader abuse-reputation context." : "",
+      ].filter(Boolean).join(" "),
       corroboration,
       confidence: assessmentConfidence(primary.confidenceScore),
       confidenceScore: primary.confidenceScore,
@@ -1441,10 +1431,7 @@ function deriveAssessment({
       port: primary.port,
       scope: limitations[0],
       secondarySignals,
-      supportingSignals: uniqueProfileValues([
-        ...secondarySignals,
-        ...profiles.slice(0, 4).map((profile) => profile.label),
-      ]).slice(0, 6),
+      supportingSignals: contextNotes,
       limitations,
       evidenceCards,
     };
@@ -1493,14 +1480,13 @@ function deriveAssessment({
     secondarySignals,
     supportingSignals: uniqueProfileValues([
       ...secondarySignals,
-      ...profiles.slice(0, 4).map((profile) => profile.label),
     ]).slice(0, 6),
     limitations,
     evidenceCards: [
       {
         label: "Verdict basis",
         value: activity,
-        detail: "No high-confidence ATT&CK behavior node was returned, so the verdict stays at reputation/context level.",
+        detail: "No concrete ATT&CK behavior node was returned.",
       },
       hasAbuseReports
         ? {
@@ -1539,17 +1525,12 @@ function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment })
           <p className="font-mono text-[10px] uppercase text-signal">Analyst Verdict</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h3 className="text-xl font-semibold text-white">{assessment.activity}</h3>
-            {assessment.primaryTechniqueId ? (
-              <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 font-mono text-[10px] uppercase text-cyan-100">
-                {assessment.primaryTechniqueId}
-              </span>
-            ) : null}
           </div>
         </div>
         <div className={`rounded-md border px-2.5 py-1.5 text-right ${confidenceClasses}`}>
           <p className="font-mono text-[9px] uppercase text-haze">Confidence</p>
           <p className="font-mono text-[11px] uppercase text-white">
-            {assessment.confidence} · {assessment.confidenceScore}/100
+            {assessment.confidence} / {assessment.confidenceScore}/100
           </p>
         </div>
       </div>
@@ -1557,8 +1538,8 @@ function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment })
       <p className="mt-2 text-sm leading-6 text-white">{assessment.conclusion}</p>
 
       {assessment.evidenceCards.length ? (
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          {assessment.evidenceCards.slice(0, 4).map((card) => (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {assessment.evidenceCards.slice(0, 2).map((card) => (
             <div key={`${card.label}-${card.value}`} className="rounded-md border border-white/10 bg-black/25 p-2.5">
               <p className="font-mono text-[9px] uppercase text-haze">{card.label}</p>
               <p className="mt-1 text-sm font-semibold text-white">{card.value}</p>
@@ -1567,18 +1548,6 @@ function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment })
           ))}
         </div>
       ) : null}
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {assessment.supportingSignals.length ? assessment.supportingSignals.map((signal) => (
-          <span key={signal} className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[10px] uppercase text-haze">
-            {signal}
-          </span>
-        )) : (
-          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[10px] uppercase text-haze">
-            No secondary signal highlighted
-          </span>
-        )}
-      </div>
 
       <div className="mt-3 grid gap-2 text-xs leading-5 text-haze lg:grid-cols-2">
         <p>
