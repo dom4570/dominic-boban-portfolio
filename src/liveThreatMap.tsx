@@ -802,8 +802,20 @@ type IntelligenceAssessment = {
   activity: string;
   conclusion: string;
   corroboration: string;
+  confidence: "Strong" | "Likely" | "Context";
+  confidenceScore: number;
+  primaryTechniqueId?: string;
+  service?: string;
+  port?: number | null;
   scope: string;
   secondarySignals: string[];
+  supportingSignals: string[];
+  limitations: string[];
+  evidenceCards: Array<{
+    label: string;
+    value: string;
+    detail: string;
+  }>;
 };
 
 type IntelScore = {
@@ -1209,19 +1221,120 @@ function hasSshBruteforceHistory(event: SpamhausHistoryEvent | null) {
   return usesPort22 && (text.includes("bruteforce") || text.includes("brute force") || text.includes("ssh"));
 }
 
+function assessmentConfidence(score: number): IntelligenceAssessment["confidence"] {
+  if (score >= 76) return "Strong";
+  if (score >= 52) return "Likely";
+  return "Context";
+}
+
+function assessmentSourceText(count: number) {
+  return `${count} source ${count === 1 ? "signal" : "signals"}`;
+}
+
+function latestEvidenceDate(abuse: AbuseIpdbSummary | AbuseIpdbDetail | null, event: SpamhausHistoryEvent | null, virusTotal: VirusTotalSummary | VirusTotalDetail | null) {
+  const dates = [abuse?.last_reported_at, event?.seen_at, event?.listed_at, virusTotal?.last_analysis_date]
+    .map((value) => ({ value, time: new Date(value || 0).getTime() }))
+    .filter((entry): entry is { value: string; time: number } => Boolean(entry.value) && Number.isFinite(entry.time) && entry.time > 0);
+
+  return dates.sort((left, right) => right.time - left.time)[0]?.value || "";
+}
+
+function matchServiceText(match: MitreMatch | null) {
+  if (!match) return "";
+  return [match.service, match.port ? `port ${match.port}` : ""].filter(Boolean).join(" / ");
+}
+
+function bestMatchForTechnique(matches: MitreMatch[], techniqueId: string) {
+  return matchesForTechnique(matches, techniqueId)[0] || null;
+}
+
+function assessmentTechniqueConfig(techniqueId: string, match: MitreMatch | null) {
+  const service = match?.service || "";
+  const port = match?.port || null;
+
+  if (techniqueId === "T1110") {
+    if (service === "SSH" || port === 22) {
+      return {
+        activity: "SSH brute-force source",
+        conclusion: "This IP is most strongly associated with SSH credential attack behavior.",
+      };
+    }
+
+    if (service === "RDP" || port === 3389) {
+      return {
+        activity: "RDP brute-force source",
+        conclusion: "This IP is most strongly associated with Remote Desktop credential attack behavior.",
+      };
+    }
+
+    return {
+      activity: "Credential attack source",
+      conclusion: "This IP is most strongly associated with repeated authentication or brute-force behavior.",
+    };
+  }
+
+  if (techniqueId === "T1595") {
+    return {
+      activity: "Recon scanning source",
+      conclusion: "This IP is most strongly associated with probing or scanning network services.",
+    };
+  }
+
+  if (techniqueId === "T1190") {
+    return {
+      activity: "Web exploit probe",
+      conclusion: "This IP is most strongly associated with public-facing application exploit probing.",
+    };
+  }
+
+  if (techniqueId === "T1566") {
+    return {
+      activity: "Phishing infrastructure signal",
+      conclusion: "This IP is associated with phishing-related third-party evidence.",
+    };
+  }
+
+  if (techniqueId === "T1498") {
+    return {
+      activity: "Denial-of-service source",
+      conclusion: "This IP is associated with denial-of-service or flooding behavior.",
+    };
+  }
+
+  if (techniqueId === "T1071") {
+    return {
+      activity: "C2-labeled infrastructure",
+      conclusion: "This IP has explicit command-and-control labeling in third-party evidence.",
+    };
+  }
+
+  return {
+    activity: "Mapped behavior source",
+    conclusion: "This IP has a mapped third-party behavior signal.",
+  };
+}
+
 function deriveAssessment({
   abuse,
   categories,
   datasets,
   historyEvent,
+  intelScore,
   listingCount,
+  matches,
+  point,
+  profiles,
   virusTotal,
 }: {
   abuse: AbuseIpdbSummary | AbuseIpdbDetail | null;
   categories: AbuseIpdbCategory[];
   datasets: EvidenceDataset[];
   historyEvent: SpamhausHistoryEvent | null;
+  intelScore: IntelScore;
   listingCount: number;
+  matches: MitreMatch[];
+  point: ThreatPoint | null;
+  profiles: ThreatProfileBadge[];
   virusTotal: VirusTotalSummary | VirusTotalDetail | null;
 }): IntelligenceAssessment {
   const labels = categorySet(categories);
@@ -1233,78 +1346,246 @@ function deriveAssessment({
   const hasXbl = hasDataset(datasets, ["XBL", "CBL"]);
   const hasAbusiveInfrastructure = hasDataset(datasets, ["SBL", "DROP"]);
   const hasPolicyContext = hasDataset(datasets, ["PBL"]);
-  const hostingContext = abuse?.usage_type && /data center|hosting|transit|cloud/i.test(abuse.usage_type) ? " from hosting infrastructure" : "";
+  const isHosted = Boolean(point?.hosting) || Boolean(abuse?.usage_type && /data center|hosting|transit|cloud/i.test(abuse.usage_type));
+  const hostingContext = isHosted ? " from hosting infrastructure" : "";
   const secondarySignals = [];
+  const latest = latestEvidenceDate(abuse, historyEvent, virusTotal);
+  const behaviorOrder = ["T1110", "T1595", "T1190", "T1566", "T1498", "T1071"];
+  const profileFindingBoost = profiles.some((profile) => profile.kind === "finding" && profile.confidence === "Strong") ? 4 : profiles.some((profile) => profile.kind === "finding") ? 2 : 0;
+  const intelBoost = intelScore.severity === "Critical" ? 6 : intelScore.severity === "High" ? 4 : intelScore.severity === "Elevated" ? 2 : 0;
+  const behaviorCandidates = behaviorOrder
+    .map((techniqueId, order) => {
+      const techniqueMatches = matchesForTechnique(matches, techniqueId);
+      const bestMatch = techniqueMatches[0] || null;
+      if (!bestMatch) return null;
 
-  let activity = "Reported abusive source";
-  let conclusion = "This IP has third-party abuse intelligence, but the available evidence does not identify a single dominant activity.";
+      const sourceCount = sourceCountFromMatches(techniqueMatches);
+      const baseScore = mitreMatchScore(bestMatch);
+      const confidenceScore = Math.min(100, Math.round(baseScore + Math.max(0, sourceCount - 1) * 8 + profileFindingBoost + intelBoost));
 
-  if (hasBruteforceSsh) {
-    activity = "SSH brute-force source";
-    conclusion = `This IP is most strongly associated with SSH brute-force activity${hostingContext}.`;
-  } else if (hasPortScan) {
-    activity = "Port scanning source";
-    conclusion = `This IP is most strongly associated with port scanning activity${hostingContext}.`;
-  } else if (hasXbl) {
-    activity = "Possible exploited or infected host";
-    conclusion = "Listing data indicates this IP may be an exploited or infected host.";
-  } else if (hasAbusiveInfrastructure) {
-    activity = "Known abusive infrastructure";
-    conclusion = "Listing data links this IP or netblock to abusive infrastructure.";
-  } else if (hasAbuseReports) {
-    activity = "Repeatedly reported abuse source";
-    conclusion = `Activity reporting indicates repeated abusive activity from this source IP${hostingContext}.`;
-  } else if (hasSpamhausListings) {
-    activity = "Listed abuse source";
-    conclusion = "This source IP appears in abuse reputation datasets.";
-  } else if (hasVirusTotalSignal) {
-    activity = "Vendor-flagged suspicious source";
-    conclusion = "Vendor reputation flags this source IP, but no dominant activity signal is available.";
-  }
+      return {
+        techniqueId,
+        order,
+        bestMatch,
+        confidenceScore,
+        sourceCount,
+        service: bestMatch.service || "",
+        port: bestMatch.port || null,
+      };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+    .sort((left, right) => right.confidenceScore - left.confidenceScore || left.order - right.order);
 
-  if (hasPortScan && activity !== "Port scanning source") secondarySignals.push("Port scanning also reported");
-  if (hasXbl && activity !== "Possible exploited or infected host") secondarySignals.push("Possible exploited or infected host");
-  if (hasAbusiveInfrastructure && activity !== "Known abusive infrastructure") secondarySignals.push("Known abusive infrastructure/listed netblock");
-  if (hasPolicyContext) secondarySignals.push("Policy/listing context also present");
-  if (hasVirusTotalSignal && activity !== "Vendor-flagged suspicious source") secondarySignals.push("Vendor detections present");
-
-  if (hasSpamhausListings && hasAbuseReports && !conclusion.includes("listing data")) {
-    conclusion = `${conclusion.replace(/\.$/, "")}, with listing data indicating broader abuse reputation.`;
-  }
-
+  const primary = behaviorCandidates[0] || null;
   const corroborationSources = [
     hasAbuseReports ? "activity reports" : "",
     hasSpamhausListings ? "listing data" : "",
     hasVirusTotalSignal ? "vendor reputation" : "",
   ].filter(Boolean);
+  const corroboration = corroborationSources.length > 1
+    ? `Confirmed by ${corroborationSources.join(", ").replace(/, ([^,]*)$/, " and $1")}.`
+    : corroborationSources.length === 1
+      ? `Supported by ${corroborationSources[0]}.`
+      : "Supported by third-party reputation data.";
+  const limitations = [
+    "Reported source-IP evidence, not telemetry against this portfolio.",
+    "Verdict is deterministic from cached third-party data.",
+  ];
+
+  if (primary) {
+    const verdict = assessmentTechniqueConfig(primary.techniqueId, primary.bestMatch);
+
+    if (hasPortScan && primary.techniqueId !== "T1595") secondarySignals.push("Port scanning also reported");
+    if (hasBruteforceSsh && primary.techniqueId !== "T1110") secondarySignals.push("Credential attack behavior also reported");
+    if (hasXbl) secondarySignals.push("Possible exploited or infected host");
+    if (hasAbusiveInfrastructure) secondarySignals.push("Known abusive infrastructure/listed netblock");
+    if (hasPolicyContext) secondarySignals.push("Policy/listing context also present");
+    if (hasVirusTotalSignal) secondarySignals.push("Vendor detections present");
+
+    const serviceText = matchServiceText(primary.bestMatch);
+    const evidenceCards = [
+      {
+        label: "Primary evidence",
+        value: primary.techniqueId,
+        detail: primary.bestMatch.analyst_summary || primary.bestMatch.meaning || primary.bestMatch.evidence_summary || "Mapped from explainable behavior evidence.",
+      },
+      {
+        label: "Source agreement",
+        value: assessmentSourceText(primary.sourceCount),
+        detail: primary.bestMatch.confidence_reason || "Evidence strength is based on provider source, specificity, and matched behavior signals.",
+      },
+      serviceText
+        ? {
+            label: "Service context",
+            value: serviceText,
+            detail: "Service and port context make the behavior mapping more specific.",
+          }
+        : null,
+      latest
+        ? {
+            label: "Latest signal",
+            value: formatDate(latest),
+            detail: "Newest activity, listing, or reputation timestamp available for this selected source.",
+          }
+        : null,
+    ].filter((card): card is IntelligenceAssessment["evidenceCards"][number] => Boolean(card));
+
+    return {
+      activity: verdict.activity,
+      conclusion: `${verdict.conclusion}${hostingContext && !verdict.conclusion.includes("hosting") ? hostingContext : ""}${hasSpamhausListings ? ", with listing data indicating broader abuse reputation." : "."}`.replace("..", "."),
+      corroboration,
+      confidence: assessmentConfidence(primary.confidenceScore),
+      confidenceScore: primary.confidenceScore,
+      primaryTechniqueId: primary.techniqueId,
+      service: primary.service,
+      port: primary.port,
+      scope: limitations[0],
+      secondarySignals,
+      supportingSignals: uniqueProfileValues([
+        ...secondarySignals,
+        ...profiles.slice(0, 4).map((profile) => profile.label),
+      ]).slice(0, 6),
+      limitations,
+      evidenceCards,
+    };
+  }
+
+  let activity = "Reported abusive source";
+  let conclusion = "This IP has third-party abuse intelligence, but the available evidence does not identify a single dominant behavior.";
+  let contextScore = Math.max(28, Math.min(72, intelScore.score));
+
+  if (hasXbl) {
+    activity = "Possible compromised host";
+    conclusion = "Listing data indicates this IP may be an exploited or infected host, but no concrete ATT&CK behavior was returned.";
+    contextScore = Math.max(contextScore, 48);
+  } else if (hasAbusiveInfrastructure) {
+    activity = "Known abusive infrastructure";
+    conclusion = "Listing data links this IP or netblock to abusive infrastructure, without a concrete behavior verdict.";
+    contextScore = Math.max(contextScore, 48);
+  } else if (hasAbuseReports) {
+    activity = "Repeatedly reported abuse source";
+    conclusion = `Activity reporting indicates repeated abusive activity from this source IP${hostingContext}, but no dominant behavior mapping was returned.`;
+    contextScore = Math.max(contextScore, abuse?.total_reports && abuse.total_reports > 1000 ? 58 : 46);
+  } else if (hasSpamhausListings) {
+    activity = "Listed abuse source";
+    conclusion = "This source IP appears in abuse reputation datasets, but the available evidence remains contextual.";
+    contextScore = Math.max(contextScore, 42);
+  } else if (hasVirusTotalSignal) {
+    activity = "Vendor-flagged suspicious source";
+    conclusion = "Vendor reputation flags this source IP, but no dominant activity signal is available.";
+    contextScore = Math.max(contextScore, 42);
+  }
+
+  if (hasPortScan) secondarySignals.push("Port scanning category present");
+  if (hasBruteforceSsh) secondarySignals.push("Credential attack category present");
+  if (hasXbl) secondarySignals.push("Possible exploited or infected host");
+  if (hasAbusiveInfrastructure) secondarySignals.push("Known abusive infrastructure/listed netblock");
+  if (hasPolicyContext) secondarySignals.push("Policy/listing context also present");
+  if (hasVirusTotalSignal) secondarySignals.push("Vendor detections present");
+
   return {
     activity,
     conclusion,
-    corroboration: corroborationSources.length > 1
-      ? `Confirmed by ${corroborationSources.join(", ").replace(/, ([^,]*)$/, " and $1")}.`
-      : corroborationSources.length === 1
-        ? `Supported by ${corroborationSources[0]}.`
-        : "Supported by third-party reputation data.",
-    scope: "Reported source IP activity, not traffic against this portfolio.",
+    corroboration,
+    confidence: assessmentConfidence(contextScore),
+    confidenceScore: contextScore,
+    scope: limitations[0],
     secondarySignals,
+    supportingSignals: uniqueProfileValues([
+      ...secondarySignals,
+      ...profiles.slice(0, 4).map((profile) => profile.label),
+    ]).slice(0, 6),
+    limitations,
+    evidenceCards: [
+      {
+        label: "Verdict basis",
+        value: activity,
+        detail: "No high-confidence ATT&CK behavior node was returned, so the verdict stays at reputation/context level.",
+      },
+      hasAbuseReports
+        ? {
+            label: "Activity volume",
+            value: `${formatNumber(abuse?.total_reports)} reports`,
+            detail: `${formatNumber(abuse?.num_distinct_users)} distinct reporters over the configured AbuseIPDB window.`,
+          }
+        : null,
+      hasSpamhausListings
+        ? {
+            label: "Listing context",
+            value: `${formatNumber(listingCount)} listings`,
+            detail: datasets.map((dataset) => `${dataset.dataset} / code ${dataset.code}`).join(", ") || "Listing summary returned for this source IP.",
+          }
+        : null,
+      hasVirusTotalSignal
+        ? {
+            label: "Vendor reputation",
+            value: virusTotalRatio(virusTotal) || "Flagged",
+            detail: "Vendor reputation is treated as supporting context unless explicit behavior labels are present.",
+          }
+        : null,
+    ].filter((card): card is IntelligenceAssessment["evidenceCards"][number] => Boolean(card)),
   };
 }
 
 function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment }) {
+  const confidenceClasses = profileToneClasses(
+    assessment.confidence === "Strong" ? "red" : assessment.confidence === "Likely" ? "amber" : "zinc",
+  );
+
   return (
     <div className="rounded-md border border-signal/25 bg-signal/10 p-3">
-      <p className="font-mono text-[10px] uppercase text-signal">Assessment</p>
-      <h3 className="mt-1.5 text-xl font-semibold text-white">{assessment.activity}</h3>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-mono text-[10px] uppercase text-signal">Analyst Verdict</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <h3 className="text-xl font-semibold text-white">{assessment.activity}</h3>
+            {assessment.primaryTechniqueId ? (
+              <span className="rounded-md border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 font-mono text-[10px] uppercase text-cyan-100">
+                {assessment.primaryTechniqueId}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className={`rounded-md border px-2.5 py-1.5 text-right ${confidenceClasses}`}>
+          <p className="font-mono text-[9px] uppercase text-haze">Confidence</p>
+          <p className="font-mono text-[11px] uppercase text-white">
+            {assessment.confidence} · {assessment.confidenceScore}/100
+          </p>
+        </div>
+      </div>
+
       <p className="mt-2 text-sm leading-6 text-white">{assessment.conclusion}</p>
-      <div className="mt-2 grid gap-2 text-xs leading-5 text-haze md:grid-cols-3">
+
+      {assessment.evidenceCards.length ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          {assessment.evidenceCards.slice(0, 4).map((card) => (
+            <div key={`${card.label}-${card.value}`} className="rounded-md border border-white/10 bg-black/25 p-2.5">
+              <p className="font-mono text-[9px] uppercase text-haze">{card.label}</p>
+              <p className="mt-1 text-sm font-semibold text-white">{card.value}</p>
+              <p className="mt-1 text-xs leading-5 text-haze">{card.detail}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {assessment.supportingSignals.length ? assessment.supportingSignals.map((signal) => (
+          <span key={signal} className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+            {signal}
+          </span>
+        )) : (
+          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+            No secondary signal highlighted
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 grid gap-2 text-xs leading-5 text-haze lg:grid-cols-2">
         <p>
           <span className="text-white">Corroboration:</span> {assessment.corroboration}
         </p>
         <p>
-          <span className="text-white">Scope:</span> {assessment.scope}
-        </p>
-        <p>
-          <span className="text-white">Secondary:</span> {assessment.secondarySignals.join(", ") || "No secondary signal highlighted"}
+          <span className="text-white">Limits:</span> {assessment.limitations.join(" ")}
         </p>
       </div>
     </div>
@@ -1608,9 +1889,6 @@ function IpIntelligence({
   );
   const hasAbuseContent = Boolean(abuse);
   const hasVirusTotalContent = Boolean(virusTotal);
-  const assessment = hasSpamhausContent || hasAbuseContent || hasVirusTotalContent
-    ? deriveAssessment({ abuse, categories, datasets, historyEvent, listingCount, virusTotal })
-    : null;
   const mitreTechniques = mergeMitreTechniques(abuseDetail?.mitre_techniques, detail?.mitre_techniques, virusTotalDetail?.mitre_techniques);
   const mitreMatches = mergeMitreMatches(abuseDetail?.mitre_matches, detail?.mitre_matches, virusTotalDetail?.mitre_matches);
   const threatProfiles = deriveThreatProfiles({
@@ -1622,6 +1900,21 @@ function IpIntelligence({
     point: selectedPoint,
     virusTotal,
   });
+  const intelScore = deriveIntelScore({ abuse, datasets, historyEvent, virusTotal });
+  const assessment = hasSpamhausContent || hasAbuseContent || hasVirusTotalContent
+    ? deriveAssessment({
+        abuse,
+        categories,
+        datasets,
+        historyEvent,
+        intelScore,
+        listingCount,
+        matches: mitreMatches,
+        point: selectedPoint,
+        profiles: threatProfiles,
+        virusTotal,
+      })
+    : null;
   const isChecking = loading || abuseLoading || virusTotalLoading;
 
   return (
