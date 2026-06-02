@@ -9,6 +9,13 @@ export type MitreMatch = {
   matched_field: string;
   confidence: "high" | "medium";
   pattern_label: string;
+  evidence_score?: number;
+  source_count?: number;
+  signals?: string[];
+  service?: string;
+  port?: number | null;
+  confidence_reason?: string;
+  analyst_summary?: string;
 };
 
 export function normalizeAbuseIpdbEvidence(payload: unknown): Array<Record<string, string>>;

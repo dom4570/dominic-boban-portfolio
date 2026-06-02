@@ -139,6 +139,13 @@ type MitreMatch = {
   matched_field: string;
   confidence: "high" | "medium";
   pattern_label: string;
+  evidence_score?: number;
+  source_count?: number;
+  signals?: string[];
+  service?: string;
+  port?: number | null;
+  confidence_reason?: string;
+  analyst_summary?: string;
 };
 
 type SpamhausDetail = {
@@ -584,10 +591,39 @@ function mitreSourceBadge(match: MitreMatch) {
   };
 }
 
+function mitreMatchScore(match: MitreMatch) {
+  return Math.max(0, Math.min(100, Number(match.evidence_score) || (match.confidence === "high" ? 72 : 54)));
+}
+
+function mitreTechniqueStats(matches: MitreMatch[]) {
+  const scores = matches.map(mitreMatchScore);
+  const maxScore = scores.length ? Math.max(...scores) : 0;
+  const sources = new Set(matches.map((match) => match.source).filter(Boolean));
+  const services = [...new Set(matches.map((match) => match.service).filter(Boolean))];
+  const ports = [...new Set(matches.map((match) => match.port).filter((port): port is number => typeof port === "number"))];
+  const confidence: "Strong" | "Likely" | "Context" = maxScore >= 76 || sources.size >= 2 ? "Strong" : maxScore >= 58 ? "Likely" : "Context";
+
+  return {
+    maxScore,
+    confidence,
+    sourceCount: sources.size || Math.max(1, matches.length ? 1 : 0),
+    services,
+    ports,
+  };
+}
+
+function mitreNodeClasses(confidence: "Strong" | "Likely" | "Context", isActive: boolean) {
+  if (isActive) return "border-signal/70 bg-signal/15 shadow-[0_0_22px_rgba(250,255,0,0.14)]";
+  if (confidence === "Strong") return "border-trace/40 bg-trace/10 hover:border-trace/70 hover:bg-trace/15";
+  if (confidence === "Likely") return "border-cyan-300/30 bg-cyan-300/10 hover:border-cyan-300/55 hover:bg-cyan-300/15";
+  return "border-white/15 bg-white/[0.03] hover:border-white/30";
+}
+
 function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; techniques: MitreTechnique[] }) {
   const [selectedId, setSelectedId] = useState("");
   const containerRef = useOutsideDismiss<HTMLDivElement>(Boolean(selectedId), () => setSelectedId(""));
-  const explainableIds = new Set(matches.map((match) => match.technique_id).filter(Boolean));
+  const scoredMatches = matches.filter((match) => mitreMatchScore(match) >= 50 || match.confidence === "high");
+  const explainableIds = new Set(scoredMatches.map((match) => match.technique_id).filter(Boolean));
   const sortedTechniques = techniques.filter((technique) => explainableIds.has(technique.id)).sort((left, right) => {
     const order = tacticOrder(left.tactic) - tacticOrder(right.tactic);
     return order || left.id.localeCompare(right.id);
@@ -599,9 +635,10 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
   const activeTechnique = sortedTechniques.find((technique) => technique.id === activeId) || null;
   const matchesByTechnique = new Map<string, MitreMatch[]>();
 
-  matches.forEach((match) => {
+  scoredMatches.forEach((match) => {
     if (!match.technique_id) return;
-    matchesByTechnique.set(match.technique_id, [...(matchesByTechnique.get(match.technique_id) || []), match]);
+    const nextMatches = [...(matchesByTechnique.get(match.technique_id) || []), match].sort((left, right) => mitreMatchScore(right) - mitreMatchScore(left));
+    matchesByTechnique.set(match.technique_id, nextMatches);
   });
 
   const tacticGroups = sortedTechniques.reduce<Array<{ tactic: string; techniques: MitreTechnique[] }>>((groups, technique) => {
@@ -615,6 +652,7 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
   }, []);
 
   const activeMatches = matchesByTechnique.get(activeTechnique?.id || "") || [];
+  const activeStats = activeTechnique ? mitreTechniqueStats(activeMatches) : null;
 
   return (
     <div ref={containerRef} className="rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3">
@@ -642,26 +680,23 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
                   {visibleTechniques.map((technique) => {
                     const isActive = technique.id === activeId;
                     const techniqueMatches = matchesByTechnique.get(technique.id) || [];
+                    const stats = mitreTechniqueStats(techniqueMatches);
 
                     return (
                       <button
                         key={technique.id}
                         type="button"
-                        className={`rounded-md border px-2.5 py-2 text-left transition ${
-                          isActive
-                            ? "border-signal/60 bg-signal/15 shadow-[0_0_22px_rgba(250,255,0,0.12)]"
-                            : "border-cyan-300/15 bg-white/[0.03] hover:border-cyan-300/40 hover:bg-cyan-300/10"
-                        }`}
+                        className={`rounded-md border px-2.5 py-2 text-left transition ${mitreNodeClasses(stats.confidence, isActive)}`}
                         aria-expanded={isActive}
                         onClick={() => setSelectedId(isActive ? "" : technique.id)}
                       >
                         <span className="font-mono text-[10px] uppercase text-cyan-100">{technique.id}</span>
                         <span className="mt-1 block text-sm font-semibold leading-tight text-white">{technique.technique}</span>
-                        {techniqueMatches.length ? (
-                          <span className="mt-1 block font-mono text-[10px] uppercase text-haze">
-                            {techniqueMatches.length} evidence {techniqueMatches.length === 1 ? "match" : "matches"}
-                          </span>
-                        ) : null}
+                        <span className="mt-1 flex flex-wrap gap-1.5 font-mono text-[9px] uppercase text-haze">
+                          <span>{stats.confidence}</span>
+                          <span>{stats.sourceCount} src</span>
+                          <span>{stats.maxScore}/100</span>
+                        </span>
                       </button>
                     );
                   })}
@@ -687,6 +722,19 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
               {activeTechnique.tactic}
             </span>
             <span className="text-sm font-semibold text-white">{activeTechnique.technique}</span>
+            {activeStats ? (
+              <>
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+                  {activeStats.confidence}
+                </span>
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+                  {activeStats.sourceCount} source {activeStats.sourceCount === 1 ? "signal" : "signals"}
+                </span>
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+                  {activeStats.maxScore}/100
+                </span>
+              </>
+            ) : null}
           </div>
 
           {activeMatches.length ? (
@@ -702,14 +750,32 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
                     <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[10px] uppercase text-haze">
                       {match.confidence}
                     </span>
+                    <span className="rounded-md border border-white/10 bg-black/20 px-2 py-1 font-mono text-[10px] uppercase text-haze">
+                      {mitreMatchScore(match)}/100
+                    </span>
                   </div>
                   <div className="mt-2 grid gap-2 text-xs leading-5 text-haze">
                     <p>
-                      <span className="text-white">Why this mapped:</span> {match.meaning || "This evidence matched a deterministic ATT&CK behavior rule."}
+                      <span className="text-white">Why this mapped:</span> {match.analyst_summary || match.meaning || "This evidence matched a deterministic ATT&CK behavior rule."}
                     </p>
                     <p>
                       <span className="text-white">Evidence used:</span> {match.evidence_summary || match.evidence}
                     </p>
+                    {match.service || match.port || match.confidence_reason ? (
+                      <p>
+                        <span className="text-white">Context:</span>{" "}
+                        {[match.service, match.port ? `port ${match.port}` : "", match.confidence_reason].filter(Boolean).join(" / ")}
+                      </p>
+                    ) : null}
+                    {match.signals?.length ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {match.signals.slice(0, 6).map((signal) => (
+                          <span key={signal} className="rounded border border-cyan-300/20 bg-cyan-300/10 px-1.5 py-0.5 font-mono text-[9px] uppercase text-cyan-100">
+                            {signal.replace(/_/g, " ")}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     {match.raw_evidence && match.raw_evidence !== match.evidence_summary ? (
                       <p className="break-words rounded-md border border-white/10 bg-black/20 p-2 font-mono text-[10px] leading-5 text-haze">
                         {match.raw_evidence}
@@ -748,11 +814,14 @@ type IntelScore = {
 type ThreatProfileBadge = {
   id: string;
   label: string;
-  confidence: "Strong" | "Context";
+  confidence: "Strong" | "Likely" | "Context";
   evidence: string;
   sourceCount: number;
   tone: "red" | "purple" | "cyan" | "amber" | "zinc";
   priority: number;
+  kind: "finding" | "context";
+  score?: number;
+  snippets?: string[];
 };
 
 function abusePayload(detail: AbuseIpdbDetail | null, summary: AbuseIpdbSummary | null) {
@@ -803,9 +872,19 @@ function cleanProfileEvidence(value: string) {
   return value.replace(/\s+/g, " ").trim().slice(0, 180);
 }
 
+function uniqueProfileValues(values: Array<string | undefined | null>) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function confidenceRank(confidence: ThreatProfileBadge["confidence"]) {
+  if (confidence === "Strong") return 3;
+  if (confidence === "Likely") return 2;
+  return 1;
+}
+
 function addProfile(profiles: Map<string, ThreatProfileBadge>, next: ThreatProfileBadge) {
   const existing = profiles.get(next.id);
-  if (!existing || next.priority > existing.priority || (next.confidence === "Strong" && existing.confidence === "Context")) {
+  if (!existing || next.priority > existing.priority || confidenceRank(next.confidence) > confidenceRank(existing.confidence)) {
     profiles.set(next.id, next);
   }
 }
@@ -820,6 +899,62 @@ function profileToneClasses(tone: ThreatProfileBadge["tone"]) {
 
 function hasDataset(datasets: EvidenceDataset[], names: string[]) {
   return datasets.some((dataset) => names.some((name) => dataset.dataset.toLowerCase().includes(name.toLowerCase())));
+}
+
+function matchesForTechnique(matches: MitreMatch[], techniqueId: string) {
+  return matches
+    .filter((match) => match.technique_id === techniqueId)
+    .sort((left, right) => mitreMatchScore(right) - mitreMatchScore(left));
+}
+
+function sourceCountFromMatches(matches: MitreMatch[]) {
+  return new Set(matches.map((match) => match.source).filter(Boolean)).size || (matches.length ? 1 : 0);
+}
+
+function profileConfidenceFromMatches(matches: MitreMatch[]) {
+  const bestScore = Math.max(0, ...matches.map(mitreMatchScore));
+  const sourceCount = sourceCountFromMatches(matches);
+  if (bestScore >= 76 || sourceCount >= 2) return "Strong";
+  if (bestScore >= 56 || matches.length) return "Likely";
+  return "Context";
+}
+
+function profileSnippetsFromMatches(matches: MitreMatch[]) {
+  return uniqueProfileValues(
+    matches.flatMap((match) => [
+      match.analyst_summary,
+      match.confidence_reason,
+      match.raw_evidence,
+    ]),
+  ).slice(0, 3);
+}
+
+function addTechniqueProfile(
+  profiles: Map<string, ThreatProfileBadge>,
+  matches: MitreMatch[],
+  techniqueId: string,
+  profile: Pick<ThreatProfileBadge, "id" | "label" | "tone" | "priority">,
+  fallbackEvidence = "",
+) {
+  const techniqueMatches = matchesForTechnique(matches, techniqueId);
+  if (!techniqueMatches.length && !fallbackEvidence) return;
+
+  const sourceCount = sourceCountFromMatches(techniqueMatches) || 1;
+  const bestScore = Math.max(0, ...techniqueMatches.map(mitreMatchScore));
+  const confidence = techniqueMatches.length ? profileConfidenceFromMatches(techniqueMatches) : "Likely";
+  const evidence = techniqueMatches.length
+    ? `${profile.label} is supported by ${sourceCount} source ${sourceCount === 1 ? "signal" : "signals"} with a top evidence score of ${bestScore || "n/a"}/100.`
+    : fallbackEvidence;
+
+  addProfile(profiles, {
+    ...profile,
+    confidence,
+    evidence,
+    sourceCount,
+    kind: "finding",
+    score: bestScore || undefined,
+    snippets: profileSnippetsFromMatches(techniqueMatches),
+  });
 }
 
 function deriveThreatProfiles({
@@ -875,6 +1010,7 @@ function deriveThreatProfiles({
       sourceCount: [point?.hosting, abuse?.usage_type, virusTotal?.as_owner].filter(Boolean).length || 1,
       tone: "red",
       priority: 55,
+      kind: "context",
     });
   } else if (hasAnonymizedRelay) {
     addProfile(profiles, {
@@ -885,6 +1021,7 @@ function deriveThreatProfiles({
       sourceCount: [point?.proxy, abuse?.is_tor, networkText].filter(Boolean).length || 1,
       tone: "purple",
       priority: 52,
+      kind: "context",
     });
   } else if (hasMobileNetwork) {
     addProfile(profiles, {
@@ -895,6 +1032,7 @@ function deriveThreatProfiles({
       sourceCount: 1,
       tone: "zinc",
       priority: 35,
+      kind: "context",
     });
   } else if (networkText) {
     addProfile(profiles, {
@@ -905,98 +1043,77 @@ function deriveThreatProfiles({
       sourceCount: 1,
       tone: "zinc",
       priority: 20,
+      kind: "context",
     });
   }
 
   const hasMatch = (id: string) => matches.some((match) => match.technique_id === id);
   const hasDatasetSignal = (names: string[]) => hasDataset(datasets, names);
 
-  if (hasMatch("T1110") || categoryLabels.has("brute-force") || categoryLabels.has("ssh")) {
-    addProfile(profiles, {
-      id: "credential-attack",
-      label: "Credential Attack Source",
-      confidence: "Strong",
-      evidence: "Matched SSH, brute-force, authentication failure, or port 22 behavior in activity/listing/reputation evidence.",
-      sourceCount: matches.filter((match) => match.technique_id === "T1110").length || 1,
-      tone: "red",
-      priority: 95,
-    });
-  }
+  addTechniqueProfile(
+    profiles,
+    matches,
+    "T1110",
+    { id: "credential-attack", label: "Credential Attack Source", tone: "red", priority: 95 },
+    categoryLabels.has("brute-force") || categoryLabels.has("ssh") ? "Activity categories indicate brute-force or SSH behavior." : "",
+  );
 
-  if (hasMatch("T1595") || categoryLabels.has("port scan") || /scan|probe|scanner|recon/i.test(behaviorText)) {
-    addProfile(profiles, {
-      id: "recon-scanner",
-      label: "Recon Scanner",
-      confidence: "Strong",
-      evidence: "Matched port scanning, probing, or reconnaissance behavior in the selected IP evidence.",
-      sourceCount: matches.filter((match) => match.technique_id === "T1595").length || 1,
-      tone: "cyan",
-      priority: 90,
-    });
-  }
+  addTechniqueProfile(
+    profiles,
+    matches,
+    "T1595",
+    { id: "recon-scanner", label: "Recon Scanner", tone: "cyan", priority: 90 },
+    categoryLabels.has("port scan") || /scan|probe|scanner|recon/i.test(behaviorText) ? "Selected evidence references scanning, probing, or reconnaissance behavior." : "",
+  );
 
-  if (hasMatch("T1190") || categoryLabels.has("sql injection") || categoryLabels.has("web app attack")) {
-    addProfile(profiles, {
-      id: "web-exploit-probe",
-      label: "Web Exploit Probe",
-      confidence: "Strong",
-      evidence: "Matched SQL injection, public-facing application exploit, CVE, RCE, or web app attack evidence.",
-      sourceCount: matches.filter((match) => match.technique_id === "T1190").length || 1,
-      tone: "amber",
-      priority: 88,
-    });
-  }
+  addTechniqueProfile(
+    profiles,
+    matches,
+    "T1190",
+    { id: "web-exploit-probe", label: "Web Exploit Probe", tone: "amber", priority: 88 },
+    categoryLabels.has("sql injection") || categoryLabels.has("web app attack") ? "Activity categories indicate SQL injection or public-facing web application exploit behavior." : "",
+  );
 
-  if (hasMatch("T1071") || /c2|c&c|command and control|botnet controller/i.test(behaviorText)) {
-    addProfile(profiles, {
-      id: "c2-labeled",
-      label: "C2-Labeled Infrastructure",
-      confidence: "Strong",
-      evidence: "Matched explicit C2, command-and-control, or botnet-controller labeling in reputation/listing evidence.",
-      sourceCount: matches.filter((match) => match.technique_id === "T1071").length || 1,
-      tone: "purple",
-      priority: 86,
-    });
-  }
+  addTechniqueProfile(
+    profiles,
+    matches,
+    "T1071",
+    { id: "c2-labeled", label: "C2-Labeled Infrastructure", tone: "purple", priority: 86 },
+    /c2|c&c|command and control|botnet controller/i.test(behaviorText) ? "Selected evidence explicitly references C2 or command-and-control behavior." : "",
+  );
 
-  if (hasMatch("T1566") || categoryLabels.has("phishing") || /phishing/i.test(behaviorText)) {
-    addProfile(profiles, {
-      id: "phishing-infrastructure",
-      label: "Phishing Infrastructure",
-      confidence: "Strong",
-      evidence: "Matched phishing category, tag, or threat label in the selected IP evidence.",
-      sourceCount: matches.filter((match) => match.technique_id === "T1566").length || 1,
-      tone: "amber",
-      priority: 84,
-    });
-  }
+  addTechniqueProfile(
+    profiles,
+    matches,
+    "T1566",
+    { id: "phishing-infrastructure", label: "Phishing Infrastructure", tone: "amber", priority: 84 },
+    categoryLabels.has("phishing") || /phishing/i.test(behaviorText) ? "Selected evidence references phishing behavior." : "",
+  );
 
-  if (hasMatch("T1498") || categoryLabels.has("ddos attack") || /ddos|denial of service|flood|ping of death/i.test(behaviorText)) {
-    addProfile(profiles, {
-      id: "dos-source",
-      label: "DoS Source",
-      confidence: "Strong",
-      evidence: "Matched denial-of-service, DDoS, flood, or ping-of-death evidence.",
-      sourceCount: matches.filter((match) => match.technique_id === "T1498").length || 1,
-      tone: "red",
-      priority: 82,
-    });
-  }
+  addTechniqueProfile(
+    profiles,
+    matches,
+    "T1498",
+    { id: "dos-source", label: "DoS Source", tone: "red", priority: 82 },
+    categoryLabels.has("ddos attack") || /ddos|denial of service|flood|ping of death/i.test(behaviorText) ? "Selected evidence references denial-of-service behavior." : "",
+  );
 
   if (hasDatasetSignal(["XBL", "CBL"]) || categoryLabels.has("exploited host") || /mirai|mozi|tsunami|kaiten|bashlite|gafgyt|botnet|infected|trojan/i.test(behaviorText)) {
     addProfile(profiles, {
       id: "compromised-host",
       label: "Possible Compromised Host",
-      confidence: "Strong",
-      evidence: "Matched exploited-host, XBL/CBL, botnet family, infected-host, or malware-related evidence.",
+      confidence: hasMatch("T1110") || hasMatch("T1190") || hasMatch("T1071") ? "Likely" : "Context",
+      evidence: "Matched exploited-host, XBL/CBL, botnet family, infected-host, or malware-related reputation context. This does not create an ATT&CK behavior node by itself.",
       sourceCount: [hasDatasetSignal(["XBL", "CBL"]), categoryLabels.has("exploited host"), /botnet|infected|trojan/i.test(behaviorText)].filter(Boolean).length || 1,
       tone: "purple",
       priority: 80,
+      kind: "context",
     });
   }
 
   return [...profiles.values()].sort((left, right) => {
-    if (left.confidence !== right.confidence) return left.confidence === "Strong" ? -1 : 1;
+    if (left.kind !== right.kind) return left.kind === "finding" ? -1 : 1;
+    if (left.confidence !== right.confidence) return confidenceRank(right.confidence) - confidenceRank(left.confidence);
     return right.priority - left.priority;
   });
 }
@@ -1200,43 +1317,71 @@ function ThreatProfileStrip({ profiles }: { profiles: ThreatProfileBadge[] }) {
 
   if (!profiles.length) return null;
 
-  const visible = profiles.slice(0, 5);
-  const hiddenCount = Math.max(0, profiles.length - visible.length);
-  const hidden = profiles.slice(visible.length);
-  const activeProfile = visible.find((profile) => profile.id === activeId);
-  const isContextOpen = activeId === "__context";
+  const findings = profiles.filter((profile) => profile.kind === "finding").slice(0, 3);
+  const contextProfiles = profiles.filter((profile) => profile.kind === "context").slice(0, 6);
+  const overflowContextCount = Math.max(0, profiles.filter((profile) => profile.kind === "context").length - contextProfiles.length);
+  const activeProfile = profiles.find((profile) => profile.id === activeId);
 
   return (
     <div ref={containerRef} className="rounded-md border border-white/10 bg-white/[0.03] p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-[10px] uppercase text-signal">Threat Profile</p>
+        <p className="font-mono text-[10px] uppercase text-signal">Analyst Profile</p>
         <SourceBadge label="Derived" title="Generated from selected-IP activity, reputation, listing, and network evidence." />
       </div>
-      <div className="flex flex-wrap gap-2">
-        {visible.map((profile) => (
-          <button
-            key={profile.id}
-            type="button"
-            aria-expanded={activeId === profile.id}
-            className={`inline-flex max-w-full items-center gap-2 rounded-md border border-white/10 border-l-2 px-2.5 py-1.5 font-mono text-[10px] uppercase ${profileToneClasses(profile.tone)}`}
-            onClick={() => setActiveId(activeId === profile.id ? "" : profile.id)}
-          >
-            <span className="truncate">{profile.label}</span>
-            <span className="rounded border border-white/10 bg-black/20 px-1.5 py-0.5 text-[9px] text-haze">{profile.confidence}</span>
-            <span className="text-[9px] text-haze">{profile.sourceCount} src</span>
-          </button>
-        ))}
-        {hiddenCount ? (
-          <button
-            type="button"
-            aria-expanded={isContextOpen}
-            className="inline-flex items-center rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 font-mono text-[10px] uppercase text-haze"
-            onClick={() => setActiveId(isContextOpen ? "" : "__context")}
-          >
-            +{hiddenCount} context
-          </button>
-        ) : null}
-      </div>
+
+      {findings.length ? (
+        <div className="grid gap-2 lg:grid-cols-3">
+          {findings.map((profile) => (
+            <button
+              key={profile.id}
+              type="button"
+              aria-expanded={activeId === profile.id}
+              className={`rounded-md border border-white/10 border-l-2 p-2.5 text-left transition hover:border-white/25 ${profileToneClasses(profile.tone)}`}
+              onClick={() => setActiveId(activeId === profile.id ? "" : profile.id)}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono text-[10px] uppercase">{profile.label}</span>
+                <span className="rounded border border-white/10 bg-black/20 px-1.5 py-0.5 font-mono text-[9px] uppercase text-haze">
+                  {profile.confidence}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[9px] uppercase text-haze">
+                <span>{profile.sourceCount} src</span>
+                {profile.score ? <span>{profile.score}/100</span> : null}
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {contextProfiles.length ? (
+        <div className={`${findings.length ? "mt-3" : ""} flex flex-wrap gap-2`}>
+          {contextProfiles.map((profile) => (
+            <button
+              key={profile.id}
+              type="button"
+              aria-expanded={activeId === profile.id}
+              className={`inline-flex max-w-full items-center gap-2 rounded-md border border-white/10 border-l-2 px-2.5 py-1.5 font-mono text-[10px] uppercase ${profileToneClasses(profile.tone)}`}
+              onClick={() => setActiveId(activeId === profile.id ? "" : profile.id)}
+            >
+              <span className="truncate">{profile.label}</span>
+              <span className="rounded border border-white/10 bg-black/20 px-1.5 py-0.5 text-[9px] text-haze">{profile.confidence}</span>
+            </button>
+          ))}
+          {overflowContextCount ? (
+            <span className="inline-flex items-center rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 font-mono text-[10px] uppercase text-haze">
+              +{overflowContextCount} context
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!findings.length && contextProfiles.length ? (
+        <p className="mt-2 text-xs leading-5 text-haze">
+          Context is available, but no strong behavior mapping was returned for this source.
+        </p>
+      ) : null}
+
       {activeProfile ? (
         <div className="mt-3 rounded-md border border-white/10 bg-black/25 p-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -1249,27 +1394,24 @@ function ThreatProfileStrip({ profiles }: { profiles: ThreatProfileBadge[] }) {
             <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
               {activeProfile.sourceCount} source {activeProfile.sourceCount === 1 ? "signal" : "signals"}
             </span>
+            {activeProfile.score ? (
+              <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
+                {activeProfile.score}/100
+              </span>
+            ) : null}
           </div>
           <p className="mt-2 text-xs leading-5 text-haze">
             <span className="text-white">Why this appeared:</span> {activeProfile.evidence}
           </p>
-        </div>
-      ) : null}
-      {isContextOpen ? (
-        <div className="mt-3 grid gap-2 md:grid-cols-2">
-          {hidden.map((profile) => (
-            <div key={profile.id} className="rounded-md border border-white/10 bg-black/25 p-2.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-md border border-white/10 border-l-2 px-2 py-1 font-mono text-[10px] uppercase ${profileToneClasses(profile.tone)}`}>
-                  {profile.label}
-                </span>
-                <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 font-mono text-[10px] uppercase text-haze">
-                  {profile.confidence}
-                </span>
-              </div>
-              <p className="mt-2 text-xs leading-5 text-haze">{profile.evidence}</p>
+          {activeProfile.snippets?.length ? (
+            <div className="mt-2 grid gap-2">
+              {activeProfile.snippets.map((snippet) => (
+                <p key={snippet} className="break-words rounded-md border border-white/10 bg-black/20 p-2 font-mono text-[10px] leading-5 text-haze">
+                  {snippet}
+                </p>
+              ))}
             </div>
-          ))}
+          ) : null}
         </div>
       ) : null}
     </div>
