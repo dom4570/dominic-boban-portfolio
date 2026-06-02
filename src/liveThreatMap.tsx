@@ -1432,7 +1432,7 @@ function deriveAssessment({
 
     return {
       activity: verdict.activity,
-      conclusion: `${verdict.conclusion}${hostingContext && !verdict.conclusion.includes("hosting") ? hostingContext : ""}${hasSpamhausListings ? ", with listing data indicating broader abuse reputation." : "."}`.replace("..", "."),
+      conclusion: `${verdict.conclusion}${hostingContext && !verdict.conclusion.includes("hosting") ? hostingContext : ""}${hasSpamhausListings ? ", with listing data indicating broader abuse reputation." : "."}`.replace(/\.\./g, "."),
       corroboration,
       confidence: assessmentConfidence(primary.confidenceScore),
       confidenceScore: primary.confidenceScore,
