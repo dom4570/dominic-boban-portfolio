@@ -657,7 +657,7 @@ function MitreBehaviorGraph({ matches, techniques }: { matches: MitreMatch[]; te
   return (
     <div ref={containerRef} className="rounded-md border border-cyan-300/20 bg-cyan-300/10 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-[10px] uppercase text-cyan-100">ATT&CK Behavior Graph</p>
+        <p className="font-mono text-[10px] uppercase text-cyan-100">MITRE ATT&CK Behavior Graph</p>
         <SourceBadge label="Framework" title="Source: MITRE ATT&CK Enterprise technique catalog" />
       </div>
       <p className="mt-2 text-xs leading-5 text-haze">
@@ -1522,7 +1522,7 @@ function AssessmentPanel({ assessment }: { assessment: IntelligenceAssessment })
     <div className="rounded-md border border-signal/25 bg-signal/10 p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-mono text-[10px] uppercase text-signal">Analyst Verdict</p>
+          <p className="font-mono text-[10px] uppercase text-signal">Verdict Summary</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h3 className="text-xl font-semibold text-white">{assessment.activity}</h3>
           </div>
@@ -1575,7 +1575,7 @@ function ThreatProfileStrip({ profiles }: { profiles: ThreatProfileBadge[] }) {
   return (
     <div ref={containerRef} className="rounded-md border border-white/10 bg-white/[0.03] p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-[10px] uppercase text-signal">Analyst Profile</p>
+        <p className="font-mono text-[10px] uppercase text-signal">Threat Profile</p>
         <SourceBadge label="Derived" title="Generated from selected-IP activity, reputation, listing, and network evidence." />
       </div>
 
@@ -1696,7 +1696,7 @@ function IntelligenceSignalsPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-mono text-[10px] uppercase text-signal">Intelligence Signals</p>
         <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
-          Evidence dashboard
+          Provider evidence
         </span>
       </div>
 
@@ -1720,7 +1720,7 @@ function IntelligenceSignalsPanel({
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         {abuse ? (
-          <SignalSection source="Activity data" sourceTitle="Source: AbuseIPDB reports" title="Activity Signals">
+          <SignalSection source="AbuseIPDB" sourceTitle="Source: AbuseIPDB reports" title="Activity Signals (AbuseIPDB)">
             <div className="flex flex-wrap gap-2">
               <SignalMetric label="Reports" value={formatNumber(abuse.total_reports)} />
               <SignalMetric label="Reporters" value={formatNumber(abuse.num_distinct_users)} />
@@ -1748,7 +1748,7 @@ function IntelligenceSignalsPanel({
         ) : null}
 
         {virusTotal ? (
-          <SignalSection source="Reputation data" sourceTitle="Source: VirusTotal vendor reputation" title="Reputation Signals">
+          <SignalSection source="VirusTotal" sourceTitle="Source: VirusTotal vendor reputation" title="Reputation Signals (VirusTotal)">
             <div className="flex flex-wrap gap-2">
               <SignalMetric label="Vendor detections" value={virusTotalRatio(virusTotal) || "None returned"} />
               <SignalMetric label="Latest analysis" value={formatDate(virusTotal.last_analysis_date)} />
@@ -1784,7 +1784,7 @@ function IntelligenceSignalsPanel({
         ) : null}
 
         {hasListingSignals ? (
-          <SignalSection className="lg:col-span-2" source="Listing data" sourceTitle="Source: Spamhaus listings and historical intelligence" title="Listing Signals">
+          <SignalSection className="lg:col-span-2" source="Spamhaus" sourceTitle="Source: Spamhaus listings and historical intelligence" title="Listing Signals (Spamhaus)">
             {listingCount ? (
               <div>
                 <p className="text-sm font-semibold text-white">
