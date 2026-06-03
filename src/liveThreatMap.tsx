@@ -1186,57 +1186,6 @@ function deriveIntelScore({
   };
 }
 
-type RankedThreatPoint = {
-  point: ThreatPoint;
-  intelScore: IntelScore;
-  providerHint: string;
-};
-
-function pointIntelScore(point: ThreatPoint): IntelScore {
-  return deriveIntelScore({
-    abuse: abusePayload(null, point.abuseipdb_intelligence || null),
-    datasets: spamhausDatasets(null, point.ip_intelligence || null),
-    historyEvent: null,
-    virusTotal: virusTotalPayload(null, point.virustotal_intelligence || null),
-  });
-}
-
-function pointProviderHint(point: ThreatPoint) {
-  const pending = [];
-
-  if (!point.abuseipdb_intelligence || point.abuseipdb_intelligence.status === "unavailable") {
-    pending.push("Activity pending");
-  }
-
-  if (!point.ip_intelligence || point.ip_intelligence.status === "unavailable" || point.ip_intelligence.status === "not_configured") {
-    pending.push("Listings pending");
-  }
-
-  if (!point.virustotal_intelligence || point.virustotal_intelligence.status === "unavailable" || point.virustotal_intelligence.status === "not_configured") {
-    pending.push("VT warming");
-  }
-
-  return pending.length ? pending.slice(0, 2).join(" / ") : "Cached summaries";
-}
-
-function rankThreatPointsByIntel(points: ThreatPoint[]): RankedThreatPoint[] {
-  return points
-    .map((point) => ({
-      point,
-      intelScore: pointIntelScore(point),
-      providerHint: pointProviderHint(point),
-    }))
-    .sort((left, right) => {
-      const scoreOrder = right.intelScore.score - left.intelScore.score;
-      if (scoreOrder) return scoreOrder;
-
-      const rankOrder = (left.point.rank || MAX_DAILY_POINTS) - (right.point.rank || MAX_DAILY_POINTS);
-      if (rankOrder) return rankOrder;
-
-      return left.point.ip.localeCompare(right.point.ip);
-    });
-}
-
 function intelSeverityClasses(severity: IntelScore["severity"]) {
   if (severity === "Critical") {
     return {
@@ -1864,74 +1813,6 @@ function IntelligenceSignalsPanel({
   );
 }
 
-function IntelRankedTopList({
-  cacheStatus,
-  className = "",
-  maxHeightClass = "max-h-[360px]",
-  rankedPoints,
-  selectedId,
-  onSelect,
-}: {
-  cacheStatus: string;
-  className?: string;
-  maxHeightClass?: string;
-  rankedPoints: RankedThreatPoint[];
-  selectedId: string;
-  onSelect: (point: ThreatPoint) => void;
-}) {
-  return (
-    <div className={`rounded-lg border border-white/10 bg-white/[0.04] p-3 ${className}`}>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-xs uppercase text-signal">Intel-ranked Daily Top 50</p>
-          <p className="mt-1 text-xs leading-5 text-haze">Sorted by fused score. Original feed rank stays visible.</p>
-        </div>
-        <span className="shrink-0 rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-haze">
-          {cacheStatus || "loading"}
-        </span>
-      </div>
-
-      <div className={`${maxHeightClass} overflow-y-auto pr-1`}>
-        <div className="grid gap-2">
-          {rankedPoints.map(({ point, intelScore, providerHint }) => {
-            const severityClasses = intelSeverityClasses(intelScore.severity);
-
-            return (
-              <button
-                key={point.id}
-                type="button"
-                onClick={() => onSelect(point)}
-                className={`rounded-md border p-2.5 text-left transition ${
-                  selectedId === point.id
-                    ? "border-signal/55 bg-signal/10"
-                    : "border-white/10 bg-black/20 hover:border-signal/35 hover:bg-white/[0.06]"
-                }`}
-              >
-                <span className="flex items-start justify-between gap-3">
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-white">{point.ip}</span>
-                    <span className="mt-1 block truncate text-xs text-haze">{formatLocation(point)}</span>
-                  </span>
-                  <span className={`shrink-0 rounded-md border px-2 py-1 text-right font-mono text-[10px] uppercase ${severityClasses.pill}`}>
-                    <span className="block text-sm leading-none text-white">{intelScore.score}/100</span>
-                    <span className="mt-0.5 block">{intelScore.severity}</span>
-                  </span>
-                </span>
-                <span className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase text-haze">
-                  <span className="rounded border border-white/10 bg-black/25 px-1.5 py-0.5">
-                    Feed #{point.rank || "?"}
-                  </span>
-                  <span>{providerHint}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function IpIntelligence({
   abuseDetail,
   abuseError,
@@ -2087,7 +1968,6 @@ export function LiveThreatMapPage() {
 
   const points = data?.points || [];
   const selectedPoint = points.find((point) => point.id === selectedId) || points[0] || null;
-  const rankedPoints = useMemo(() => rankThreatPointsByIntel(points), [points]);
   const countryCount = useMemo(() => new Set(points.map((point) => point.country_code || point.country).filter(Boolean)).size, [points]);
   const refreshCycle = data?.mode === "live" ? "24h" : "Demo";
   const nextRefresh = data?.next_refresh_at ? formatDate(data.next_refresh_at) : "Not scheduled";
@@ -2587,15 +2467,6 @@ export function LiveThreatMapPage() {
                   </div>
                 </div>
               ) : null}
-
-              <IntelRankedTopList
-                cacheStatus={data?.cache_status || "loading"}
-                className="hidden lg:block"
-                maxHeightClass="max-h-[42vh] min-h-[240px]"
-                rankedPoints={rankedPoints}
-                selectedId={selectedPoint?.id || ""}
-                onSelect={focusPoint}
-              />
             </aside>
           </div>
 
@@ -2616,14 +2487,43 @@ export function LiveThreatMapPage() {
             virusTotalSummary={selectedPoint?.virustotal_intelligence || null}
           />
 
-          <IntelRankedTopList
-            cacheStatus={data?.cache_status || "loading"}
-            className="lg:hidden"
-            maxHeightClass="max-h-[360px]"
-            rankedPoints={rankedPoints}
-            selectedId={selectedPoint?.id || ""}
-            onSelect={focusPoint}
-          />
+          <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="font-mono text-xs uppercase text-signal">Daily Top 50 ranking</p>
+              <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[11px] uppercase text-haze">
+                {data?.cache_status || "loading"}
+              </span>
+            </div>
+            <div className="max-h-[360px] overflow-y-auto pr-1">
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                {points
+                  .slice()
+                  .sort((left, right) => (left.rank || MAX_DAILY_POINTS) - (right.rank || MAX_DAILY_POINTS))
+                  .map((point) => (
+                    <button
+                      key={point.id}
+                      type="button"
+                      onClick={() => focusPoint(point)}
+                      className={`min-h-[82px] rounded-md border p-3 text-left transition ${
+                        selectedPoint?.id === point.id
+                          ? "border-signal/55 bg-signal/10"
+                          : "border-white/10 bg-black/20 hover:border-signal/35 hover:bg-white/[0.06]"
+                      }`}
+                    >
+                      <span className="flex h-full items-center justify-between gap-3">
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-white">{point.ip}</span>
+                          <span className="mt-1 block truncate text-xs text-haze">{formatLocation(point)}</span>
+                        </span>
+                        <span className="shrink-0 rounded-md px-2 py-1 text-sm font-semibold text-obsidian" style={{ backgroundColor: rankTone(point.rank || MAX_DAILY_POINTS) }}>
+                          #{point.rank || "?"}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </div>
